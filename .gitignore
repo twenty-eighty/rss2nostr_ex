@@ -1,0 +1,43 @@
+# The directory Mix will write compiled artifacts to.
+/_build/
+
+# If you run "mix test --cover", coverage assets end up here.
+/cover/
+
+# The directory Mix downloads your dependencies sources to.
+/deps/
+
+# Where third-party dependencies like ExDoc output generated docs.
+/doc/
+
+# Ignore .fetch files in case you like to edit your project deps locally.
+/.fetch
+
+# If the VM crashes, it generates a dump, let's ignore it too.
+erl_crash.dump
+
+# Also ignore archive artifacts (built via "mix archive.build").
+*.ez
+
+# Also ignore beam files
+*.beam
+
+# ignore secrets
+/config/*.secret.exs
+
+# ignore elixir_ls
+.elixir_ls/
+
+# Ignore package tarball (built via "mix hex.build").
+rss2nostr-*.tar
+
+# Temporary files, for example, from tests.
+/tmp/
+
+# node modules
+node_modules/
+
+# Dialyzer PLT files (machine-specific, regenerated with mix dialyzer)
+/priv/plts/
+*.plt
+*.plt.hash

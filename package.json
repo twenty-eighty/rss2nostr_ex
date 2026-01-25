@@ -1,0 +1,30 @@
+{
+  "name": "rss2nostr",
+  "version": "1.0.0",
+  "description": "**TODO: Add description**",
+  "main": "index.js",
+  "directories": {
+    "doc": "doc",
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Razue/rss2nostr.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Razue/rss2nostr/issues"
+  },
+  "homepage": "https://github.com/Razue/rss2nostr#readme",
+  "dependencies": {
+    "@noble/secp256k1": "^3.0.0",
+    "nostr-tools": "^2.19.4"
+  }
+}
