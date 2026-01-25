@@ -48,7 +48,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
-  @spec process(String.t()) :: {:ok, Post.t()} | {:error, atom() | String.t()}
+  @spec process(String.t()) :: {:ok, Post.t()} | {:error, atom()}
   def process(id) do
     with {:ok, post_id} <- parse_id(id),
          %Post{} = post <- Posts.get_post(post_id) do

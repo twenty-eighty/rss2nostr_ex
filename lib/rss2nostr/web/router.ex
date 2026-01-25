@@ -67,7 +67,6 @@ defmodule Rss2Nostr.Web.Router do
       {:ok, _source} -> redirect(conn, "/sources")
       {:error, :not_found} -> send_html(conn, 404, Views.Error.not_found())
       {:error, :invalid_id} -> send_html(conn, 400, Views.Error.bad_request())
-      {:error, _reason} -> redirect(conn, "/sources")
     end
   end
 
@@ -101,7 +100,6 @@ defmodule Rss2Nostr.Web.Router do
       {:ok, _post} -> redirect(conn, "/posts/#{id}")
       {:error, :not_found} -> send_html(conn, 404, Views.Error.not_found())
       {:error, :invalid_id} -> send_html(conn, 400, Views.Error.bad_request())
-      {:error, _reason} -> redirect(conn, "/posts/#{id}")
     end
   end
 
