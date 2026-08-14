@@ -4,7 +4,6 @@ defmodule Rss2Nostr.Web.Router do
   """
 
   use Plug.Router
-  require Logger
 
   alias Rss2Nostr.Web.{Views, API}
 

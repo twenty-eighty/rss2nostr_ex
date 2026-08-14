@@ -15,7 +15,7 @@ Import RSS/Atom feeds and publish them as Nostr long-form content (NIP-23).
 
 ## Requirements
 
-- Elixir 1.16+
+- Elixir 1.20+ (Erlang/OTP 27+)
 - PostgreSQL
 - Node.js 18+ (for Nostr signing)
 

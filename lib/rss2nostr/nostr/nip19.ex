@@ -11,8 +11,6 @@ defmodule Rss2Nostr.Nostr.NIP19 do
   - nprofile: Profile references with relay hints
   """
 
-  require Logger
-
   # Human-readable prefixes
   @npub_hrp "npub"
   @nsec_hrp "nsec"

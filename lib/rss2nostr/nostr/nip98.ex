@@ -12,8 +12,6 @@ defmodule Rss2Nostr.Nostr.NIP98 do
   - content: "" (empty)
   """
 
-  require Logger
-
   alias Rss2Nostr.Nostr.Keys
 
   @kind_http_auth 27235

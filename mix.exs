@@ -5,7 +5,7 @@ defmodule Rss2Nostr.MixProject do
     [
       app: :rss2nostr,
       version: "0.1.0",
-      elixir: "~> 1.16",
+      elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
@@ -53,7 +53,7 @@ defmodule Rss2Nostr.MixProject do
 
       # Web Server
       {:plug, "~> 1.15"},
-      {:bandit, "~> 1.2"},
+      {:bandit, "~> 1.12"},
 
       # Utilities
       {:timex, "~> 3.7"},
