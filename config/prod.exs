@@ -5,7 +5,8 @@ config :rss2nostr, Rss2Nostr.Repo, pool_size: 10
 
 # Nostr configuration
 config :rss2nostr, :nostr,
-  relays: [],
+  relays: %{test: [], public: []},
+  relay_audience: :public,
   private_key: nil,
   public_key: nil,
   upload_endpoint: nil,
@@ -18,3 +19,5 @@ config :rss2nostr, :import,
 
 # Do not print debug messages in production
 config :logger, level: :info
+
+config :rss2nostr, :code_reloader, false

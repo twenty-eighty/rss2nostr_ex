@@ -57,6 +57,23 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  @doc """
+  Channel/feed title from RSS or Atom XML, or nil.
+  """
+  @spec feed_title(String.t()) :: String.t() | nil
+  def feed_title(xml_body) when is_binary(xml_body) do
+    title =
+      case detect_feed_type(xml_body) do
+        "rss" -> xpath_text(xml_body, ~x"//channel/title/text()"s)
+        "atom" -> atom_feed_title(xml_body)
+        _ -> nil
+      end
+
+    clean_text(title)
+  end
+
+  def feed_title(_), do: nil
+
   # RSS Parsing
   defp parse_rss(xml_body) do
     try do
@@ -210,6 +227,29 @@ defmodule Rss2Nostr.Import.FeedParser do
   end
 
   # Helper functions
+
+  defp atom_feed_title(xml_body) do
+    titled =
+      xml_body
+      |> xpath(
+        ~x"//atom:feed/atom:title/text()"s
+        |> add_namespace("atom", "http://www.w3.org/2005/Atom")
+      )
+
+    if titled == "" do
+      xpath_text(xml_body, ~x"//feed/title/text()"s)
+    else
+      titled
+    end
+  end
+
+  defp xpath_text(xml_body, spec) do
+    try do
+      xpath(xml_body, spec)
+    rescue
+      _ -> ""
+    end
+  end
 
   defp clean_text(nil), do: nil
   defp clean_text(""), do: nil

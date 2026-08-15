@@ -66,12 +66,79 @@ defmodule Rss2Nostr.Sources do
   end
 
   @doc """
-  Deletes a source.
+  Deletes a source and all of its articles.
   """
   @spec delete_source(Source.t()) :: {:ok, Source.t()} | {:error, Ecto.Changeset.t()}
   def delete_source(%Source{} = source) do
     Repo.delete(source)
   end
+
+  @doc """
+  Copies a source's settings into a new source without its posts.
+
+  The copy starts in setup mode. The feed URL must be unique, so a
+  marker is added unless `:url` is given. Composition settings are
+  kept; the import start position is reset.
+  """
+  @spec duplicate_source(Source.t(), map()) :: {:ok, Source.t()} | {:error, Ecto.Changeset.t()}
+  def duplicate_source(%Source{} = source, attrs \\ %{}) do
+    %{
+      name: attr(attrs, :name) || "#{source.name} (copy)",
+      url: attr(attrs, :url) || unique_copy_url(source.url),
+      type: source.type,
+      language: source.language,
+      public: source.public,
+      active: true,
+      mode: "setup",
+      default_post_kind: source.default_post_kind,
+      pubkey: source.pubkey,
+      bunker_connection: source.bunker_connection,
+      signing_nsec_ciphertext: source.signing_nsec_ciphertext,
+      fetch_source_from: source.fetch_source_from,
+      options: copy_options(source.options)
+    }
+    |> maybe_put_publish_as(source)
+    |> create_source()
+  end
+
+  defp maybe_put_publish_as(attrs, source) do
+    if source.publish_as == "article" or present_binary?(source.pubkey) do
+      Map.put(attrs, :publish_as, source.publish_as)
+    else
+      attrs
+    end
+  end
+
+  defp present_binary?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_binary?(_), do: false
+
+  defp attr(attrs, key) do
+    value = Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
+
+    case value do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp unique_copy_url(url) do
+    marker = "rss2nostr_copy=#{System.unique_integer([:positive])}"
+
+    if String.contains?(url, "?") do
+      url <> "&" <> marker
+    else
+      url <> "?" <> marker
+    end
+  end
+
+  defp copy_options(options) when is_map(options), do: Map.drop(options, ["start_guid"])
+  defp copy_options(_), do: %{}
 
   @doc """
   Enables a source (by struct or ID).

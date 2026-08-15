@@ -46,7 +46,8 @@ defmodule Rss2Nostr.Scheduler do
     - :export - Export interval (default: 10 minutes)
   - :export_config - Configuration for export task
     - :private_key - Nostr private key (required for export)
-    - :relays - List of relay URLs
+    - :relays - Explicit relay URLs (optional; otherwise per-source test/public)
+    - :audience - `:test` or `:public` (optional; forces one list for every post)
     - :upload_images - Whether to upload images
   - :auto_start - Start scheduling immediately (default: false)
   """

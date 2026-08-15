@@ -5,6 +5,10 @@ defmodule Rss2Nostr.Web.Views.Layout do
 
   def render(title, content, opts \\ []) do
     active_nav = Keyword.get(opts, :active_nav, "")
+    wide? = Keyword.get(opts, :wide, false)
+    npub = Rss2Nostr.Web.Auth.current_npub()
+    npub_short = shorten_npub(npub)
+    container_class = if wide?, do: "container container-wide", else: "container"
 
     """
     <!DOCTYPE html>
@@ -26,9 +30,15 @@ defmodule Rss2Nostr.Web.Views.Layout do
           <li><a href="/posts" class="#{if active_nav == "posts", do: "active"}">Posts</a></li>
           <li><a href="/scheduler" class="#{if active_nav == "scheduler", do: "active"}">Scheduler</a></li>
           <li><a href="/settings" class="#{if active_nav == "settings", do: "active"}">Settings</a></li>
+          <li class="nav-session">
+            #{if npub_short, do: "<span class=\"nav-npub\" title=\"#{escape_html(npub)}\">#{escape_html(npub_short)}</span>"}
+            <form action="/logout" method="post" class="nav-logout">
+              <button type="submit" class="btn btn-small btn-secondary">Logout</button>
+            </form>
+          </li>
         </ul>
       </nav>
-      <main class="container">
+      <main class="#{container_class}">
         #{content}
       </main>
       <footer class="footer">
@@ -37,5 +47,23 @@ defmodule Rss2Nostr.Web.Views.Layout do
     </body>
     </html>
     """
+  end
+
+  defp shorten_npub(nil), do: nil
+
+  defp shorten_npub(npub) when is_binary(npub) and byte_size(npub) > 16 do
+    String.slice(npub, 0, 8) <> "…" <> String.slice(npub, -8, 8)
+  end
+
+  defp shorten_npub(npub), do: npub
+
+  defp escape_html(nil), do: ""
+
+  defp escape_html(str) when is_binary(str) do
+    str
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+    |> String.replace("\"", "&quot;")
   end
 end

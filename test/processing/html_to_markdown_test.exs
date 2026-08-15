@@ -51,6 +51,20 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "![Alt text](https://example.com/img.jpg)"
     end
 
+    test "keeps Cloudinary srcset URLs that contain commas" do
+      html = """
+      <img
+        alt=""
+        src="https://substackcdn.com/image/fetch/w_96,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fpbs.substack.com%2Fprofile_images%2F1829651769380503552%2FbMTtwSuG.jpg"
+        srcset="https://substackcdn.com/image/fetch/w_96,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fpbs.substack.com%2Fprofile_images%2F1829651769380503552%2FbMTtwSuG.jpg 96w, https://substackcdn.com/image/fetch/w_192,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fpbs.substack.com%2Fprofile_images%2F1829651769380503552%2FbMTtwSuG.jpg 192w">
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "https://pbs.substack.com/profile_images/1829651769380503552/bMTtwSuG.jpg"
+      refute md =~ "fl_progressive:steep"
+    end
+
     test "converts unordered lists" do
       html = "<ul><li>Item 1</li><li>Item 2</li></ul>"
       md = HtmlToMarkdown.convert(html)
@@ -248,11 +262,29 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     end
 
     test "handles iframes" do
-      html = "<iframe src=\"https://youtube.com/embed/abc123\"></iframe>"
+      html = "<iframe src=\"https://youtube.com/embed/bLA0a0xiy_g\"></iframe>"
       md = HtmlToMarkdown.convert(html)
 
-      # Should handle iframe gracefully
-      assert is_binary(md)
+      assert md =~ "[Watch on YouTube](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
+    end
+
+    test "uses a meaningful iframe title for YouTube embeds" do
+      html =
+        ~s(<iframe src="https://www.youtube.com/embed/bLA0a0xiy_g" title="A Bloody Delay of Bankruptcy"></iframe>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[A Bloody Delay of Bankruptcy](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
+      refute md =~ "Watch on YouTube"
+    end
+
+    test "ignores the generic YouTube video player iframe title" do
+      html =
+        ~s(<iframe src="https://www.youtube.com/embed/bLA0a0xiy_g" title="YouTube video player"></iframe>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Watch on YouTube](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
     end
 
     test "handles picture elements with srcset" do
@@ -317,4 +349,51 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       refute md =~ "fbclid"
     end
   end
+
+  describe "site-specific cleanup" do
+    test "skips default ad and teaser classes" do
+      html = """
+      <p>Keep</p>
+      <div class="OUTBRAIN">Ads</div>
+      <p class="lead">Teaser</p>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "Keep"
+      refute md =~ "Ads"
+      refute md =~ "Teaser"
+    end
+
+    test "honors an explicit skip_classes list" do
+      html = "<p class='custom-junk'>Drop</p><p>Keep</p>"
+      md = HtmlToMarkdown.convert(html, skip_classes: ["custom-junk"])
+
+      assert md =~ "Keep"
+      refute md =~ "Drop"
+    end
+
+    test "formats pullquotes as blockquotes" do
+      html = ~s(<div class="pullquote"><p>Hello</p></div>)
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "> Hello"
+    end
+
+    test "drops relative links" do
+      html = ~s(<p>See <a href="/local-page">this</a> and <a href="https://example.com">that</a>.</p>)
+      md = HtmlToMarkdown.convert(html)
+
+      refute md =~ "/local-page"
+      assert md =~ "[that](https://example.com)"
+    end
+
+    test "turns a centered asterisk paragraph into a rule" do
+      html = "<p>*</p>"
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "---"
+    end
+  end
 end
+

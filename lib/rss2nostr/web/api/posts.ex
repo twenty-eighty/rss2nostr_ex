@@ -6,7 +6,7 @@ defmodule Rss2Nostr.Web.API.Posts do
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Processing.Processor
-  alias Rss2Nostr.Nostr.{Publisher, Keys}
+  alias Rss2Nostr.Nostr.{Blossom, Publisher, Relays, Signer}
 
   @spec list(map()) :: map()
   def list(params \\ %{}) do
@@ -59,35 +59,84 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
-  @spec publish(String.t()) :: {:ok, map()} | {:error, atom() | String.t()}
-  def publish(id) do
+  @spec publish(String.t(), map()) :: {:ok, map()} | {:error, atom() | String.t()}
+  def publish(id, _params \\ %{}) do
     with {:ok, post_id} <- parse_id(id),
-         %Post{} = post <- Posts.get_post(post_id) do
-      nsec = System.get_env("NOSTR_NSEC")
-
-      if is_nil(nsec) do
-        {:error, "NOSTR_NSEC not configured"}
-      else
-        case Keys.parse_private_key(nsec) do
-          {:ok, private_key} ->
-            relays =
-              Application.get_env(:rss2nostr, :default_relays, [
-                "wss://relay.damus.io",
-                "wss://nos.lol",
-                "wss://relay.nostr.band"
-              ])
-
-            Publisher.publish_post(post, private_key: private_key, relays: relays)
-
-          {:error, reason} ->
-            {:error, "Invalid NSEC: #{inspect(reason)}"}
-        end
+         %Post{} = post <- Posts.get_post(post_id, preload: [:source]) do
+      case publish_posts([post]) do
+        {:ok, %{published: 1} = result} -> {:ok, result}
+        {:ok, %{errors: [reason | _]}} -> {:error, reason}
+        {:ok, result} -> {:error, result[:error] || "Publish failed"}
       end
     else
       nil -> {:error, :not_found}
       {:error, :invalid_id} -> {:error, :invalid_id}
     end
   end
+
+  @spec publish_selected(map()) :: {:ok, map()} | {:error, atom() | String.t()}
+  def publish_selected(params) do
+    ids = List.wrap(params["post_ids"] || params["post_ids[]"] || [])
+    posts = Posts.get_posts(ids, preload: [:source])
+    publish_posts(posts)
+  end
+
+  @spec publish_posts([Post.t()]) :: {:ok, map()} | {:error, atom() | String.t()}
+  def publish_posts([]), do: {:error, "No posts selected"}
+
+  def publish_posts(posts) when is_list(posts) do
+    results =
+      Enum.map(posts, fn post ->
+        case publish_one(post) do
+          {:ok, result} -> {:ok, result}
+          {:error, reason} -> {:error, reason}
+        end
+      end)
+
+    published = Enum.count(results, &match?({:ok, _}, &1))
+    errors = for {:error, reason} <- results, do: format_error(reason)
+
+    {:ok, %{published: published, failed: length(errors), errors: errors}}
+  end
+
+  defp publish_one(%Post{} = post) do
+    post = Posts.preload_source(post)
+
+    with {:ok, post} <- require_ready(post),
+         {:ok, signer} <- Signer.resolve(post.source) do
+      Publisher.publish_post(post,
+        signer: signer,
+        relays: Relays.publish_relays(post)
+      )
+    else
+      {:error, :no_app_private_key} -> {:error, "NOSTR_NSEC not configured"}
+      {:error, :cannot_encrypt_draft} -> {:error, "NOSTR_NSEC is required to encrypt drafts"}
+      {:error, :no_source_signer} -> {:error, "Source has no signing key or bunker URL"}
+      other -> other
+    end
+  end
+
+  defp require_ready(post) do
+    cond do
+      post.status == Post.status_processed() and not Blossom.pending_images?(post) ->
+        {:ok, post}
+
+      post.status in [Post.status_processed(), Post.status_pending_images()] ->
+        {:ok, ready} = Processor.ensure_images(post)
+
+        if ready.status == Post.status_processed() do
+          {:ok, ready}
+        else
+          {:error, "Images are not uploaded yet"}
+        end
+
+      true ->
+        {:error, "Post is not processed"}
+    end
+  end
+
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason), do: inspect(reason)
 
   @spec delete(String.t()) :: {:ok, Post.t()} | {:error, atom()}
   def delete(id) do
@@ -106,6 +155,7 @@ defmodule Rss2Nostr.Web.API.Posts do
       new: Posts.count_posts_by_status(Post.status_new()),
       processing: Posts.count_posts_by_status(Post.status_processing()),
       processed: Posts.count_posts_by_status(Post.status_processed()),
+      pending_images: Posts.count_posts_by_status(Post.status_pending_images()),
       published: Posts.count_posts_by_status(Post.status_published()),
       error: Posts.count_posts_by_status(Post.status_error())
     }
@@ -127,12 +177,29 @@ defmodule Rss2Nostr.Web.API.Posts do
 
   defp status_to_int(status) do
     case status do
-      "new" -> Post.status_new()
-      "processing" -> Post.status_processing()
-      "processed" -> Post.status_processed()
-      "published" -> Post.status_published()
-      "error" -> Post.status_error()
-      _ -> -1
+      "new" ->
+        Post.status_new()
+
+      "processing" ->
+        Post.status_processing()
+
+      "processed" ->
+        Post.status_processed()
+
+      "pending_images" ->
+        Post.status_pending_images()
+
+      "published" ->
+        Post.status_published()
+
+      "error" ->
+        Post.status_error()
+
+      other ->
+        case Integer.parse(other) do
+          {status, ""} -> status
+          _ -> -1
+        end
     end
   end
 

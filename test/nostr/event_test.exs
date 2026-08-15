@@ -13,6 +13,10 @@ defmodule Rss2Nostr.Nostr.EventTest do
     test "kind_long_form_draft returns 30024" do
       assert Event.kind_long_form_draft() == 30024
     end
+
+    test "kind_draft_wrap returns 31234" do
+      assert Event.kind_draft_wrap() == 31234
+    end
   end
 
   describe "build_long_form/3" do
@@ -27,6 +31,30 @@ defmodule Rss2Nostr.Nostr.EventTest do
       assert event.content == "# Test Article\n\nContent here."
       assert is_integer(event.created_at)
       assert is_list(event.tags)
+    end
+
+    test "can build a draft kind 30024 event" do
+      event = Event.build_long_form(@test_pubkey, "Content", title: "Draft", kind: 30024)
+      assert event.kind == 30024
+    end
+
+    test "adds a p tag with the intended author on drafts" do
+      author = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+      event =
+        Event.build_long_form(@test_pubkey, "Content",
+          title: "Draft",
+          kind: 30024,
+          author_pubkey: author
+        )
+
+      assert ["p", author] in event.tags
+    end
+
+    test "does not add a p tag when no author is given" do
+      event = Event.build_long_form(@test_pubkey, "Content", title: "Article", kind: 30023)
+
+      refute Enum.any?(event.tags, fn [tag | _] -> tag == "p" end)
     end
 
     test "builds event with title tag" do
@@ -87,6 +115,23 @@ defmodule Rss2Nostr.Nostr.EventTest do
       assert length(t_tags) == 2
       assert ["t", "nostr"] in t_tags
       assert ["t", "bitcoin"] in t_tags
+    end
+
+    test "adds NIP-32 language labels" do
+      event = Event.build_long_form(@test_pubkey, "Content", title: "Test", language: "de")
+
+      assert ["L", "ISO-639-1"] in event.tags
+      assert ["l", "de", "ISO-639-1"] in event.tags
+    end
+
+    test "adds an r tag for the original article URL" do
+      event =
+        Event.build_long_form(@test_pubkey, "Content",
+          title: "Test",
+          canonical_url: "https://example.com/article"
+        )
+
+      assert ["r", "https://example.com/article"] in event.tags
     end
   end
 
@@ -208,6 +253,57 @@ defmodule Rss2Nostr.Nostr.EventTest do
       # Check hashtags
       t_tags = Enum.filter(event.tags, fn [t | _] -> t == "t" end)
       assert length(t_tags) == 2
+    end
+  end
+
+  describe "wrap_draft/3" do
+    @private_key <<1::256>>
+    @author "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+    test "encrypts an unsigned article as a NIP-37 kind 31234 wrap" do
+      inner =
+        Event.build_long_form(@test_pubkey, "# Draft\n\nBody",
+          title: "Draft Title",
+          identifier: "draft-title",
+          author_pubkey: @author
+        )
+
+      assert {:ok, wrap} =
+               Event.wrap_draft(inner, @private_key,
+                 identifier: "draft-title",
+                 author_pubkey: @author,
+                 expiration: 1_800_000_000
+               )
+
+      signer_pubkey =
+        @private_key |> Rss2Nostr.Nostr.Keys.derive_public_key() |> Rss2Nostr.Nostr.Keys.to_hex()
+
+      assert wrap.kind == 31234
+      assert wrap.pubkey == signer_pubkey
+      refute wrap.content == inner.content
+      assert ["d", "draft-title"] in wrap.tags
+      assert ["k", "30023"] in wrap.tags
+      assert ["expiration", "1800000000"] in wrap.tags
+      assert ["p", @author] in wrap.tags
+
+      assert {:ok, decrypted} = Event.unwrap_draft(wrap, @private_key)
+      assert decrypted["kind"] == 30023
+      assert decrypted["content"] == "# Draft\n\nBody"
+      assert decrypted["pubkey"] == @test_pubkey
+      assert ["title", "Draft Title"] in decrypted["tags"]
+    end
+
+    test "draft_plaintext_size/1 matches the wrapped JSON payload" do
+      inner =
+        Event.build_long_form(@test_pubkey, "# Draft\n\nBody",
+          title: "Draft Title",
+          identifier: "draft-title"
+        )
+
+      {:ok, plaintext} = Event.draft_plaintext(inner)
+
+      assert Event.draft_plaintext_size(inner) == byte_size(plaintext)
+      assert Event.draft_plaintext_size(inner) < Event.max_draft_plaintext_size()
     end
   end
 end

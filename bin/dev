@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if [[ ! -f .env ]]; then
+  cp .env.example .env
+  echo "Created .env from .env.example — edit it if you need different credentials."
+fi
+
+mix deps.get
+
+if [[ -f package.json && ! -d node_modules ]]; then
+  npm install
+fi
+
+exec mix dev "$@"

@@ -9,6 +9,8 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   require Logger
 
+  alias Rss2Nostr.Processing.{ImageExtractor, Youtube}
+
   # Tracking parameters to remove from URLs
   @tracking_params ~w(
     _ dmcid fbclid fbc f_tid igshid originalReferrer ref_src
@@ -16,19 +18,50 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     wt_zmc xing_share mc_cid mc_eid
   )
 
+  @default_skip_classes ~w(
+    OUTBRAIN article-disclaimer ad-label pre-akwa-toc__list
+    et_pb_post_title et_pb_comments_0_tb_body
+    beitraganriss lead powerpress_links powerpress_links_mp3
+    shariff subscription-widget-wrap subscription-widget subscribe-widget
+    header-anchor-parent post-header post-ufi
+  )
+
+  @doc """
+  CSS classes dropped during conversion (ads, comments, teaser blocks).
+  """
+  @spec default_skip_classes() :: [String.t()]
+  def default_skip_classes, do: @default_skip_classes
+
   @doc """
   Converts HTML to Markdown.
-  """
-  @spec convert(String.t() | nil) :: String.t() | nil
-  def convert(nil), do: nil
-  def convert(""), do: nil
 
-  def convert(html) when is_binary(html) do
-    html
-    |> preprocess_html()
-    |> Floki.parse_document!()
-    |> process_nodes()
-    |> postprocess_markdown()
+  Options:
+    * `:skip_classes` — class name fragments to drop. Defaults to
+      `default_skip_classes/0`. Pass `[]` to keep every class.
+    * `:conversion_rules` — visual XPath rules. Only matching elements
+      are rewritten (for example, one Markdown line per link).
+  """
+  @spec convert(String.t() | nil, keyword()) :: String.t() | nil
+  def convert(html, opts \\ [])
+  def convert(nil, _opts), do: nil
+  def convert("", _opts), do: nil
+
+  def convert(html, opts) when is_binary(html) do
+    skip = Keyword.get(opts, :skip_classes, @default_skip_classes)
+    rules = Keyword.get(opts, :conversion_rules, [])
+    Process.put({__MODULE__, :skip_classes}, normalize_skip_classes(skip))
+    Process.put({__MODULE__, :conversion_rules}, rules)
+
+    try do
+      html
+      |> preprocess_html()
+      |> Floki.parse_document!()
+      |> process_nodes()
+      |> postprocess_markdown()
+    after
+      Process.delete({__MODULE__, :skip_classes})
+      Process.delete({__MODULE__, :conversion_rules})
+    end
   rescue
     e ->
       Logger.warning("HTML to Markdown conversion failed: #{inspect(e)}")
@@ -57,6 +90,16 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   end
 
   defp process_node({tag, attrs, children}) do
+    if skip_element?(attrs) do
+      ""
+    else
+      process_tag(tag, attrs, children)
+    end
+  end
+
+  defp process_node(_), do: ""
+
+  defp process_tag(tag, attrs, children) do
     case tag do
       # Skip elements
       "script" -> ""
@@ -65,9 +108,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       "header" -> ""
       "footer" -> ""
       "noscript" -> ""
+      "button" -> ""
+      "form" -> ""
       # Block elements
-      "p" -> "\n\n#{process_nodes(children)}\n\n"
-      "div" -> process_div(attrs, children)
+      "p" -> process_block("p", attrs, children)
+      "div" -> process_block("div", attrs, children)
+      "li" -> process_block("li", attrs, children)
+      "section" -> process_block("section", attrs, children)
       "br" -> "\n"
       "hr" -> "\n\n---\n\n"
       # Headings
@@ -94,7 +141,6 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       # Lists
       "ul" -> "\n\n#{process_list(children, :unordered)}\n\n"
       "ol" -> "\n\n#{process_list(children, :ordered)}\n\n"
-      "li" -> process_nodes(children)
       # Blockquote
       "blockquote" -> process_blockquote(children)
       # Table (simplified)
@@ -107,7 +153,6 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       # Inline elements - just process children
       "span" -> process_nodes(children)
       "article" -> process_nodes(children)
-      "section" -> process_nodes(children)
       "main" -> process_nodes(children)
       "aside" -> process_nodes(children)
       # Unknown - process children
@@ -115,7 +160,40 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end
   end
 
-  defp process_node(_), do: ""
+  defp process_block(tag, attrs, children) do
+    case matching_conversion({tag, attrs, children}) do
+      %{action: "links_as_paragraphs"} ->
+        Rss2Nostr.Processing.Conversion.links_as_paragraphs(children)
+
+      _ ->
+        case tag do
+          "p" -> process_paragraph(children)
+          "div" -> process_div(attrs, children)
+          "li" -> process_nodes(children)
+          _ -> process_nodes(children)
+        end
+    end
+  end
+
+  defp matching_conversion(node) do
+    Enum.find(conversion_rules(), fn rule ->
+      Rss2Nostr.Processing.Conversion.matches?(node, rule)
+    end)
+  end
+
+  defp conversion_rules do
+    Process.get({__MODULE__, :conversion_rules}, [])
+  end
+
+  defp process_paragraph(children) do
+    content = process_nodes(children)
+
+    if String.trim(content) == "*" do
+      "\n\n---\n\n"
+    else
+      "\n\n#{content}\n\n"
+    end
+  end
 
   # Process div with special class handling
   defp process_div(attrs, children) do
@@ -128,6 +206,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       String.contains?(class, "powerpress") ->
         process_powerpress_div(children)
 
+      String.contains?(String.downcase(class), "pullquote") ->
+        process_blockquote(children)
+
       true ->
         process_nodes(children)
     end
@@ -138,16 +219,24 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     href = get_attr(attrs, "href")
     text = process_nodes(children) |> String.trim()
 
-    if href && href != "" do
-      clean_href = remove_tracking_params(href)
+    cond do
+      is_nil(href) or href == "" ->
+        text
 
-      if text == "" do
-        clean_href
-      else
-        "[#{text}](#{clean_href})"
-      end
-    else
-      text
+      relative_path?(href) ->
+        ""
+
+      discard_link?(href) ->
+        ""
+
+      true ->
+        clean_href = remove_tracking_params(href)
+
+        if text == "" do
+          clean_href
+        else
+          "[#{text}](#{clean_href})"
+        end
     end
   end
 
@@ -157,55 +246,76 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     alt = get_attr(attrs, "alt", "")
 
     if src && src != "" do
-      clean_src = clean_image_url(src)
-      "![#{alt}](#{clean_src})"
+      "![#{alt}](#{src})"
     else
       ""
     end
   end
 
-  # Get best image source (prefer larger images from srcset)
+  # Prefer the largest usable srcset candidate, then data-src, then src.
+  # Cloudinary/Substack URLs contain commas, so srcset must not be split on ",".
   defp get_best_image_src(attrs) do
     srcset = get_attr(attrs, "srcset") || get_attr(attrs, "data-srcset")
-    data_src = get_attr(attrs, "data-src")
-    src = get_attr(attrs, "src")
 
-    cond do
-      srcset && srcset != "" ->
-        parse_srcset(srcset) |> get_largest_image()
+    [
+      srcset && srcset != "" && get_largest_image(parse_srcset(srcset)),
+      get_attr(attrs, "data-src"),
+      get_attr(attrs, "src")
+    ]
+    |> Enum.find_value(fn
+      url when is_binary(url) and url != "" ->
+        cleaned = clean_image_url(url)
+        if http_url?(cleaned), do: cleaned
 
-      data_src && data_src != "" ->
-        data_src
-
-      true ->
-        src
-    end
+      _ ->
+        nil
+    end)
   end
 
-  # Parse srcset attribute
+  # Parse srcset without breaking URLs that contain commas (Cloudinary transforms).
   defp parse_srcset(srcset) do
-    srcset
-    |> String.split(",")
-    |> Enum.map(fn entry ->
-      parts = String.trim(entry) |> String.split(~r/\s+/)
+    width_matches = Regex.scan(~r/(\S+)\s+(\d+)w/i, srcset)
 
-      case parts do
-        [url, size] ->
-          width = size |> String.replace(~r/[^\d]/, "") |> String.to_integer()
-          {url, width}
-
-        [url] ->
-          {url, 0}
-
-        _ ->
-          nil
+    candidates =
+      if width_matches != [] do
+        Enum.map(width_matches, fn [_, url, width] ->
+          {url, String.to_integer(width)}
+        end)
+      else
+        srcset
+        |> String.split(~r/,\s+/)
+        |> Enum.map(&parse_srcset_entry/1)
+        |> Enum.reject(&is_nil/1)
       end
-    end)
-    |> Enum.reject(&is_nil/1)
+
+    Enum.filter(candidates, fn {url, _} -> usable_srcset_url?(url) end)
   rescue
     e ->
       Logger.debug("Failed to parse srcset: #{inspect(e)}")
       []
+  end
+
+  defp parse_srcset_entry(entry) do
+    case String.split(String.trim(entry), ~r/\s+/, parts: 2) do
+      [url, size] ->
+        width =
+          case Regex.run(~r/(\d+)/, size) do
+            [_, digits] -> String.to_integer(digits)
+            _ -> 0
+          end
+
+        {url, width}
+
+      [url] when url != "" ->
+        {url, 0}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp usable_srcset_url?(url) do
+    String.starts_with?(url, ["http://", "https://", "//"])
   end
 
   defp get_largest_image([]), do: nil
@@ -216,12 +326,22 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     |> elem(0)
   end
 
-  # Clean image URLs (remove WordPress CDN wrapper, tracking params)
+  # Clean image URLs (CDN wrappers, encoded fetch targets, tracking params)
   defp clean_image_url(url) do
     url
     |> remove_wp_cdn_wrapper()
+    |> ImageExtractor.normalize_url()
     |> remove_tracking_params()
   end
+
+  defp http_url?(url) when is_binary(url) do
+    uri = URI.parse(url)
+    uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != ""
+  rescue
+    _ -> false
+  end
+
+  defp http_url?(_), do: false
 
   defp remove_wp_cdn_wrapper(url) do
     # Remove i0.wp.com wrapper
@@ -346,13 +466,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
     cond do
       String.contains?(src, "youtube.com") || String.contains?(src, "youtu.be") ->
-        video_id = extract_youtube_id(src)
-
-        if video_id do
-          "\n\n[Watch on YouTube](https://www.youtube.com/watch?v=#{video_id})\n\n"
-        else
-          ""
-        end
+        youtube_markdown(src, get_attr(attrs, "title"))
 
       String.contains?(src, "podbean.com") ->
         process_podbean_iframe(src)
@@ -365,19 +479,15 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end
   end
 
-  defp extract_youtube_id(url) do
-    patterns = [
-      ~r/youtube\.com\/embed\/([^?&]+)/,
-      ~r/youtube\.com\/watch\?v=([^&]+)/,
-      ~r/youtu\.be\/([^?&]+)/
-    ]
+  defp youtube_markdown(url, title) do
+    case Youtube.video_id(url) do
+      nil ->
+        ""
 
-    Enum.find_value(patterns, fn pattern ->
-      case Regex.run(pattern, url) do
-        [_, id] -> id
-        _ -> nil
-      end
-    end)
+      video_id ->
+        text = Youtube.meaningful_title(title) || "Watch on YouTube"
+        "\n\n[#{text}](https://www.youtube.com/watch?v=#{video_id})\n\n"
+    end
   end
 
   defp process_podbean_iframe(src) do
@@ -396,8 +506,11 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
     if data_attrs != "" do
       case Jason.decode(data_attrs) do
-        {:ok, %{"videoId" => video_id}} ->
-          "\n\n[Watch on YouTube](https://www.youtube.com/watch?v=#{video_id})\n\n"
+        {:ok, %{"videoId" => video_id} = data} ->
+          text =
+            Youtube.meaningful_title(data["title"] || data["videoTitle"]) || "Watch on YouTube"
+
+          "\n\n[#{text}](https://www.youtube.com/watch?v=#{video_id})\n\n"
 
         _ ->
           ""
@@ -500,6 +613,52 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     # Lines with only whitespace
     |> String.replace(~r/\n[ \t]+\n/, "\n\n")
     |> String.trim()
+  end
+
+  defp skip_element?(attrs) do
+    classes =
+      attrs
+      |> get_attr("class", "")
+      |> String.split(~r/\s+/, trim: true)
+
+    classes != [] and Enum.any?(skip_classes(), &(&1 in classes))
+  end
+
+  defp skip_classes do
+    Process.get({__MODULE__, :skip_classes}, @default_skip_classes)
+  end
+
+  defp normalize_skip_classes(classes) when is_list(classes) do
+    classes
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_skip_classes(_), do: @default_skip_classes
+
+  defp relative_path?(href) do
+    String.starts_with?(href, "/") and not String.starts_with?(href, "//")
+  end
+
+  defp discard_link?(href) do
+    uri = URI.parse(href)
+    path = uri.path || ""
+
+    String.ends_with?(path, "/subscribe") or
+      String.ends_with?(path, "/comments") or
+      share_action?(uri.query)
+  rescue
+    _ -> false
+  end
+
+  defp share_action?(nil), do: false
+
+  defp share_action?(query) when is_binary(query) do
+    query
+    |> URI.decode_query()
+    |> Map.get("action")
+    |> Kernel.==("share")
   end
 
   # Helper: get attribute value

@@ -79,13 +79,6 @@ defmodule Rss2Nostr.Web.API.Scheduler do
         end
       end
 
-    relays =
-      Application.get_env(:rss2nostr, :default_relays, [
-        "wss://relay.damus.io",
-        "wss://nos.lol",
-        "wss://relay.nostr.band"
-      ])
-
-    %{private_key: private_key, relays: relays}
+    %{private_key: private_key}
   end
 end

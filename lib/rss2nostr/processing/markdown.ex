@@ -1,0 +1,228 @@
+defmodule Rss2Nostr.Processing.Markdown do
+  @moduledoc """
+  Renders a conservative HTML preview of article Markdown.
+
+  Text and attribute values are escaped. Only http(s) links and images
+  are emitted, so the compose preview can use the HTML safely.
+  """
+
+  @spec to_html(String.t() | nil) :: String.t()
+  def to_html(nil), do: ""
+  def to_html(""), do: ""
+
+  def to_html(markdown) when is_binary(markdown) do
+    markdown
+    |> String.replace("\r\n", "\n")
+    |> String.trim()
+    |> split_blocks()
+    |> Enum.map_join("\n", &block_to_html/1)
+  end
+
+  defp split_blocks(markdown) do
+    markdown
+    |> extract_segments()
+    |> Enum.flat_map(fn
+      {:fence, text} -> [String.split(text, "\n")]
+      {:text, text} -> split_text_blocks(text)
+    end)
+    |> Enum.reject(&empty_block?/1)
+  end
+
+  defp extract_segments(markdown) do
+    pattern = ~r/^```[^\n]*\n[\s\S]*?^```[ \t]*$/m
+
+    Regex.split(pattern, markdown, include_captures: true, trim: true)
+    |> Enum.map(fn chunk ->
+      if String.starts_with?(String.trim_leading(chunk), "```") do
+        {:fence, String.trim(chunk)}
+      else
+        {:text, chunk}
+      end
+    end)
+  end
+
+  defp split_text_blocks(text) do
+    text
+    |> String.split(~r/\n{2,}/)
+    |> Enum.map(&String.split(&1, "\n"))
+  end
+
+  defp empty_block?(lines) do
+    Enum.all?(lines, &(String.trim(&1) == ""))
+  end
+
+  defp block_to_html(lines) do
+    first = List.first(lines) |> to_string() |> String.trim_leading()
+
+    cond do
+      String.starts_with?(first, "```") ->
+        code_block_html(lines)
+
+      heading?(first) ->
+        heading_html(first)
+
+      hr?(first) ->
+        "<hr>"
+
+      String.starts_with?(first, ">") ->
+        quote_html(lines)
+
+      list_item?(first) ->
+        list_html(lines)
+
+      String.starts_with?(first, "|") ->
+        table_html(lines)
+
+      true ->
+        text = lines |> Enum.join("\n") |> String.trim()
+        if text == "", do: "", else: "<p>#{inline(text)}</p>"
+    end
+  end
+
+  defp heading?(line), do: String.match?(line, ~r/^\#{1,6}\s+\S/)
+  defp hr?(line), do: String.match?(String.trim(line), ~r/^(-{3,}|\*{3,}|_{3,})$/)
+  defp list_item?(line), do: String.match?(line, ~r/^(?:[-*+]|\d+\.)\s+/)
+
+  defp heading_html(line) do
+    case Regex.run(~r/^(\#{1,6})\s+(.*)$/, line) do
+      [_, hashes, text] ->
+        level = String.length(hashes)
+        "<h#{level}>#{inline(String.trim(text))}</h#{level}>"
+
+      _ ->
+        "<p>#{inline(line)}</p>"
+    end
+  end
+
+  defp quote_html(lines) do
+    text =
+      lines
+      |> Enum.map(&String.replace(&1, ~r/^\s*>\s?/, ""))
+      |> Enum.join("\n")
+      |> String.trim()
+
+    "<blockquote><p>#{inline(text)}</p></blockquote>"
+  end
+
+  defp list_html(lines) do
+    ordered? = String.match?(hd(lines) |> String.trim_leading(), ~r/^\d+\.\s+/)
+    tag = if ordered?, do: "ol", else: "ul"
+
+    items =
+      Enum.map_join(lines, "", fn line ->
+        text = String.replace(String.trim_leading(line), ~r/^(?:[-*+]|\d+\.)\s+/, "")
+        "<li>#{inline(text)}</li>"
+      end)
+
+    "<#{tag}>#{items}</#{tag}>"
+  end
+
+  defp table_html(lines) do
+    rows =
+      lines
+      |> Enum.reject(&table_separator?/1)
+      |> Enum.map_join("", fn line ->
+        cells =
+          line
+          |> String.trim()
+          |> String.trim("|")
+          |> String.split("|")
+          |> Enum.map_join("", fn cell -> "<td>#{inline(String.trim(cell))}</td>" end)
+
+        "<tr>#{cells}</tr>"
+      end)
+
+    "<table>#{rows}</table>"
+  end
+
+  defp table_separator?(line) do
+    String.match?(String.trim(line), ~r/^\|?[\s:|-]+\|[\s:|-]+\|?$/)
+  end
+
+  defp code_block_html(lines) do
+    body =
+      lines
+      |> Enum.drop(1)
+      |> Enum.drop(-1)
+      |> Enum.join("\n")
+
+    "<pre><code>#{escape(body)}</code></pre>"
+  end
+
+  defp inline(text) do
+    text
+    |> escape()
+    |> replace_images()
+    |> replace_links()
+    |> replace_code()
+    |> replace_strong()
+    |> replace_em()
+  end
+
+  defp replace_images(text) do
+    Regex.replace(~r/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/, text, fn
+      _, alt, url, title ->
+        case safe_url(unescape(url)) do
+          nil ->
+            alt
+
+          safe ->
+            title_attr = if title != "", do: ~s( title="#{title}"), else: ""
+            ~s(<img src="#{escape_attr(safe)}" alt="#{alt}"#{title_attr}>)
+        end
+    end)
+  end
+
+  defp replace_links(text) do
+    Regex.replace(~r/\[([^\]]+)\]\(([^)\s]+)\)/, text, fn _, label, url ->
+      case safe_url(unescape(url)) do
+        nil -> label
+        safe -> ~s(<a href="#{escape_attr(safe)}">#{label}</a>)
+      end
+    end)
+  end
+
+  defp replace_code(text) do
+    Regex.replace(~r/`([^`]+)`/, text, fn _, code -> "<code>#{code}</code>" end)
+  end
+
+  defp replace_strong(text) do
+    text
+    |> then(&Regex.replace(~r/\*\*(.+?)\*\*/, &1, fn _, inner -> "<strong>#{inner}</strong>" end))
+    |> then(&Regex.replace(~r/__(.+?)__/, &1, fn _, inner -> "<strong>#{inner}</strong>" end))
+  end
+
+  defp replace_em(text) do
+    text
+    |> then(&Regex.replace(~r/\*(.+?)\*/, &1, fn _, inner -> "<em>#{inner}</em>" end))
+    |> then(&Regex.replace(~r/_(.+?)_/, &1, fn _, inner -> "<em>#{inner}</em>" end))
+  end
+
+  defp safe_url(url) do
+    uri = URI.parse(String.trim(url))
+
+    if uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != "" do
+      url
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp unescape(text) do
+    text
+    |> String.replace("&amp;", "&")
+    |> String.replace("&quot;", "\"")
+    |> String.replace("&#39;", "'")
+    |> String.replace("&lt;", "<")
+    |> String.replace("&gt;", ">")
+  end
+
+  defp escape(text) when is_binary(text), do: Plug.HTML.html_escape(text)
+  defp escape(_), do: ""
+
+  defp escape_attr(text) do
+    text
+    |> escape()
+    |> String.replace("\"", "&quot;")
+  end
+end

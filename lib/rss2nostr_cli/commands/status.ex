@@ -23,6 +23,7 @@ defmodule Rss2Nostr.CLI.Commands.Status do
     Output.info("  New:        #{Map.get(counts, Post.status_new(), 0)}")
     Output.info("  Processing: #{Map.get(counts, Post.status_processing(), 0)}")
     Output.info("  Processed:  #{Map.get(counts, Post.status_processed(), 0)}")
+    Output.info("  Pending images: #{Map.get(counts, Post.status_pending_images(), 0)}")
     Output.info("  Signing:    #{Map.get(counts, Post.status_signing(), 0)}")
     Output.info("  Signed:     #{Map.get(counts, Post.status_signed(), 0)}")
     Output.info("  Publishing: #{Map.get(counts, Post.status_publishing(), 0)}")

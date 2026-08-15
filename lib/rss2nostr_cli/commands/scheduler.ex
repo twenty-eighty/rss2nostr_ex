@@ -5,7 +5,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
 
   alias Rss2Nostr.CLI.Output
   alias Rss2Nostr.Scheduler
-  alias Rss2Nostr.Nostr.{Keys, NIP19}
+  alias Rss2Nostr.Nostr.{Keys, NIP19, Relays}
 
   @doc """
   Starts the scheduler daemon.
@@ -14,6 +14,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
   def start(options) do
     nsec = Map.get(options, :nsec)
     relays = parse_relays(Map.get(options, :relays))
+    audience = Relays.parse_audience(Map.get(options, :audience))
     upload_images = Map.get(options, :upload_images, false)
 
     Output.info("Starting RSS2Nostr Scheduler...")
@@ -24,13 +25,11 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
       case get_private_key(nsec) do
         {:ok, private_key, pubkey_hex} ->
           Output.info("Export enabled with pubkey: #{String.slice(pubkey_hex, 0, 8)}...")
-          Output.info("Relays: #{length(relays)}")
+          describe_relay_target(relays, audience)
 
-          %{
-            private_key: private_key,
-            relays: relays,
-            upload_images: upload_images
-          }
+          %{private_key: private_key, upload_images: upload_images}
+          |> maybe_put(:relays, relays)
+          |> maybe_put(:audience, audience)
 
         {:error, _reason} ->
           Output.warning("No private key configured - export task will be skipped")
@@ -205,16 +204,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
     end
   end
 
-  defp parse_relays(nil) do
-    config = Application.get_env(:rss2nostr, Rss2Nostr.Scheduler, [])
-
-    config[:default_relays] ||
-      [
-        "wss://relay.damus.io",
-        "wss://nos.lol",
-        "wss://relay.nostr.band"
-      ]
-  end
+  defp parse_relays(nil), do: nil
 
   defp parse_relays(relays) when is_binary(relays) do
     relays
@@ -224,6 +214,21 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
   end
 
   defp parse_relays(relays) when is_list(relays), do: relays
+
+  defp describe_relay_target(relays, _audience) when is_list(relays) do
+    Output.info("Relays: #{length(relays)} (explicit override)")
+  end
+
+  defp describe_relay_target(_relays, audience) when audience in [:test, :public] do
+    Output.info("Relays: #{length(Relays.for(audience))} (#{audience} list)")
+  end
+
+  defp describe_relay_target(_relays, _audience) do
+    Output.info("Relays: per source (test vs public)")
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp format_interval(ms) when ms < 60_000, do: "#{div(ms, 1000)} seconds"
   defp format_interval(ms) when ms < 3_600_000, do: "#{div(ms, 60_000)} minutes"

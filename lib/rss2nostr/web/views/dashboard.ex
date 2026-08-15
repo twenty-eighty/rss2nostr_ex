@@ -13,6 +13,7 @@ defmodule Rss2Nostr.Web.Views.Dashboard do
     active_sources = Enum.count(sources, & &1.active)
 
     new_posts = length(Posts.list_posts_by_status(Post.status_new(), limit: 1000))
+    pending_images = length(Posts.list_pending_image_posts(limit: 1000))
     processed_posts = length(Posts.list_processed_posts(limit: 1000))
     published_posts = length(Posts.list_posts_by_status(Post.status_published(), limit: 1000))
 
@@ -36,9 +37,15 @@ defmodule Rss2Nostr.Web.Views.Dashboard do
       </div>
 
       <div class="stat-card">
+        <div class="stat-value">#{pending_images}</div>
+        <div class="stat-label">Pending images</div>
+        <div class="stat-detail">Need Blossom upload</div>
+      </div>
+
+      <div class="stat-card">
         <div class="stat-value">#{processed_posts}</div>
         <div class="stat-label">Processed</div>
-        <div class="stat-detail">Ready to export</div>
+        <div class="stat-detail">Images uploaded, ready to export</div>
       </div>
 
       <div class="stat-card">
@@ -124,6 +131,7 @@ defmodule Rss2Nostr.Web.Views.Dashboard do
       1 -> "badge-processing"
       2 -> "badge-processed"
       6 -> "badge-published"
+      9 -> "badge-pending-images"
       _ -> "badge-error"
     end
   end

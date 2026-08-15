@@ -16,6 +16,7 @@ defmodule Rss2Nostr.Web.API.Status do
         new: Posts.count_posts_by_status("new"),
         processing: Posts.count_posts_by_status("processing"),
         processed: Posts.count_posts_by_status("processed"),
+        pending_images: Posts.count_posts_by_status("pending_images"),
         published: Posts.count_posts_by_status("published"),
         error: Posts.count_posts_by_status("error")
       },

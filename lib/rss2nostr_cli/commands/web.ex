@@ -7,7 +7,7 @@ defmodule Rss2Nostr.CLI.Commands.Web do
   alias Rss2Nostr.Web.Server
 
   def start(options) do
-    port = options[:port] || 4000
+    port = options[:port] || Application.get_env(:rss2nostr, :web_port) || 4000
 
     Output.info("Starting web server on port #{port}...")
     Output.info("Open http://localhost:#{port} in your browser")

@@ -5,7 +5,11 @@ defmodule Rss2Nostr.Sources.Source do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Rss2Nostr.Nostr.{Keys, Secret, Signer}
+
   @type_values ~w(rss atom)
+  @mode_values ~w(setup automated)
+  @publish_as_values ~w(draft article)
 
   @type t :: %__MODULE__{}
 
@@ -15,11 +19,16 @@ defmodule Rss2Nostr.Sources.Source do
     field(:type, :string, default: "rss")
     field(:active, :boolean, default: true)
     field(:language, :string, default: "de")
+    field(:public, :boolean, default: false)
+    field(:mode, :string, default: "setup")
+    field(:publish_as, :string, default: "draft")
 
     # Nostr-specific
-    field(:default_post_kind, :integer, default: 30023)
+    field(:default_post_kind, :integer, default: 30024)
     field(:pubkey, :string)
     field(:bunker_connection, :string)
+    field(:signing_nsec_ciphertext, :string)
+    field(:signing_nsec, :string, virtual: true)
 
     # Filters
     field(:publish_after_date, :utc_datetime)
@@ -42,16 +51,143 @@ defmodule Rss2Nostr.Sources.Source do
       :type,
       :active,
       :language,
+      :public,
+      :mode,
+      :publish_as,
       :default_post_kind,
       :pubkey,
       :bunker_connection,
+      :signing_nsec_ciphertext,
+      :signing_nsec,
       :publish_after_date,
       :fetch_source_from,
       :options
     ])
     |> validate_required([:name, :url])
     |> validate_inclusion(:type, @type_values)
+    |> validate_inclusion(:mode, @mode_values)
+    |> validate_inclusion(:publish_as, @publish_as_values)
     |> validate_inclusion(:default_post_kind, [30023, 30024])
+    |> validate_inclusion(:fetch_source_from, ~w(content fetch_from_url))
+    |> normalize_pubkey()
+    |> encrypt_signing_nsec()
+    |> sync_post_kind()
+    |> validate_publish_identity()
+    |> validate_automated_signer()
     |> unique_constraint(:url)
+  end
+
+  @spec setup?(t() | map() | nil) :: boolean()
+  def setup?(%{mode: "automated"}), do: false
+  def setup?(_), do: true
+
+  @spec automated?(t() | map() | nil) :: boolean()
+  def automated?(%{mode: "automated"}), do: true
+  def automated?(_), do: false
+
+  defp normalize_pubkey(changeset) do
+    case get_change(changeset, :pubkey) do
+      nil ->
+        changeset
+
+      "" ->
+        put_change(changeset, :pubkey, nil)
+
+      value when is_binary(value) ->
+        case Keys.parse_public_key(value) do
+          {:ok, hex} -> put_change(changeset, :pubkey, hex)
+          {:error, _} -> add_error(changeset, :pubkey, "must be an npub or hex public key")
+        end
+
+      _ ->
+        add_error(changeset, :pubkey, "must be an npub or hex public key")
+    end
+  end
+
+  defp encrypt_signing_nsec(changeset) do
+    case get_change(changeset, :signing_nsec) do
+      value when is_binary(value) and value != "" ->
+        case Keys.parse_private_key(value) do
+          {:ok, _} ->
+            put_change(changeset, :signing_nsec_ciphertext, Secret.encrypt(value))
+
+          {:error, _} ->
+            add_error(changeset, :signing_nsec, "must be an nsec or hex private key")
+        end
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp sync_post_kind(changeset) do
+    case get_field(changeset, :publish_as) do
+      "article" -> put_change(changeset, :default_post_kind, 30023)
+      "draft" -> put_change(changeset, :default_post_kind, 30024)
+      _ -> changeset
+    end
+  end
+
+  defp validate_publish_identity(changeset) do
+    if publish_as_submitted?(changeset) do
+      case get_field(changeset, :publish_as) do
+        "draft" ->
+          changeset
+          |> validate_required([:pubkey], message: "is required for drafts")
+
+        "article" ->
+          validate_article_signer(changeset)
+
+        _ ->
+          changeset
+      end
+    else
+      changeset
+    end
+  end
+
+  defp publish_as_submitted?(changeset) do
+    params = changeset.params || %{}
+    Map.has_key?(params, "publish_as") or Map.has_key?(params, :publish_as)
+  end
+
+  defp validate_article_signer(changeset) do
+    nsec = get_field(changeset, :signing_nsec)
+    cipher = get_field(changeset, :signing_nsec_ciphertext)
+    bunker = get_field(changeset, :bunker_connection)
+
+    if present?(nsec) or present?(cipher) or present?(bunker) do
+      changeset
+    else
+      add_error(changeset, :signing_nsec, "or a bunker URL is required for articles")
+    end
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_), do: false
+
+  defp validate_automated_signer(changeset) do
+    mode = get_field(changeset, :mode)
+
+    if mode == "automated" and changing_to_automated?(changeset) do
+      source = apply_changes(changeset)
+
+      if Signer.configured?(source) do
+        changeset
+      else
+        add_error(
+          changeset,
+          :mode,
+          "needs a signing key before automation (app nsec for drafts, or a source nsec/bunker for articles)"
+        )
+      end
+    else
+      changeset
+    end
+  end
+
+  defp changing_to_automated?(changeset) do
+    changed?(changeset, :mode) or changed?(changeset, :publish_as) or
+      changed?(changeset, :signing_nsec) or changed?(changeset, :bunker_connection)
   end
 end

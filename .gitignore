@@ -24,6 +24,8 @@ erl_crash.dump
 
 # ignore secrets
 /config/*.secret.exs
+.env
+.env.*.local
 
 # ignore elixir_ls
 .elixir_ls/

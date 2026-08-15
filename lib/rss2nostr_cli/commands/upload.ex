@@ -1,10 +1,10 @@
 defmodule Rss2Nostr.CLI.Commands.Upload do
   @moduledoc """
-  CLI command for uploading images to NIP-96 servers.
+  CLI command for uploading images to Blossom servers.
   """
 
   alias Rss2Nostr.CLI.Output
-  alias Rss2Nostr.Nostr.{NIP96, NIP19, Keys}
+  alias Rss2Nostr.Nostr.{Blossom, NIP19, Keys}
 
   def run(options) do
     file_or_url = Map.get(options, :file)
@@ -12,9 +12,8 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
     server = Map.get(options, :server)
     alt = Map.get(options, :alt)
 
-    Output.info("Uploading image to NIP-96 server...")
+    Output.info("Uploading image to Blossom...")
 
-    # Get private key
     case get_private_key(nsec) do
       {:ok, private_key, pubkey_hex} ->
         Output.info("  Using pubkey: #{String.slice(pubkey_hex, 0, 8)}...")
@@ -22,10 +21,12 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
         if server do
           Output.info("  Server: #{server}")
         else
-          Output.info("  Server: auto-detect")
+          case Blossom.configured_server() do
+            nil -> Output.info("  Server: auto-detect")
+            endpoint -> Output.info("  Server: #{endpoint}")
+          end
         end
 
-        # Determine if file or URL
         upload_opts = [private_key: private_key]
         upload_opts = if server, do: Keyword.put(upload_opts, :server, server), else: upload_opts
         upload_opts = if alt, do: Keyword.put(upload_opts, :alt, alt), else: upload_opts
@@ -35,11 +36,11 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
             String.starts_with?(file_or_url || "", "http://") or
                 String.starts_with?(file_or_url || "", "https://") ->
               Output.info("  Downloading from URL...")
-              NIP96.upload_from_url(file_or_url, upload_opts)
+              Blossom.upload_from_url(file_or_url, upload_opts)
 
             file_or_url && File.exists?(file_or_url) ->
               Output.info("  Uploading local file...")
-              NIP96.upload_file(file_or_url, upload_opts)
+              Blossom.upload_file(file_or_url, upload_opts)
 
             file_or_url ->
               {:error, "File not found: #{file_or_url}"}
@@ -56,13 +57,18 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
   end
 
   @doc """
-  Lists available NIP-96 servers and their capabilities.
+  Lists configured Blossom servers and whether they respond.
   """
   def list_servers do
-    Output.info("Checking NIP-96 servers...")
-    Output.info("")
+    servers = Blossom.servers()
 
-    Enum.each(NIP96.default_servers(), &check_server/1)
+    if servers == [] do
+      Output.error("No Blossom server configured. Set NOSTR_UPLOAD_ENDPOINT.")
+    else
+      Output.info("Checking Blossom server...")
+      Output.info("")
+      Enum.each(servers, &check_server/1)
+    end
   end
 
   defp show_upload_result({:ok, upload_result}) do
@@ -83,14 +89,9 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
   end
 
   defp check_server(server) do
-    case NIP96.discover_server(server) do
-      {:ok, info} ->
-        Output.success("✓ #{server}")
-        Output.info("    API: #{info.api_url}")
-        if info.tos_url, do: Output.info("    TOS: #{info.tos_url}")
-
-        if info.content_types != [],
-          do: Output.info("    Types: #{Enum.join(info.content_types, ", ")}")
+    case Blossom.probe_server(server) do
+      {:ok, status} ->
+        Output.success("✓ #{server} (HTTP #{status})")
 
       {:error, reason} ->
         Output.error("✗ #{server} - #{inspect(reason)}")

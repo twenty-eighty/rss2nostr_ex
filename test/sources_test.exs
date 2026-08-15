@@ -2,6 +2,8 @@ defmodule Rss2Nostr.SourcesTest do
   use Rss2Nostr.DataCase
 
   alias Rss2Nostr.Sources
+  alias Rss2Nostr.Posts
+  alias Rss2Nostr.Posts.Post
 
   def unique_url do
     "https://example.com/feed-#{System.unique_integer([:positive])}.xml"
@@ -77,12 +79,77 @@ defmodule Rss2Nostr.SourcesTest do
       assert source.url == attrs.url
       assert source.type == "rss"
       assert source.active == true
+      assert source.mode == "setup"
+      assert source.publish_as == "draft"
+    end
+
+    test "requires a pubkey when publish_as is draft" do
+      {:error, changeset} =
+        Sources.create_source(Map.put(valid_attrs(), :publish_as, "draft"))
+
+      refute changeset.valid?
+      assert changeset.errors[:pubkey]
+    end
+
+    test "requires an nsec or bunker when publish_as is article" do
+      {:error, changeset} =
+        Sources.create_source(Map.put(valid_attrs(), :publish_as, "article"))
+
+      refute changeset.valid?
+      assert changeset.errors[:signing_nsec]
+    end
+
+    test "requires a signer before switching to automated article mode" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+
+      {:error, changeset} =
+        Sources.update_source(source, %{mode: "automated", publish_as: "article"})
+
+      refute changeset.valid?
+      assert changeset.errors[:mode]
+    end
+
+    test "defaults public to false" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+      assert source.public == false
+    end
+
+    test "creates a public source" do
+      {:ok, source} = Sources.create_source(Map.put(valid_attrs(), :public, true))
+      assert source.public == true
     end
 
     test "returns error changeset with invalid attrs" do
       {:error, changeset} = Sources.create_source(%{name: nil, url: nil})
 
       refute changeset.valid?
+    end
+
+    test "stores an author npub as hex and uses draft kind" do
+      hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      {:ok, npub} = Rss2Nostr.Nostr.NIP19.encode_npub(hex)
+
+      {:ok, source} =
+        Sources.create_source(Map.merge(valid_attrs(), %{pubkey: npub}))
+
+      assert source.pubkey == hex
+      assert source.default_post_kind == 30024
+    end
+
+    test "rejects an invalid fetch_source_from value" do
+      {:error, changeset} =
+        Sources.create_source(Map.merge(valid_attrs(), %{fetch_source_from: "readability"}))
+
+      refute changeset.valid?
+      assert changeset.errors[:fetch_source_from]
+    end
+
+    test "rejects an invalid author pubkey" do
+      {:error, changeset} =
+        Sources.create_source(Map.merge(valid_attrs(), %{pubkey: "not-a-key"}))
+
+      refute changeset.valid?
+      assert changeset.errors[:pubkey]
     end
   end
 
@@ -96,12 +163,98 @@ defmodule Rss2Nostr.SourcesTest do
     end
   end
 
+  describe "duplicate_source/2" do
+    test "copies settings into a new setup source with a unique URL" do
+      hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+      {:ok, source} =
+        Sources.create_source(
+          Map.merge(valid_attrs(), %{
+            name: "Corbett Podcast",
+            publish_as: "draft",
+            pubkey: hex,
+            public: true,
+            fetch_source_from: "content",
+            options: %{
+              "body_selector" => "div.et_pb_column_0_tb_body",
+              "skip_classes" => ["OUTBRAIN"],
+              "start_guid" => "old-episode"
+            }
+          })
+        )
+
+      {:ok, copy} = Sources.duplicate_source(source)
+
+      assert copy.id != source.id
+      assert copy.name == "Corbett Podcast (copy)"
+      assert copy.url != source.url
+      assert String.starts_with?(copy.url, source.url)
+      assert copy.mode == "setup"
+      assert copy.publish_as == "draft"
+      assert copy.pubkey == hex
+      assert copy.public == true
+      assert copy.fetch_source_from == "content"
+      assert copy.options["body_selector"] == "div.et_pb_column_0_tb_body"
+      assert copy.options["skip_classes"] == ["OUTBRAIN"]
+      refute Map.has_key?(copy.options, "start_guid")
+      assert is_nil(copy.publish_after_date)
+    end
+
+    test "accepts a new feed URL and name" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+      url = unique_url()
+
+      {:ok, copy} =
+        Sources.duplicate_source(source, %{name: "Interviews", url: url})
+
+      assert copy.name == "Interviews"
+      assert copy.url == url
+    end
+
+    test "copies an article signer" do
+      hex = "0000000000000000000000000000000000000000000000000000000000000001"
+
+      {:ok, source} =
+        Sources.create_source(
+          Map.merge(valid_attrs(), %{
+            publish_as: "article",
+            signing_nsec: hex
+          })
+        )
+
+      {:ok, copy} = Sources.duplicate_source(source)
+
+      assert copy.publish_as == "article"
+      assert copy.signing_nsec_ciphertext == source.signing_nsec_ciphertext
+    end
+  end
+
   describe "delete_source/1" do
     test "deletes the source" do
       {:ok, source} = Sources.create_source(valid_attrs())
       {:ok, _deleted} = Sources.delete_source(source)
 
       assert Sources.get_source(source.id) == nil
+    end
+
+    test "deletes the source's articles" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+      url = "https://example.com/article/#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Cascaded Article",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          source_html: "<p>Content</p>",
+          status: Post.status_new(),
+          source_id: source.id
+        })
+
+      {:ok, _} = Sources.delete_source(source)
+
+      assert Sources.get_source(source.id) == nil
+      assert Posts.get_post(post.id) == nil
     end
   end
 

@@ -109,14 +109,13 @@ defmodule Rss2Nostr.Nostr.Keys do
   end
 
   @doc """
-  Verifies a BIP340 Schnorr signature.
+  Verifies a BIP340 Schnorr signature over a 32-byte message digest
+  (a Nostr event id).
   """
   @spec verify(binary(), binary(), binary()) :: boolean()
   def verify(message, signature, public_key)
       when byte_size(message) == 32 and byte_size(signature) == 64 and byte_size(public_key) == 32 do
-    # Use K256.Schnorr.verify_message which hashes the input
-    # Since message is already a hash, we need to verify with verify_message
-    case K256.Schnorr.verify_message(message, signature, public_key) do
+    case K256.Schnorr.verify_message_digest(message, signature, public_key) do
       :ok -> true
       {:error, _} -> false
     end
@@ -161,6 +160,61 @@ defmodule Rss2Nostr.Nostr.Keys do
   end
 
   def valid_pubkey?(_), do: false
+
+  @doc """
+  Parses a public key from either npub (bech32) or hex format.
+  Returns {:ok, lowercase hex} or {:error, reason}.
+  """
+  @spec parse_public_key(String.t() | any()) :: {:ok, String.t()} | {:error, atom()}
+  def parse_public_key(input) when is_binary(input) do
+    trimmed = String.trim(input)
+
+    cond do
+      String.starts_with?(trimmed, "npub") ->
+        case NIP19.decode(trimmed) do
+          {:ok, :npub, hex} -> {:ok, String.downcase(hex)}
+          _ -> {:error, :invalid_npub}
+        end
+
+      String.length(trimmed) == 64 ->
+        case from_hex(trimmed) do
+          {:ok, bin} when byte_size(bin) == 32 -> {:ok, String.downcase(trimmed)}
+          _ -> {:error, :invalid_hex}
+        end
+
+      true ->
+        {:error, :invalid_format}
+    end
+  end
+
+  def parse_public_key(_), do: {:error, :invalid_input}
+
+  @doc """
+  Parses a comma-separated list of npub or hex public keys.
+  Invalid entries are dropped.
+  """
+  @spec parse_pubkey_list(String.t() | nil | [String.t()]) :: [String.t()]
+  def parse_pubkey_list(nil), do: []
+  def parse_pubkey_list(""), do: []
+
+  def parse_pubkey_list(list) when is_list(list) do
+    list
+    |> Enum.flat_map(fn key ->
+      case parse_public_key(key) do
+        {:ok, hex} -> [hex]
+        {:error, _} -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  def parse_pubkey_list(str) when is_binary(str) do
+    str
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> parse_pubkey_list()
+  end
 
   @doc """
   Parses a private key from either nsec (bech32) or hex format.

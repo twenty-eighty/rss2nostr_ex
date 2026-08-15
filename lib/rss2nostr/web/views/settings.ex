@@ -4,9 +4,12 @@ defmodule Rss2Nostr.Web.Views.Settings do
   """
 
   alias Rss2Nostr.Web.Views.Layout
+  alias Rss2Nostr.Web.Auth
+  alias Rss2Nostr.Nostr.{Blossom, Relays, NIP19}
 
   def index do
     nsec_configured = System.get_env("NOSTR_NSEC") != nil
+    relays = Relays.all()
 
     content = """
     <h1>Settings</h1>
@@ -22,23 +25,28 @@ defmodule Rss2Nostr.Web.Views.Settings do
       "<span class=\"badge badge-warning\">Not Configured</span>"
     end}
         <p class="help-text">
-          Set the <code>NOSTR_NSEC</code> environment variable to enable automatic export.
-          The key should be in nsec or hex format.
+          Set <code>NOSTR_NSEC</code> in <code>.env</code> to sign and NIP-44-encrypt NIP-37 drafts.
+          Image uploads use a source nsec or bunker when configured; the app key is
+          only a fallback for draft sources that also have an intended author pubkey.
         </p>
       </div>
     </div>
 
     <div class="settings-section">
-      <h2>Default Relays</h2>
-      <p>The following relays are used for publishing:</p>
+      <h2>Relays</h2>
+      <p>Relays follow the source state: setup always uses the test list. Automated public sources use the public list.</p>
+
+      <h3>Test relays</h3>
+      <p class="help-text">Used for sources that are not marked public. Set with <code>NOSTR_RELAYS_TEST</code> (or <code>NOSTR_RELAYS</code>).</p>
       <ul>
-        <li><code>wss://relay.damus.io</code></li>
-        <li><code>wss://nos.lol</code></li>
-        <li><code>wss://relay.nostr.band</code></li>
+        #{relay_items(relays.test)}
       </ul>
-      <p class="help-text">
-        Configure additional relays in <code>config/config.exs</code> or via the CLI.
-      </p>
+
+      <h3>Public relays</h3>
+      <p class="help-text">Used for sources marked public. Set with <code>NOSTR_RELAYS_PUBLIC</code>.</p>
+      <ul>
+        #{relay_items(relays.public)}
+      </ul>
     </div>
 
     <div class="settings-section">
@@ -65,11 +73,19 @@ defmodule Rss2Nostr.Web.Views.Settings do
     </div>
 
     <div class="settings-section">
-      <h2>NIP-96 Image Servers</h2>
-      <p>Available image hosting servers:</p>
+      <h2>Blossom Image Server</h2>
+      #{blossom_section()}
+    </div>
+
+    <div class="settings-section">
+      <h2>Admin access (NIP-07)</h2>
+      <p class="help-text">
+        The web UI only accepts logins from these public keys, via a
+        <a href="https://nips.nostr.com/7" target="_blank" rel="noopener">NIP-07</a>
+        browser extension. Set <code>ADMIN_NOSTR_PUBKEYS</code> in <code>.env</code>.
+      </p>
       <ul>
-        <li><code>https://nostr.build</code> (default)</li>
-        <li><code>https://nostrcheck.me</code></li>
+        #{admin_key_items()}
       </ul>
     </div>
 
@@ -85,4 +101,64 @@ defmodule Rss2Nostr.Web.Views.Settings do
 
     Layout.render("Settings", content, active_nav: "settings")
   end
+
+  defp relay_items([]), do: "<li class=\"empty-state\">None configured</li>"
+
+  defp relay_items(relays) do
+    Enum.map_join(relays, "", fn url -> "<li><code>#{escape_html(url)}</code></li>" end)
+  end
+
+  defp admin_key_items do
+    case Auth.pubkeys() do
+      [] ->
+        "<li class=\"empty-state\">None configured</li>"
+
+      keys ->
+        Enum.map_join(keys, "", fn hex ->
+          npub =
+            case NIP19.encode_npub(hex) do
+              {:ok, encoded} -> encoded
+              _ -> hex
+            end
+
+          "<li><code>#{escape_html(npub)}</code></li>"
+        end)
+    end
+  end
+
+  defp blossom_section do
+    case Blossom.configured_server() do
+      nil ->
+        """
+        <p>No <code>NOSTR_UPLOAD_ENDPOINT</code> is set.</p>
+        <p class="help-text">
+          Set it in <code>.env</code> to a Blossom server. Articles with images stay in
+          <em>pending images</em> until the endpoint is configured and upload succeeds.
+        </p>
+        """
+
+      endpoint ->
+        """
+        <p>Images are uploaded with Blossom (<code>PUT /upload</code>) to this server only:</p>
+        <ul>
+          <li><code>#{escape_html(endpoint)}</code></li>
+        </ul>
+        <p class="help-text">
+          Uploads are signed with the source nsec or bunker, or with
+          <code>NOSTR_NSEC</code> for draft sources that have a pubkey. If upload
+          fails, the article stays in <em>pending images</em> so the remaining
+          uploads can be finished.
+        </p>
+        """
+    end
+  end
+
+  defp escape_html(str) when is_binary(str) do
+    str
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+  end
+
+  defp escape_html(nil), do: ""
 end

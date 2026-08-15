@@ -7,7 +7,7 @@ Import RSS/Atom feeds and publish them as Nostr long-form content (NIP-23).
 - **RSS/Atom Import**: Fetch articles from any RSS or Atom feed
 - **HTML to Markdown**: Automatic conversion of HTML content to Markdown
 - **NIP-23 Publishing**: Publish articles as Nostr long-form content (kind 30023)
-- **NIP-96 Image Upload**: Upload images to NIP-96 compatible servers (nostr.build, nostrcheck.me)
+- **Blossom Image Upload**: Upload images to Blossom (BUD-02) servers
 - **NIP-46 Nostr Connect**: Remote signing support via bunker protocol
 - **Scheduler**: Automatic import, processing, and publishing on schedule
 - **Web Interface**: Admin dashboard for managing sources, posts, and scheduler
@@ -27,43 +27,53 @@ git clone https://github.com/razue/rss2nostr.git
 cd rss2nostr
 ```
 
-2. Install dependencies:
+2. Copy `.env.example` to `.env` and edit credentials if needed:
+```bash
+cp .env.example .env
+```
+
+3. Start the dev server (installs deps, migrates the database, serves the UI):
+```bash
+./bin/dev
+```
+
+Or step through setup yourself:
 ```bash
 mix deps.get
-npm install --prefix priv
-```
-
-3. Configure the database in `config/dev.exs`:
-```elixir
-config :rss2nostr, Rss2Nostr.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  database: "rss2nostr_dev"
-```
-
-4. Create and migrate the database:
-```bash
+npm install
 mix ecto.setup
+mix rss2nostr.server
 ```
 
-5. Build the CLI (optional):
+Build the CLI (optional):
 ```bash
 mix escript.build
 ```
 
 ## Configuration
 
+Copy `.env.example` to `.env`. Values are loaded at runtime (OS environment variables override the file). There is no need to edit `config/dev.exs` for local credentials.
+
 ### Environment Variables
 
 | Variable | Description | Required |
 |----------|-------------|----------|
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` | Dev database credentials | No (defaults in `config/dev.exs`) |
+| `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_DB` | Dev database connection | No |
+| `PORT` or `WEB_PORT` | Web server port (default 4000) | No |
+| `ADMIN_NOSTR_PUBKEYS` | Comma-separated npub or hex keys allowed to log into the admin UI via [NIP-07](https://nips.nostr.com/7) | For the web UI |
+| `SECRET_KEY_BASE` | Signs the admin session cookie. Generate with `openssl rand -base64 48` | Recommended |
 | `NOSTR_NSEC` | Nostr private key (nsec or hex format) | For publishing |
+| `NOSTR_RELAYS_TEST` | Comma-separated relays for sources that are not public | No |
+| `NOSTR_RELAYS_PUBLIC` | Comma-separated relays for public sources | No |
+| `NOSTR_RELAYS` | Alias for `NOSTR_RELAYS_TEST` if that variable is unset | No |
+| `NOSTR_RELAY_AUDIENCE` | Default audience when a source is missing: `test` or `public` | No |
+| `NOSTR_UPLOAD_ENDPOINT` | Blossom server base URL (BUD-02 `PUT /upload`) | For image upload |
 | `DATABASE_URL` | PostgreSQL connection URL | For production |
 
 ### Config File
 
-Configure default relays and scheduler intervals in `config/config.exs`:
+Configure scheduler intervals in `config/config.exs` and the two relay lists under `:nostr`:
 
 ```elixir
 config :rss2nostr, Rss2Nostr.Scheduler,
@@ -71,13 +81,16 @@ config :rss2nostr, Rss2Nostr.Scheduler,
     import: :timer.minutes(15),
     process: :timer.minutes(5),
     export: :timer.minutes(10)
-  },
-  default_relays: [
-    "wss://relay.damus.io",
-    "wss://nos.lol",
-    "wss://relay.nostr.band"
-  ]
+  }
+
+config :rss2nostr, :nostr,
+  relays: %{
+    test: ["wss://nos.lol", "wss://relay.damus.io"],
+    public: ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.nostr.band"]
+  }
 ```
+
+Each source publishes to the **test** list unless it is marked public (`source add --public`, or the checkbox in the web UI). `--relays` on export still overrides both lists.
 
 ## Usage
 
@@ -86,8 +99,11 @@ config :rss2nostr, Rss2Nostr.Scheduler,
 #### Source Management
 
 ```bash
-# Add a new RSS/Atom source
+# Add a new RSS/Atom source (publishes to test relays)
 ./rss2nostr source add --name "Bitcoin Magazine" --url "https://bitcoinmagazine.com/feed"
+
+# Add a source that publishes to public relays
+./rss2nostr source add --name "Bitcoin Magazine" --url "https://bitcoinmagazine.com/feed" --public
 
 # List all sources
 ./rss2nostr source list
@@ -127,9 +143,13 @@ config :rss2nostr, Rss2Nostr.Scheduler,
 
 # Export to specific relays
 ./rss2nostr export --relays "wss://relay1.com,wss://relay2.com"
+
+# Force the test or public list for every post in this run
+./rss2nostr export --audience test
+./rss2nostr export --audience public
 ```
 
-#### Image Upload (NIP-96)
+#### Image Upload (Blossom)
 
 ```bash
 # Upload a local image
@@ -138,7 +158,7 @@ config :rss2nostr, Rss2Nostr.Scheduler,
 # Upload from URL
 ./rss2nostr upload https://example.com/image.jpg
 
-# List available NIP-96 servers
+# List available Blossom servers
 ./rss2nostr servers
 ```
 
@@ -173,17 +193,28 @@ config :rss2nostr, Rss2Nostr.Scheduler,
 #### Web Interface
 
 ```bash
-# Start the web server
+# One-command dev server (recommended)
+./bin/dev
+
+# Or via Mix, after deps and database are set up
+mix rss2nostr.server
+mix rss2nostr.server --port 8080
+
+# CLI (after mix escript.build)
 ./rss2nostr web start
-
-# Start on a custom port
 ./rss2nostr web start --port 8080
-
-# Check web server status
 ./rss2nostr web status
 ```
 
-Then open http://localhost:4000 in your browser.
+Then open http://localhost:4000 in your browser (or the `PORT` from `.env`).
+
+The admin UI requires a [NIP-07](https://nips.nostr.com/7) browser extension (Alby, nos2x, and similar). Only public keys listed in `ADMIN_NOSTR_PUBKEYS` can log in. The server never sees the private key: the extension signs a one-time challenge event.
+
+```bash
+# npub or 64-character hex, comma-separated for multiple admins
+ADMIN_NOSTR_PUBKEYS=npub1...
+SECRET_KEY_BASE=$(openssl rand -base64 48)
+```
 
 ### Web Interface
 
@@ -194,6 +225,7 @@ The web interface provides:
 - **Posts**: View imported posts, filter by status, process and publish
 - **Scheduler**: Start/stop scheduler, run tasks manually
 - **Settings**: View configuration and Nostr key status
+- **Login**: NIP-07 (`window.nostr`) only; allowlist from `ADMIN_NOSTR_PUBKEYS`
 
 ### API Endpoints
 
@@ -226,7 +258,10 @@ Published articles use NIP-23 format (kind 30023):
     ["image", "https://nostr.build/..."],
     ["published_at", "1704067200"],
     ["t", "bitcoin"],
-    ["t", "nostr"]
+    ["t", "nostr"],
+    ["L", "ISO-639-1"],
+    ["l", "de", "ISO-639-1"],
+    ["r", "https://example.com/article"]
   ]
 }
 ```
@@ -300,7 +335,7 @@ lib/
 │   │   ├── relay.ex        # Relay communication
 │   │   ├── nip19.ex        # Bech32 encoding
 │   │   ├── nip46.ex        # Nostr Connect
-│   │   ├── nip96.ex        # Image upload
+│   │   ├── blossom.ex      # Blossom image upload
 │   │   └── publisher.ex    # Event publishing
 │   ├── scheduler/          # Task scheduler
 │   └── web/                # Web interface
@@ -317,10 +352,11 @@ lib/
 
 - **NIP-01**: Basic protocol flow
 - **NIP-04**: Encrypted Direct Messages (used for NIP-46)
+- **NIP-07**: `window.nostr` browser extension login for the admin UI
 - **NIP-19**: Bech32-encoded entities (npub, nsec, naddr, nevent, nprofile)
 - **NIP-23**: Long-form Content
 - **NIP-46**: Nostr Connect (Bunker)
-- **NIP-96**: HTTP File Storage Integration
+- **Blossom** (BUD-02 / BUD-11): Blob storage (replaces NIP-96)
 - **NIP-98**: HTTP Auth
 
 ## License

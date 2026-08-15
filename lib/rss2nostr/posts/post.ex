@@ -15,6 +15,7 @@ defmodule Rss2Nostr.Posts.Post do
   @status_published 6
   @status_blocked 7
   @status_error 8
+  @status_pending_images 9
 
   @type t :: %__MODULE__{}
 
@@ -45,6 +46,9 @@ defmodule Rss2Nostr.Posts.Post do
   @spec status_error() :: integer()
   def status_error, do: @status_error
 
+  @spec status_pending_images() :: integer()
+  def status_pending_images, do: @status_pending_images
+
   @status_names %{
     @status_new => "new",
     @status_processing => "processing",
@@ -54,14 +58,19 @@ defmodule Rss2Nostr.Posts.Post do
     @status_publishing => "publishing",
     @status_published => "published",
     @status_blocked => "blocked",
-    @status_error => "error"
+    @status_error => "error",
+    @status_pending_images => "pending_images"
+  }
+
+  @status_labels %{
+    @status_pending_images => "pending images"
   }
 
   @spec status_name(integer()) :: String.t()
   def status_name(status), do: Map.get(@status_names, status, "unknown")
 
   @spec status_label(integer()) :: String.t()
-  def status_label(status), do: status_name(status)
+  def status_label(status), do: Map.get(@status_labels, status, status_name(status))
 
   schema "posts" do
     field(:article_identifier, :string)
@@ -77,6 +86,7 @@ defmodule Rss2Nostr.Posts.Post do
     field(:author_id, :string)
     field(:summary, :string)
     field(:language, :string, default: "de")
+    field(:categories, {:array, :string}, default: [])
 
     # Nostr
     field(:type, :integer, default: 30023)
@@ -111,6 +121,7 @@ defmodule Rss2Nostr.Posts.Post do
       :author_id,
       :summary,
       :language,
+      :categories,
       :type,
       :pubkey,
       :event_id,
@@ -120,7 +131,7 @@ defmodule Rss2Nostr.Posts.Post do
       :source_id
     ])
     |> validate_required([:source_url_hash])
-    |> unique_constraint(:source_url_hash)
+    |> unique_constraint(:source_url_hash, name: :posts_source_id_source_url_hash_index)
   end
 
   @doc """

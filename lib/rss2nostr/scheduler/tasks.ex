@@ -14,7 +14,9 @@ defmodule Rss2Nostr.Scheduler.Tasks do
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Import.Importer
   alias Rss2Nostr.Processing.Processor
-  alias Rss2Nostr.Nostr.{Publisher, NIP96}
+  alias Rss2Nostr.Nostr.{Publisher, Relays, Signer}
+  alias Rss2Nostr.Sources.Source
+  alias Rss2Nostr.Repo
 
   @type import_result ::
           {:ok,
@@ -69,7 +71,7 @@ defmodule Rss2Nostr.Scheduler.Tasks do
     Logger.info("[Scheduler] Starting process task")
 
     limit = Keyword.get(opts, :limit, 50)
-    posts = Posts.list_posts_by_status(Posts.Post.status_new(), limit: limit)
+    posts = Posts.list_processable_posts(limit: limit)
 
     if Enum.empty?(posts) do
       Logger.info("[Scheduler] No new posts to process")
@@ -100,10 +102,11 @@ defmodule Rss2Nostr.Scheduler.Tasks do
   Runs the export task: publishes processed articles to Nostr.
 
   Config:
-  - :private_key - Nostr private key (binary, required)
-  - :relays - List of relay URLs (required)
+  - :private_key - App key used for draft sources (optional if every source has its own signer)
+  - :relays - Explicit relay URLs (public relays are dropped for setup sources)
+  - :audience - `:test` or `:public` (ignored for setup sources)
   - :limit - Maximum number of posts to export (default: 10)
-  - :upload_images - Whether to upload images first (default: false)
+  - :upload_images - Ignored; images are uploaded during process, before a post is processed
 
   Returns {:ok, %{published: count, errors: count}} or {:error, reason}
   """
@@ -111,84 +114,73 @@ defmodule Rss2Nostr.Scheduler.Tasks do
   def run_export(config \\ %{}) do
     Logger.info("[Scheduler] Starting export task")
 
-    private_key = config[:private_key]
-    relays = config[:relays] || []
+    relays = Map.get(config, :relays, :per_post)
+    audience = Relays.parse_audience(config[:audience])
     limit = config[:limit] || 10
-    upload_images = config[:upload_images] || false
 
     cond do
-      is_nil(private_key) ->
-        Logger.warning("[Scheduler] Export skipped: no private key configured")
-        {:error, :no_private_key}
+      relays == [] ->
+        Logger.warning("[Scheduler] Export skipped: no relays configured")
+        {:error, :no_relays}
 
-      Enum.empty?(relays) ->
+      relays == :per_post and Relays.empty?() ->
         Logger.warning("[Scheduler] Export skipped: no relays configured")
         {:error, :no_relays}
 
       true ->
-        do_export(private_key, relays, limit, upload_images)
+        do_export(config, relays, audience, limit)
     end
   end
 
-  defp do_export(private_key, relays, limit, upload_images) do
-    posts = Posts.list_processed_posts(limit: limit)
+  defp do_export(config, relays, audience, limit) do
+    posts =
+      Posts.list_processed_posts(limit: limit * 3)
+      |> Repo.preload(:source)
+      |> Enum.filter(&exportable?/1)
+      |> Enum.take(limit)
 
     if Enum.empty?(posts) do
       Logger.info("[Scheduler] No processed posts to export")
       {:ok, %{published: 0, errors: 0}}
     else
-      posts = prepare_posts_for_export(posts, upload_images, private_key)
-      results = Publisher.publish_posts(posts, private_key: private_key, relays: relays)
+      results = Enum.map(posts, &export_post(&1, config, relays, audience))
 
       published = Enum.count(results, fn {_id, r} -> r.success end)
       errors = Enum.count(results, fn {_id, r} -> not r.success end)
 
-      Logger.info(
-        "[Scheduler] Export complete: #{published} posts published to #{length(relays)} relays"
-      )
+      Logger.info("[Scheduler] Export complete: #{published} published, #{errors} not published")
 
-      {:ok, %{published: published, errors: errors, relays: length(relays)}}
+      {:ok, %{published: published, errors: errors}}
     end
   end
 
-  defp prepare_posts_for_export(posts, false, _private_key), do: posts
+  defp exportable?(%{source: %Source{active: true, mode: "automated"}}), do: true
+  defp exportable?(_), do: false
 
-  defp prepare_posts_for_export(posts, true, private_key) do
-    Enum.map(posts, &maybe_upload_image(&1, private_key))
-  end
+  defp export_post(post, config, relays, audience) do
+    case Signer.resolve(post.source, private_key: config[:private_key]) do
+      {:ok, signer} ->
+        opts = publish_opts(signer, post, relays, audience)
 
-  # Upload image to NIP-96 server if needed
-  defp maybe_upload_image(post, private_key) do
-    url = post.image
-
-    cond do
-      is_nil(url) or url == "" ->
-        post
-
-      not should_upload?(url) ->
-        post
-
-      true ->
-        upload_image(post, url, private_key)
-    end
-  end
-
-  defp upload_image(post, url, private_key) do
-    case NIP96.upload_from_url(url, private_key: private_key) do
-      {:ok, result} ->
-        Logger.debug("[Scheduler] Image uploaded: #{result.url}")
-        %{post | image: result.url}
+        case Publisher.publish_post(post, opts) do
+          {:ok, result} -> {post.id, result}
+          {:error, reason} -> {post.id, %{success: false, error: reason}}
+        end
 
       {:error, reason} ->
-        Logger.warning("[Scheduler] Image upload failed: #{inspect(reason)}")
-        post
+        Logger.warning(
+          "[Scheduler] Export skipped for post #{post.id}: no signer (#{inspect(reason)})"
+        )
+
+        {post.id, %{success: false, error: reason}}
     end
   end
 
-  defp should_upload?(url) do
-    known_hosts = ["nostr.build", "nostrcheck.me", "void.cat", "nostpic.com"]
-    uri = URI.parse(url)
-    host = uri.host || ""
-    not Enum.any?(known_hosts, fn h -> String.contains?(host, h) end)
+  defp publish_opts(signer, post, relays, audience) when is_list(relays) do
+    [signer: signer, relays: Relays.publish_relays(post, relays: relays, audience: audience)]
+  end
+
+  defp publish_opts(signer, post, :per_post, audience) do
+    [signer: signer, relays: Relays.publish_relays(post, audience: audience)]
   end
 end

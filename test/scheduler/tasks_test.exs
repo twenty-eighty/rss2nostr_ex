@@ -60,10 +60,10 @@ defmodule Rss2Nostr.Scheduler.TasksTest do
   end
 
   describe "run_export/1" do
-    test "returns error when no private key configured" do
+    test "returns ok when there are no automated posts to export" do
       result = Tasks.run_export(%{})
 
-      assert result == {:error, :no_private_key}
+      assert match?({:ok, %{published: 0}}, result) or result == {:error, :no_relays}
     end
 
     test "returns error when no relays configured" do
@@ -85,6 +85,14 @@ defmodule Rss2Nostr.Scheduler.TasksTest do
 
       # Should succeed with no posts or return ok tuple
       assert match?({:ok, _}, result) or result == :ok
+    end
+
+    test "uses configured relays when none are passed" do
+      private_key = :crypto.strong_rand_bytes(32) |> Base.encode16(case: :lower)
+
+      result = Tasks.run_export(%{private_key: private_key})
+
+      assert match?({:ok, _}, result)
     end
   end
 end

@@ -46,6 +46,7 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
       assert Map.has_key?(source, :type)
       assert Map.has_key?(source, :active)
       assert Map.has_key?(source, :language)
+      assert Map.has_key?(source, :public)
     end
   end
 
@@ -64,6 +65,103 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
       assert source.type == "atom"
       assert source.language == "de"
       assert source.active == true
+      assert source.mode == "setup"
+      assert source.publish_as == "draft"
+      assert source.default_post_kind == 30024
+    end
+
+    test "creates an article source when publish_as is article" do
+      params = %{
+        "name" => "Article Source",
+        "url" => unique_url(),
+        "type" => "rss",
+        "publish_as" => "article",
+        "signing_nsec" => "0000000000000000000000000000000000000000000000000000000000000001"
+      }
+
+      {:ok, source} = API.create(params)
+
+      assert source.publish_as == "article"
+      assert source.default_post_kind == 30023
+      assert source.signing_nsec_ciphertext
+    end
+
+    test "requires a pubkey when creating a draft source" do
+      params = %{
+        "name" => "Draft Source",
+        "url" => unique_url(),
+        "publish_as" => "draft"
+      }
+
+      assert {:error, changeset} = API.create(params)
+      assert changeset.errors[:pubkey]
+    end
+
+    test "requires an nsec or bunker when creating an article source" do
+      params = %{
+        "name" => "Article Source",
+        "url" => unique_url(),
+        "publish_as" => "article"
+      }
+
+      assert {:error, changeset} = API.create(params)
+      assert changeset.errors[:signing_nsec]
+    end
+
+    test "creates source with author pubkey as drafts" do
+      hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+      params = %{
+        "name" => "Author Source",
+        "url" => unique_url(),
+        "pubkey" => hex,
+        "start_guid" => "article-1",
+        "start_published_at" => "2024-01-01T12:00:00Z"
+      }
+
+      {:ok, source} = API.create(params)
+
+      assert source.pubkey == hex
+      assert source.default_post_kind == 30024
+      assert source.options["start_guid"] == "article-1"
+      assert source.publish_after_date
+    end
+
+    test "stores composition settings" do
+      params = %{
+        "name" => "Compose Source",
+        "url" => unique_url(),
+        "fetch_source_from" => "content",
+        "body_selector" => "div.entry-content",
+        "start_at" => "//p[contains(., 'Lecture')]",
+        "skip_classes" => "lead, OUTBRAIN"
+      }
+
+      {:ok, source} = API.create(params)
+
+      assert source.fetch_source_from == "content"
+      assert source.options["body_selector"] == "div.entry-content"
+      assert source.options["start_at"] == "//p[contains(., 'Lecture')]"
+      assert source.options["skip_classes"] == ["lead", "OUTBRAIN"]
+    end
+
+    test "stores conversion rules" do
+      params = %{
+        "name" => "Rules Source",
+        "url" => unique_url(),
+        "conversion_rules" =>
+          Jason.encode!([
+            %{
+              "action" => "links_as_paragraphs",
+              "xpath" => "//p[contains(., 'WATCH ON:')]"
+            }
+          ])
+      }
+
+      {:ok, source} = API.create(params)
+
+      assert [%{action: "links_as_paragraphs", xpath: xpath}] = source.options["conversion_rules"]
+      assert xpath == "//p[contains(., 'WATCH ON:')]"
     end
 
     test "uses default values when not provided" do
@@ -76,6 +174,7 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
 
       assert source.type == "atom"
       assert source.language == "de"
+      assert source.public == false
     end
 
     test "returns error for invalid params" do
@@ -83,6 +182,36 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
 
       {:error, changeset} = API.create(params)
       refute changeset.valid?
+    end
+  end
+
+  describe "update/2" do
+    test "updates composition settings without dropping start_guid" do
+      {:ok, source} =
+        Sources.create_source(
+          Map.merge(valid_attrs(), %{
+            options: %{"start_guid" => "keep-me"},
+            fetch_source_from: "fetch_from_url"
+          })
+        )
+
+      {:ok, updated} =
+        API.update(source, %{
+          "fetch_source_from" => "content",
+          "body_selector" => "article",
+          "skip_classes" => "shariff"
+        })
+
+      assert updated.fetch_source_from == "content"
+      assert updated.options["start_guid"] == "keep-me"
+      assert updated.options["body_selector"] == "article"
+      assert updated.options["skip_classes"] == ["shariff"]
+    end
+  end
+
+  describe "compose_preview/1" do
+    test "returns an error without a feed URL" do
+      assert {:error, "Feed URL is required"} = API.compose_preview(%{})
     end
   end
 
@@ -109,6 +238,22 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
       assert {:error, :invalid_id} = API.toggle("invalid")
       assert {:error, :invalid_id} = API.toggle("-1")
       assert {:error, :invalid_id} = API.toggle("0")
+    end
+  end
+
+  describe "duplicate/1" do
+    test "duplicates an existing source" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+
+      {:ok, copy} = API.duplicate(to_string(source.id))
+
+      assert copy.id != source.id
+      assert copy.name == "#{source.name} (copy)"
+      assert copy.url != source.url
+    end
+
+    test "returns error for a missing source" do
+      assert {:error, :not_found} = API.duplicate("999999")
     end
   end
 

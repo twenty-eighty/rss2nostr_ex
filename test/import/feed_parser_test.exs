@@ -66,6 +66,16 @@ defmodule Rss2Nostr.Import.FeedParserTest do
     end
   end
 
+  describe "feed_title/1" do
+    test "reads the RSS channel title" do
+      assert FeedParser.feed_title(@rss_feed) == "Test Feed"
+    end
+
+    test "reads the Atom feed title" do
+      assert FeedParser.feed_title(@atom_feed) == "Test Atom Feed"
+    end
+  end
+
   describe "parse/2 with RSS" do
     test "parses RSS feed items" do
       {:ok, items} = FeedParser.parse(@rss_feed, "rss")

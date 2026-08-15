@@ -8,13 +8,15 @@ defmodule Rss2Nostr.Web.Server do
   @default_port 4000
 
   def start(opts \\ []) do
-    port = Keyword.get(opts, :port, @default_port)
+    port =
+      Keyword.get(opts, :port) ||
+        Application.get_env(:rss2nostr, :web_port, @default_port)
 
     Logger.info("Starting web server on port #{port}")
 
-    children = [
-      {Bandit, plug: Rss2Nostr.Web.Router, port: port}
-    ]
+    children =
+      maybe_reloader() ++
+        [{Bandit, plug: Rss2Nostr.Web.Router, port: port}]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Rss2Nostr.Web.Supervisor)
   end
@@ -36,5 +38,13 @@ defmodule Rss2Nostr.Web.Server do
 
   def port do
     Application.get_env(:rss2nostr, :web_port, @default_port)
+  end
+
+  defp maybe_reloader do
+    if Rss2Nostr.Web.CodeReloader.enabled?() do
+      [Rss2Nostr.Web.CodeReloader]
+    else
+      []
+    end
   end
 end

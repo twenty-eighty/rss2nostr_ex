@@ -91,8 +91,51 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
 
       result = ImageExtractor.extract_and_store(post)
 
-      # Returns {:ok, count} or similar
-      assert match?({:ok, _}, result) or is_list(result)
+      assert match?({:ok, %Post{}, _}, result)
+    end
+
+    test "repairs Cloudinary fetch fragments and stores the original URL", %{source: source} do
+      fragment =
+        "fl_progressive:steep/https%3A%2F%2Fpbs.substack.com%2Fprofile_images%2F1829651769380503552%2FbMTtwSuG.jpg"
+
+      original =
+        "https://pbs.substack.com/profile_images/1829651769380503552/bMTtwSuG.jpg"
+
+      post = create_test_post(source, "<p>x</p>")
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          content: "[![](#{fragment})Carmen Drescher](https://substack.com/@carmen)"
+        })
+
+      {:ok, post, count} = ImageExtractor.extract_and_store(post)
+
+      assert count == 1
+      assert post.content =~ original
+      refute post.content =~ "fl_progressive:steep"
+
+      urls = Enum.map(Posts.list_images_for_post(post.id), & &1.original_url)
+      assert original in urls
+    end
+
+    test "does not create a new row for a URL that was already uploaded", %{source: source} do
+      original = "https://cdn.example/hero.jpg"
+      uploaded = "https://route96.example/hero.jpg"
+      post = create_test_post(source, "<p>x</p>")
+
+      {:ok, post} = Posts.update_post(post, %{content: "![Hero](#{uploaded})", image: uploaded})
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: original,
+          uploaded_url: uploaded
+        })
+
+      {:ok, _post, created} = ImageExtractor.extract_and_store(post)
+
+      assert created == 0
+      assert length(Posts.list_images_for_post(post.id)) == 1
     end
   end
 
@@ -129,6 +172,24 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
       images = ImageExtractor.extract_markdown_images(nil)
 
       assert images == []
+    end
+  end
+
+  describe "normalize_url/1" do
+    test "unwraps an encoded Cloudinary fetch target" do
+      url =
+        "https://substackcdn.com/image/fetch/w_192,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fpbs.substack.com%2Fprofile_images%2F1829651769380503552%2FbMTtwSuG.jpg"
+
+      assert ImageExtractor.normalize_url(url) ==
+               "https://pbs.substack.com/profile_images/1829651769380503552/bMTtwSuG.jpg"
+    end
+
+    test "unwraps a leftover srcset fragment" do
+      url =
+        "fl_progressive:steep/https%3A%2F%2Fpbs.substack.com%2Fprofile_images%2F1829651769380503552%2FbMTtwSuG.jpg"
+
+      assert ImageExtractor.normalize_url(url) ==
+               "https://pbs.substack.com/profile_images/1829651769380503552/bMTtwSuG.jpg"
     end
   end
 

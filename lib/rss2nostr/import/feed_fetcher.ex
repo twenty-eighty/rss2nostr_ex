@@ -5,6 +5,8 @@ defmodule Rss2Nostr.Import.FeedFetcher do
 
   require Logger
 
+  alias Rss2Nostr.HTTP
+
   @user_agent "RSS2Nostr/0.1 (Elixir)"
   @timeout 30_000
 
@@ -14,30 +16,12 @@ defmodule Rss2Nostr.Import.FeedFetcher do
   """
   @spec fetch(String.t() | any()) :: {:ok, String.t()} | {:error, String.t()}
   def fetch(url) when is_binary(url) do
-    headers = [
-      {"User-Agent", @user_agent},
-      {"Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"}
-    ]
-
-    options = [
-      timeout: @timeout,
-      recv_timeout: @timeout,
-      follow_redirect: true,
-      max_redirect: 5
-    ]
-
-    Logger.debug("Fetching feed from #{url}")
-
-    case HTTPoison.get(url, headers, options) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        {:ok, ensure_utf8(body)}
-
-      {:ok, %HTTPoison.Response{status_code: status_code}} ->
-        {:error, "HTTP #{status_code}"}
-
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, "Request failed: #{inspect(reason)}"}
-    end
+    request(url,
+      headers: [
+        {"user-agent", @user_agent},
+        {"accept", "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"}
+      ]
+    )
   end
 
   def fetch(_), do: {:error, "Invalid URL"}
@@ -47,33 +31,30 @@ defmodule Rss2Nostr.Import.FeedFetcher do
   """
   @spec fetch_article(String.t() | any()) :: {:ok, String.t()} | {:error, String.t()}
   def fetch_article(url) when is_binary(url) do
-    headers = [
-      {"User-Agent", @user_agent},
-      {"Accept", "text/html, application/xhtml+xml, */*"}
-    ]
-
-    options = [
-      timeout: @timeout,
-      recv_timeout: @timeout,
-      follow_redirect: true,
-      max_redirect: 5
-    ]
-
-    Logger.debug("Fetching article from #{url}")
-
-    case HTTPoison.get(url, headers, options) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        {:ok, ensure_utf8(body)}
-
-      {:ok, %HTTPoison.Response{status_code: status_code}} ->
-        {:error, "HTTP #{status_code}"}
-
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, "Request failed: #{inspect(reason)}"}
-    end
+    request(url,
+      headers: [
+        {"user-agent", @user_agent},
+        {"accept", "text/html, application/xhtml+xml, */*"}
+      ]
+    )
   end
 
   def fetch_article(_), do: {:error, "Invalid URL"}
+
+  defp request(url, opts) do
+    Logger.debug("Fetching #{url}")
+
+    case HTTP.get(url, Keyword.put(opts, :receive_timeout, @timeout)) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, ensure_utf8(body)}
+
+      {:ok, %{status: status_code}} ->
+        {:error, "HTTP #{status_code}"}
+
+      {:error, exception} ->
+        {:error, "Request failed: #{Exception.message(exception)}"}
+    end
+  end
 
   # Ensure the body is valid UTF-8
   defp ensure_utf8(body) when is_binary(body) do

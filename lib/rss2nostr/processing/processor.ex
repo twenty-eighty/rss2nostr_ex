@@ -2,15 +2,17 @@ defmodule Rss2Nostr.Processing.Processor do
   @moduledoc """
   Orchestrates the processing of imported posts:
   1. Converts HTML content to Markdown
-  2. Extracts and stores images
-  3. Updates post status
+  2. Extracts images
+  3. Uploads featured and referenced images to Blossom
+  4. Marks processed only when images are done
   """
 
   require Logger
 
+  alias Rss2Nostr.Nostr.{Blossom, Signer}
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
-  alias Rss2Nostr.Processing.{HtmlToMarkdown, ImageExtractor}
+  alias Rss2Nostr.Processing.{Composer, ImageExtractor}
 
   @type process_result :: %{
           processed: non_neg_integer(),
@@ -19,13 +21,13 @@ defmodule Rss2Nostr.Processing.Processor do
         }
 
   @doc """
-  Processes all new posts (status = 0).
+  Processes new posts and posts waiting on image uploads.
   """
   @spec process_new_posts(keyword()) :: process_result()
   def process_new_posts(opts \\ []) do
     limit = Keyword.get(opts, :limit, 10)
 
-    Posts.list_new_posts(limit: limit)
+    Posts.list_processable_posts(limit: limit)
     |> process_posts()
   end
 
@@ -40,7 +42,6 @@ defmodule Rss2Nostr.Processing.Processor do
       case process_post(post) do
         {:ok, _} -> %{acc | processed: acc.processed + 1}
         {:error, _} -> %{acc | errors: acc.errors + 1}
-        :skipped -> %{acc | skipped: acc.skipped + 1}
       end
     end)
   end
@@ -48,7 +49,7 @@ defmodule Rss2Nostr.Processing.Processor do
   @doc """
   Processes a single post by ID.
   """
-  @spec process_post_by_id(integer()) :: {:ok, Post.t()} | {:error, any()} | :skipped
+  @spec process_post_by_id(integer()) :: {:ok, Post.t()} | {:error, any()}
   def process_post_by_id(post_id) do
     case Posts.get_post(post_id) do
       nil -> {:error, :not_found}
@@ -58,50 +59,28 @@ defmodule Rss2Nostr.Processing.Processor do
 
   @doc """
   Processes a single post:
-  1. Mark as processing
-  2. Convert HTML to Markdown
-  3. Extract images
-  4. Update post with content
-  5. Mark as processed
+  1. Convert HTML to Markdown (unless only images remain)
+  2. Extract images
+  3. Upload featured and referenced images
+  4. Mark as processed only when images are done; otherwise pending images
   """
-  @spec process_post(Post.t()) :: {:ok, Post.t()} | {:error, any()} | :skipped
+  @spec process_post(Post.t()) :: {:ok, Post.t()} | {:error, any()}
   def process_post(%Post{} = post) do
     Logger.info("Processing post: #{post.title}")
 
-    # Mark as processing
-    {:ok, post} = Posts.mark_processing(post)
-
     try do
-      # Get the source HTML content
-      source_html = post.source_html
+      cond do
+        post.status == Post.status_pending_images() and present?(post.content) ->
+          ensure_images(post)
 
-      if is_nil(source_html) || source_html == "" do
-        Logger.warning("Post #{post.id} has no source HTML, skipping conversion")
-        {:ok, _post} = Posts.mark_processed(post)
-        :skipped
-      else
-        # Convert HTML to Markdown
-        markdown = HtmlToMarkdown.convert(source_html)
+        is_nil(post.source_html) or post.source_html == "" ->
+          {:ok, post} = Posts.mark_processing(post)
+          Logger.warning("Post #{post.id} has no source HTML, skipping conversion")
+          ensure_images(post)
 
-        # Generate summary if not present
-        summary = post.summary || generate_summary(markdown)
-
-        # Update post with processed content
-        {:ok, post} =
-          Posts.update_post(post, %{
-            content: markdown,
-            summary: summary
-          })
-
-        # Extract and store images
-        {:ok, image_count} = ImageExtractor.extract_and_store(post)
-        Logger.debug("Extracted #{image_count} images from post #{post.id}")
-
-        # Mark as processed
-        {:ok, post} = Posts.mark_processed(post)
-
-        Logger.info("Processed: #{post.title}")
-        {:ok, post}
+        true ->
+          {:ok, post} = Posts.mark_processing(post)
+          compose_and_store(post)
       end
     rescue
       e ->
@@ -110,6 +89,106 @@ defmodule Rss2Nostr.Processing.Processor do
         {:error, e}
     end
   end
+
+  @doc """
+  Uploads remaining images and marks the post processed, or pending images.
+  """
+  @spec ensure_images(Post.t()) :: {:ok, Post.t()}
+  def ensure_images(%Post{} = post) do
+    {:ok, post, _count} = ImageExtractor.extract_and_store(post)
+    post = post |> Posts.preload_source() |> Posts.preload_images()
+    {post, _mapping} = Blossom.stamp_hosted_images(post)
+
+    cond do
+      not Blossom.pending_images?(post) ->
+        finish_images(post)
+
+      true ->
+        case Signer.upload_signer(post.source) do
+          {:ok, signer} ->
+            case Blossom.ensure_post_images(post, signer) do
+              {:ok, post} ->
+                finish_images(post)
+
+              {:error, reason} ->
+                pend_images(post, format_image_error(reason))
+            end
+
+          {:error, reason} ->
+            pend_images(post, format_image_error(reason))
+        end
+    end
+  end
+
+  defp compose_and_store(post) do
+    post = Posts.preload_source(post)
+    composed = Composer.compose(post.source_html, Composer.opts_from_source(post.source))
+    markdown = composed.markdown
+    summary = post.summary || composed.summary || generate_summary(markdown)
+    image = post.image || composed.image
+
+    {:ok, post} =
+      Posts.update_post(post, %{
+        content: markdown,
+        summary: summary,
+        image: image
+      })
+
+    ensure_images(post)
+  end
+
+  @doc """
+  Marks a pending-images post processed when every image already has a
+  Blossom URL. Used when opening a post so a leftover status/error is not shown.
+  """
+  @spec finish_if_images_ready(Post.t()) :: Post.t()
+  def finish_if_images_ready(%Post{} = post) do
+    {:ok, post, _count} = ImageExtractor.extract_and_store(post)
+    post = Posts.preload_images(post)
+
+    cond do
+      Blossom.pending_images?(post) ->
+        {:ok, post} = ensure_images(post)
+        post
+
+      post.status == Post.status_pending_images() ->
+        {:ok, post} = finish_images(post)
+        post
+
+      true ->
+        post
+    end
+  end
+
+  defp finish_images(post) do
+    {:ok, post} = Posts.mark_processed(post)
+    Logger.info("Processed: #{post.title}")
+    {:ok, post}
+  end
+
+  defp pend_images(post, "Images still need uploading") do
+    {:ok, post} = Posts.update_post(post, %{status: Post.status_pending_images(), last_error: nil})
+    Logger.info("Pending images: #{post.title}")
+    {:ok, post}
+  end
+
+  defp pend_images(post, message) do
+    {:ok, post} = Posts.mark_pending_images(post, message)
+    Logger.info("Pending images: #{post.title} (#{message})")
+    {:ok, post}
+  end
+
+  defp format_image_error(:no_upload_endpoint), do: "NOSTR_UPLOAD_ENDPOINT is not set"
+  defp format_image_error(:no_app_private_key), do: "NOSTR_NSEC is not set (needed to upload draft images)"
+  defp format_image_error(:no_source_pubkey), do: "Draft source needs an intended author pubkey to upload images with the app key"
+  defp format_image_error(:no_source_signer), do: "Source has no nsec or bunker URL for image upload"
+  defp format_image_error(:images_pending), do: "Images still need uploading"
+  defp format_image_error(:no_source), do: "Post has no source for image upload"
+  defp format_image_error(reason) when is_binary(reason), do: reason
+  defp format_image_error(reason), do: "Blossom upload failed: #{inspect(reason)}"
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_), do: false
 
   @doc """
   Generates a summary from markdown content.
@@ -151,13 +230,13 @@ defmodule Rss2Nostr.Processing.Processor do
   Reprocesses a post (useful for debugging or after fixes).
   Resets status to new and processes again.
   """
-  @spec reprocess_post(Post.t()) :: {:ok, Post.t()} | {:error, any()} | :skipped
+  @spec reprocess_post(Post.t()) :: {:ok, Post.t()} | {:error, any()}
   def reprocess_post(%Post{} = post) do
     {:ok, post} = Posts.update_post(post, %{status: Post.status_new()})
     process_post(post)
   end
 
-  @spec reprocess_post_by_id(integer()) :: {:ok, Post.t()} | {:error, any()} | :skipped
+  @spec reprocess_post_by_id(integer()) :: {:ok, Post.t()} | {:error, any()}
   def reprocess_post_by_id(post_id) do
     case Posts.get_post(post_id) do
       nil -> {:error, :not_found}

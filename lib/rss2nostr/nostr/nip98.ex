@@ -3,7 +3,7 @@ defmodule Rss2Nostr.Nostr.NIP98 do
   Implements NIP-98 HTTP Auth.
 
   Creates authorization events (kind 27235) for authenticating HTTP requests
-  to NIP-96 file servers and other authenticated endpoints.
+  to HTTP endpoints.
 
   The auth event contains:
   - kind: 27235

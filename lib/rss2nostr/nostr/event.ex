@@ -3,14 +3,18 @@ defmodule Rss2Nostr.Nostr.Event do
   Nostr event builder with support for:
   - Kind 1: Short text notes
   - Kind 30023: Long-form content (NIP-23)
+  - Kind 31234: Encrypted draft wraps (NIP-37)
   """
 
-  alias Rss2Nostr.Nostr.Keys
+  alias Rss2Nostr.Nostr.{Keys, NIP44}
 
   # Event kinds
   @kind_text_note 1
   @kind_long_form 30023
   @kind_long_form_draft 30024
+  @kind_draft_wrap 31234
+  @draft_ttl_seconds 90 * 24 * 60 * 60
+  @max_draft_plaintext_size 65_535
 
   @type event :: %{
           id: String.t(),
@@ -31,7 +35,10 @@ defmodule Rss2Nostr.Nostr.Event do
   - :image - Featured image URL
   - :published_at - Unix timestamp of original publication
   - :identifier - Unique identifier (d tag), defaults to URL slug
-  - :hashtags - List of hashtag strings
+  - :hashtags - List of hashtag strings (`t` tags)
+  - :language - ISO language code (`L`/`l` NIP-32 labels)
+  - :canonical_url - Original article URL (`r` tag)
+  - :author_pubkey - Intended author (added as a `p` tag on drafts)
   """
   @spec build_long_form(String.t(), String.t(), keyword()) :: map()
   def build_long_form(pubkey, content, opts \\ []) do
@@ -41,38 +48,67 @@ defmodule Rss2Nostr.Nostr.Event do
     published_at = Keyword.get(opts, :published_at)
     identifier = Keyword.get(opts, :identifier) || generate_identifier(title)
     hashtags = Keyword.get(opts, :hashtags, [])
-
-    # Build tags
-    tags = [["d", identifier], ["title", title]]
-
-    tags =
-      if summary && summary != "" do
-        tags ++ [["summary", summary]]
-      else
-        tags
-      end
+    language = Keyword.get(opts, :language)
+    canonical_url = Keyword.get(opts, :canonical_url)
+    kind = Keyword.get(opts, :kind, @kind_long_form)
+    author_pubkey = Keyword.get(opts, :author_pubkey)
 
     tags =
-      if image && image != "" do
-        tags ++ [["image", image]]
-      else
-        tags
-      end
+      [["d", identifier], ["title", title]]
+      |> maybe_tag("summary", summary)
+      |> maybe_tag("image", image)
+      |> maybe_published_at(published_at)
+      |> maybe_hashtag_tags(hashtags)
+      |> maybe_language_tags(language)
+      |> maybe_canonical_url(canonical_url)
+      |> maybe_author_tag(author_pubkey)
 
-    tags =
-      if published_at do
-        tags ++ [["published_at", to_string(published_at)]]
-      else
-        tags
-      end
+    build_event(pubkey, kind, tags, content)
+  end
 
-    # Add hashtags as 't' tags
-    tags =
-      Enum.reduce(hashtags, tags, fn tag, acc ->
-        acc ++ [["t", String.downcase(tag)]]
-      end)
+  @doc """
+  Wraps an unsigned long-form event as a NIP-37 kind 31234 draft.
 
-    build_event(pubkey, @kind_long_form, tags, content)
+  The inner event is JSON-stringified and NIP-44-encrypted to the
+  signer's own public key. Tags: `d`, `k` (inner kind), `expiration`
+  (now + 90 days), and `p` when an intended author is given.
+  """
+  @spec wrap_draft(map(), binary(), keyword()) :: {:ok, map()} | {:error, term()}
+  def wrap_draft(inner_event, private_key, opts \\ [])
+      when is_map(inner_event) and byte_size(private_key) == 32 do
+    with {:ok, signer_pubkey} <- signer_pubkey_hex(private_key),
+         {:ok, plaintext} <- Jason.encode(inner_payload(inner_event)),
+         {:ok, ciphertext} <- NIP44.encrypt(plaintext, private_key, signer_pubkey) do
+      identifier = Keyword.get(opts, :identifier) || event_identifier(inner_event)
+      expiration = Keyword.get(opts, :expiration) || System.os_time(:second) + @draft_ttl_seconds
+      inner_kind = inner_event[:kind] || inner_event["kind"] || @kind_long_form
+      author_pubkey = Keyword.get(opts, :author_pubkey)
+
+      tags =
+        [
+          ["d", identifier || ""],
+          ["k", to_string(inner_kind)],
+          ["expiration", to_string(expiration)]
+        ]
+        |> maybe_author_tag(author_pubkey)
+
+      {:ok, build_event(signer_pubkey, @kind_draft_wrap, tags, ciphertext)}
+    end
+  end
+
+  @doc """
+  Decrypts a NIP-37 wrap back to the inner unsigned event map.
+  """
+  @spec unwrap_draft(map(), binary()) :: {:ok, map()} | {:error, term()}
+  def unwrap_draft(wrap_event, private_key)
+      when is_map(wrap_event) and byte_size(private_key) == 32 do
+    content = wrap_event[:content] || wrap_event["content"]
+    peer = wrap_event[:pubkey] || wrap_event["pubkey"]
+
+    with {:ok, plaintext} <- NIP44.decrypt(content, private_key, peer),
+         {:ok, inner} <- Jason.decode(plaintext) do
+      {:ok, inner}
+    end
   end
 
   @doc """
@@ -143,14 +179,16 @@ defmodule Rss2Nostr.Nostr.Event do
     if event.id != expected_id do
       {:error, :invalid_id}
     else
-      {:ok, id_bin} = Keys.from_hex(event.id)
-      {:ok, sig_bin} = Keys.from_hex(event.sig)
-      {:ok, pubkey_bin} = Keys.from_hex(event.pubkey)
-
-      if Keys.verify(id_bin, sig_bin, pubkey_bin) do
-        {:ok, event}
+      with {:ok, id_bin} <- Keys.from_hex(event.id),
+           {:ok, sig_bin} <- Keys.from_hex(event.sig),
+           {:ok, pubkey_bin} <- Keys.from_hex(event.pubkey) do
+        if Keys.verify(id_bin, sig_bin, pubkey_bin) do
+          {:ok, event}
+        else
+          {:error, :invalid_signature}
+        end
       else
-        {:error, :invalid_signature}
+        {:error, _} -> {:error, :invalid_signature}
       end
     end
   end
@@ -204,4 +242,145 @@ defmodule Rss2Nostr.Nostr.Event do
 
   @spec kind_long_form_draft() :: integer()
   def kind_long_form_draft, do: @kind_long_form_draft
+
+  @spec kind_draft_wrap() :: integer()
+  def kind_draft_wrap, do: @kind_draft_wrap
+
+  @doc """
+  NIP-44 v2 maximum plaintext size in bytes.
+  """
+  @spec max_draft_plaintext_size() :: pos_integer()
+  def max_draft_plaintext_size, do: @max_draft_plaintext_size
+
+  @doc """
+  JSON payload that NIP-44 encrypts for a NIP-37 wrap.
+  """
+  @spec draft_plaintext(map()) :: {:ok, String.t()} | {:error, term()}
+  def draft_plaintext(event) when is_map(event) do
+    Jason.encode(inner_payload(event))
+  end
+
+  @doc """
+  Byte size of `draft_plaintext/1`, or 0 if it cannot be encoded.
+  """
+  @spec draft_plaintext_size(map()) :: non_neg_integer()
+  def draft_plaintext_size(event) when is_map(event) do
+    case draft_plaintext(event) do
+      {:ok, json} -> byte_size(json)
+      {:error, _} -> 0
+    end
+  end
+
+  defp maybe_tag(tags, _name, value) when value in [nil, ""], do: tags
+  defp maybe_tag(tags, name, value) when is_binary(value), do: tags ++ [[name, value]]
+
+  defp maybe_published_at(tags, published_at) when is_integer(published_at) do
+    tags ++ [["published_at", to_string(published_at)]]
+  end
+
+  defp maybe_published_at(tags, _), do: tags
+
+  defp maybe_hashtag_tags(tags, hashtags) when is_list(hashtags) do
+    hashtags
+    |> normalize_hashtags()
+    |> Enum.reduce(tags, fn tag, acc -> acc ++ [["t", tag]] end)
+  end
+
+  defp maybe_hashtag_tags(tags, _), do: tags
+
+  defp maybe_language_tags(tags, language) do
+    case normalize_language(language) do
+      {code, namespace} -> tags ++ [["L", namespace], ["l", code, namespace]]
+      nil -> tags
+    end
+  end
+
+  defp maybe_canonical_url(tags, url) when is_binary(url) do
+    trimmed = String.trim(url)
+
+    if String.starts_with?(trimmed, "http://") or String.starts_with?(trimmed, "https://") do
+      tags ++ [["r", trimmed]]
+    else
+      tags
+    end
+  end
+
+  defp maybe_canonical_url(tags, _), do: tags
+
+  defp normalize_hashtags(hashtags) do
+    hashtags
+    |> Enum.flat_map(&hashtag_tokens/1)
+    |> Enum.uniq()
+  end
+
+  defp hashtag_tokens(tag) when is_binary(tag) do
+    normalized =
+      tag
+      |> String.trim()
+      |> String.trim_leading("#")
+      |> String.downcase()
+      |> String.replace(~r/\s+/, "-")
+      |> String.trim("-")
+
+    if normalized == "", do: [], else: [normalized]
+  end
+
+  defp hashtag_tokens(_), do: []
+
+  defp normalize_language(language) when is_binary(language) do
+    code =
+      language
+      |> String.trim()
+      |> String.downcase()
+      |> String.replace("_", "-")
+
+    cond do
+      String.match?(code, ~r/^[a-z]{2}$/) ->
+        {code, "ISO-639-1"}
+
+      String.match?(code, ~r/^[a-z]{2}-[a-z]{2}$/) ->
+        {String.slice(code, 0, 2), "ISO-639-1"}
+
+      String.match?(code, ~r/^[a-z]{3}$/) ->
+        {code, "ISO-639-3"}
+
+      true ->
+        nil
+    end
+  end
+
+  defp normalize_language(_), do: nil
+
+  defp maybe_author_tag(tags, author_pubkey)
+       when is_binary(author_pubkey) and author_pubkey != "" do
+    tags ++ [["p", String.downcase(author_pubkey)]]
+  end
+
+  defp maybe_author_tag(tags, _), do: tags
+
+  defp signer_pubkey_hex(private_key) do
+    case Keys.derive_public_key(private_key) do
+      pubkey when is_binary(pubkey) -> {:ok, Keys.to_hex(pubkey)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp inner_payload(event) do
+    %{
+      "kind" => event[:kind] || event["kind"] || @kind_long_form,
+      "created_at" => event[:created_at] || event["created_at"],
+      "tags" => event[:tags] || event["tags"] || [],
+      "content" => event[:content] || event["content"] || "",
+      "pubkey" => event[:pubkey] || event["pubkey"] || ""
+    }
+  end
+
+  defp event_identifier(event) do
+    tags = event[:tags] || event["tags"] || []
+
+    case Enum.find(tags, fn [tag | _] -> tag == "d" end) do
+      [_, identifier | _] -> identifier
+      _ -> ""
+    end
+  end
 end

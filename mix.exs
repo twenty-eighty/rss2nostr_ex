@@ -31,12 +31,15 @@ defmodule Rss2Nostr.MixProject do
   defp deps do
     [
       # Database
-      {:ecto_sql, "~> 3.11"},
-      {:postgrex, "~> 0.17"},
+      {:ecto_sql, "~> 3.14"},
+      {:postgrex, "~> 0.22"},
 
       # HTTP & WebSocket
-      {:httpoison, "~> 2.2"},
+      {:req, "~> 0.7"},
       {:websockex, "~> 0.4"},
+      # tzdata still depends on hackney ~> 1.17; force the patched 4.x line.
+      # App HTTP goes through Req; tzdata uses Rss2Nostr.TzdataHTTPClient.
+      {:hackney, "~> 4.7", override: true},
 
       # Parsing
       {:floki, "~> 0.36"},
@@ -58,6 +61,7 @@ defmodule Rss2Nostr.MixProject do
       # Utilities
       {:timex, "~> 3.7"},
       {:cachex, "~> 3.6"},
+      {:dotenvy, "~> 1.1"},
 
       # Development & Code Quality
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
@@ -72,6 +76,7 @@ defmodule Rss2Nostr.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      dev: ["ecto.create --quiet", "ecto.migrate --quiet", "rss2nostr.server"],
       # Code quality checks
       quality: ["format --check-formatted", "credo --strict", "dialyzer"],
       lint: ["credo --strict"],

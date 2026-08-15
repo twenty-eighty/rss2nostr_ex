@@ -18,6 +18,9 @@ defmodule Rss2Nostr.Posts do
     offset = Keyword.get(opts, :offset, 0)
 
     Post
+    |> maybe_filter_status(Keyword.get(opts, :status))
+    |> maybe_filter_source(Keyword.get(opts, :source_id))
+    |> maybe_filter_term(Keyword.get(opts, :q))
     |> order_by([p], desc: p.inserted_at)
     |> limit(^limit)
     |> offset(^offset)
@@ -31,13 +34,7 @@ defmodule Rss2Nostr.Posts do
   def list_posts_by_status(status, opts \\ [])
 
   def list_posts_by_status(status, opts) when is_integer(status) do
-    limit = Keyword.get(opts, :limit, 100)
-
-    Post
-    |> where([p], p.status == ^status)
-    |> order_by([p], asc: p.inserted_at)
-    |> limit(^limit)
-    |> Repo.all()
+    list_posts(Keyword.put(opts, :status, status))
   end
 
   def list_posts_by_status(status_name, opts) when is_binary(status_name) do
@@ -54,7 +51,32 @@ defmodule Rss2Nostr.Posts do
   end
 
   @doc """
+  Returns posts whose Markdown is ready but images still need uploading.
+  """
+  @spec list_pending_image_posts(keyword()) :: [Post.t()]
+  def list_pending_image_posts(opts \\ []) do
+    list_posts_by_status(Post.status_pending_images(), opts)
+  end
+
+  @doc """
+  Returns posts the process task should handle: new articles and
+  articles waiting on image uploads.
+  """
+  @spec list_processable_posts(keyword()) :: [Post.t()]
+  def list_processable_posts(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+    statuses = [Post.status_new(), Post.status_pending_images()]
+
+    Post
+    |> where([p], p.status in ^statuses)
+    |> order_by([p], asc: p.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc """
   Returns processed posts ready for export.
+  Processed means content and images are ready.
   """
   @spec list_processed_posts(keyword()) :: [Post.t()]
   def list_processed_posts(opts \\ []) do
@@ -62,10 +84,64 @@ defmodule Rss2Nostr.Posts do
   end
 
   @doc """
+  Returns posts for a source, newest first.
+  """
+  @spec list_posts_for_source(integer(), keyword()) :: [Post.t()]
+  def list_posts_for_source(source_id, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+
+    Post
+    |> where([p], p.source_id == ^source_id)
+    |> order_by([p], desc: p.published_at, desc: p.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc """
+  Returns posts by a list of IDs, preloaded with their source.
+  """
+  @spec get_posts(list(), keyword()) :: [Post.t()]
+  def get_posts(ids, opts \\ []) when is_list(ids) do
+    ids = Enum.flat_map(ids, &parse_post_id/1)
+
+    posts =
+      Post
+      |> where([p], p.id in ^ids)
+      |> Repo.all()
+
+    case Keyword.get(opts, :preload) do
+      nil -> posts
+      assocs -> Repo.preload(posts, assocs)
+    end
+  end
+
+  defp parse_post_id(id) when is_integer(id) and id > 0, do: [id]
+
+  defp parse_post_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int, ""} when int > 0 -> [int]
+      _ -> []
+    end
+  end
+
+  defp parse_post_id(_), do: []
+
+  @doc """
   Gets a single post by ID.
   """
-  @spec get_post(integer() | binary()) :: Post.t() | nil
-  def get_post(id), do: Repo.get(Post, id)
+  @spec get_post(integer() | binary(), keyword()) :: Post.t() | nil
+  def get_post(id, opts \\ []) do
+    case Repo.get(Post, id) do
+      nil ->
+        nil
+
+      post ->
+        case Keyword.get(opts, :preload) do
+          nil -> post
+          assocs -> Repo.preload(post, assocs)
+        end
+    end
+  end
 
   @doc """
   Gets a single post by ID, raises if not found.
@@ -74,21 +150,57 @@ defmodule Rss2Nostr.Posts do
   def get_post!(id), do: Repo.get!(Post, id)
 
   @doc """
-  Gets a post by source URL hash.
+  Gets a post by source URL hash, optionally limited to one source.
   """
-  @spec get_post_by_url_hash(String.t()) :: Post.t() | nil
-  def get_post_by_url_hash(hash) do
+  @spec get_post_by_url_hash(String.t(), integer() | nil) :: Post.t() | nil
+  def get_post_by_url_hash(hash, source_id \\ nil)
+
+  def get_post_by_url_hash(hash, nil) do
     Repo.get_by(Post, source_url_hash: hash)
+  end
+
+  def get_post_by_url_hash(hash, source_id) do
+    Repo.get_by(Post, source_url_hash: hash, source_id: source_id)
   end
 
   @doc """
   Checks if a post exists by URL hash.
+
+  When `source_id` is given, only posts belonging to that source count.
+  Orphaned posts (source deleted) do not count as duplicates for a new source.
   """
-  @spec exists_by_url_hash?(String.t()) :: boolean()
-  def exists_by_url_hash?(hash) do
+  @spec exists_by_url_hash?(String.t(), integer() | nil) :: boolean()
+  def exists_by_url_hash?(hash, source_id \\ nil)
+
+  def exists_by_url_hash?(hash, nil) do
     Post
     |> where([p], p.source_url_hash == ^hash)
     |> Repo.exists?()
+  end
+
+  def exists_by_url_hash?(hash, source_id) when is_integer(source_id) do
+    Post
+    |> where([p], p.source_url_hash == ^hash and p.source_id == ^source_id)
+    |> Repo.exists?()
+  end
+
+  @doc """
+  Reassigns a post left without a source (after the old source was deleted)
+  to `source_id`. Returns `:none` when no orphan exists for that hash.
+  """
+  @spec adopt_orphaned_by_url_hash(String.t(), integer()) ::
+          {:ok, Post.t()} | {:error, Ecto.Changeset.t()} | :none
+  def adopt_orphaned_by_url_hash(hash, source_id) when is_integer(source_id) do
+    post =
+      Post
+      |> where([p], p.source_url_hash == ^hash and is_nil(p.source_id))
+      |> limit(1)
+      |> Repo.one()
+
+    case post do
+      nil -> :none
+      post -> update_post(post, %{source_id: source_id})
+    end
   end
 
   @doc """
@@ -136,11 +248,22 @@ defmodule Rss2Nostr.Posts do
   end
 
   @doc """
-  Marks a post as processed.
+  Marks a post as processed. Call only when images are uploaded or absent.
   """
   @spec mark_processed(Post.t()) :: {:ok, Post.t()} | {:error, Ecto.Changeset.t()}
   def mark_processed(%Post{} = post) do
-    update_status(post, Post.status_processed())
+    update_post(post, %{status: Post.status_processed(), last_error: nil})
+  end
+
+  @doc """
+  Marks a post as waiting on image uploads so processing can be finished later.
+  """
+  @spec mark_pending_images(Post.t(), String.t() | nil) ::
+          {:ok, Post.t()} | {:error, Ecto.Changeset.t()}
+  def mark_pending_images(%Post{} = post, error_message \\ nil) do
+    attrs = %{status: Post.status_pending_images()}
+    attrs = if error_message, do: Map.put(attrs, :last_error, error_message), else: attrs
+    update_post(post, attrs)
   end
 
   @doc """
@@ -211,18 +334,97 @@ defmodule Rss2Nostr.Posts do
     list_posts(opts)
   end
 
+  defp maybe_filter_status(query, nil), do: query
+  defp maybe_filter_status(query, ""), do: query
+
+  defp maybe_filter_status(query, status) when is_integer(status) do
+    where(query, [p], p.status == ^status)
+  end
+
+  defp maybe_filter_status(query, status) when is_binary(status) do
+    maybe_filter_status(query, status_from_name(status))
+  end
+
+  defp maybe_filter_source(query, nil), do: query
+  defp maybe_filter_source(query, ""), do: query
+
+  defp maybe_filter_source(query, source_id) when is_integer(source_id) do
+    where(query, [p], p.source_id == ^source_id)
+  end
+
+  defp maybe_filter_source(query, source_id) when is_binary(source_id) do
+    case Integer.parse(source_id) do
+      {id, ""} -> maybe_filter_source(query, id)
+      _ -> query
+    end
+  end
+
+  defp maybe_filter_term(query, nil), do: query
+  defp maybe_filter_term(query, ""), do: query
+
+  defp maybe_filter_term(query, term) when is_binary(term) do
+    trimmed = String.trim(term)
+
+    if trimmed == "" do
+      query
+    else
+      pattern = "%" <> like_pattern(trimmed) <> "%"
+
+      where(
+        query,
+        [p],
+        ilike(p.title, ^pattern) or
+          ilike(p.content, ^pattern) or
+          ilike(p.summary, ^pattern) or
+          ilike(p.source_url, ^pattern)
+      )
+    end
+  end
+
+  defp like_pattern(term) do
+    String.replace(term, ~r/[%_\\]/, "")
+  end
+
   defp status_from_name(name) do
     case name do
-      "new" -> Post.status_new()
-      "processing" -> Post.status_processing()
-      "processed" -> Post.status_processed()
-      "signing" -> Post.status_signing()
-      "signed" -> Post.status_signed()
-      "publishing" -> Post.status_publishing()
-      "published" -> Post.status_published()
-      "blocked" -> Post.status_blocked()
-      "error" -> Post.status_error()
-      _ -> -1
+      "new" ->
+        Post.status_new()
+
+      "processing" ->
+        Post.status_processing()
+
+      "processed" ->
+        Post.status_processed()
+
+      "signing" ->
+        Post.status_signing()
+
+      "signed" ->
+        Post.status_signed()
+
+      "publishing" ->
+        Post.status_publishing()
+
+      "published" ->
+        Post.status_published()
+
+      "blocked" ->
+        Post.status_blocked()
+
+      "error" ->
+        Post.status_error()
+
+      "pending_images" ->
+        Post.status_pending_images()
+
+      "pending images" ->
+        Post.status_pending_images()
+
+      other ->
+        case Integer.parse(other) do
+          {status, ""} -> status
+          _ -> -1
+        end
     end
   end
 
@@ -294,7 +496,7 @@ defmodule Rss2Nostr.Posts do
   """
   @spec preload_images(Post.t()) :: Post.t()
   def preload_images(%Post{} = post) do
-    Repo.preload(post, :images)
+    Repo.preload(post, :images, force: true)
   end
 
   @doc """

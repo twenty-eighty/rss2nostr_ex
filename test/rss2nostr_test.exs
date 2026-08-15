@@ -27,11 +27,14 @@ defmodule Rss2NostrTest do
       assert Post.status_processed() == 2
       assert Post.status_published() == 6
       assert Post.status_error() == 8
+      assert Post.status_pending_images() == 9
     end
 
     test "status_name returns correct names" do
       assert Post.status_name(0) == "new"
       assert Post.status_name(6) == "published"
+      assert Post.status_name(9) == "pending_images"
+      assert Post.status_label(9) == "pending images"
       assert Post.status_name(999) == "unknown"
     end
   end

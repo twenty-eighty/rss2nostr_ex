@@ -50,6 +50,84 @@ defmodule Rss2Nostr.PostsTest do
       posts = Posts.list_posts(limit: 3)
       assert length(posts) == 3
     end
+
+    test "filters by source_id", %{source: source} do
+      {:ok, other} =
+        Sources.create_source(%{
+          name: "Other Source",
+          url: "https://other.example/feed.xml",
+          type: "rss",
+          language: "en",
+          active: true
+        })
+
+      {:ok, matching} = Posts.create_post(valid_post_attrs(source.id))
+
+      {:ok, other_post} =
+        Posts.create_post(
+          valid_post_attrs(other.id)
+          |> Map.put(:source_url, "https://other.example/article/1")
+          |> Map.put(:source_url_hash, Post.generate_url_hash("https://other.example/article/1"))
+        )
+
+      posts = Posts.list_posts(source_id: source.id)
+
+      assert Enum.any?(posts, fn p -> p.id == matching.id end)
+      refute Enum.any?(posts, fn p -> p.id == other_post.id end)
+    end
+
+    test "filters by source_id and status together", %{source: source} do
+      {:ok, new_post} = Posts.create_post(valid_post_attrs(source.id))
+
+      {:ok, processed} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:source_url, "https://example.com/article/processed")
+          |> Map.put(
+            :source_url_hash,
+            Post.generate_url_hash("https://example.com/article/processed")
+          )
+          |> Map.put(:status, Post.status_processed())
+        )
+
+      posts = Posts.list_posts(source_id: source.id, status: Post.status_new())
+
+      assert Enum.any?(posts, fn p -> p.id == new_post.id end)
+      refute Enum.any?(posts, fn p -> p.id == processed.id end)
+    end
+
+    test "filters by term in title or content", %{source: source} do
+      {:ok, matching} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:title, "Climate report from Berlin")
+        )
+
+      {:ok, other} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:title, "Unrelated headline")
+          |> Map.put(:content, "Body mentions climate once")
+          |> Map.put(:source_url, "https://example.com/article/other")
+          |> Map.put(:source_url_hash, Post.generate_url_hash("https://example.com/article/other"))
+        )
+
+      {:ok, miss} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:title, "Sports recap")
+          |> Map.put(:content, "Scores and standings")
+          |> Map.put(:source_url, "https://example.com/article/miss")
+          |> Map.put(:source_url_hash, Post.generate_url_hash("https://example.com/article/miss"))
+        )
+
+      posts = Posts.list_posts(q: "climate")
+      ids = Enum.map(posts, & &1.id)
+
+      assert matching.id in ids
+      assert other.id in ids
+      refute miss.id in ids
+    end
   end
 
   describe "list_posts_by_status/2" do
@@ -72,6 +150,23 @@ defmodule Rss2Nostr.PostsTest do
 
       assert Enum.any?(processed_posts, fn p -> p.id == processed_post.id end)
       refute Enum.any?(processed_posts, fn p -> p.id == new_post.id end)
+    end
+
+    test "accepts numeric status query strings", %{source: source} do
+      {:ok, pending} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:source_url, "https://example.com/article/pending")
+          |> Map.put(
+            :source_url_hash,
+            Post.generate_url_hash("https://example.com/article/pending")
+          )
+          |> Map.put(:status, Post.status_pending_images())
+        )
+
+      pending_posts = Posts.list_posts_by_status("9")
+
+      assert Enum.any?(pending_posts, fn p -> p.id == pending.id end)
     end
   end
 
@@ -120,14 +215,31 @@ defmodule Rss2Nostr.PostsTest do
 
       assert post.title == "Test Article"
       assert post.status == Post.status_new()
+      assert post.categories == []
     end
 
-    test "enforces unique source_url_hash", %{source: source} do
+    test "enforces unique source_url_hash per source", %{source: source} do
       attrs = valid_post_attrs(source.id)
       {:ok, _} = Posts.create_post(attrs)
       {:error, changeset} = Posts.create_post(attrs)
 
       assert changeset.errors[:source_url_hash]
+    end
+
+    test "allows the same hash on a different source", %{source: source} do
+      attrs = valid_post_attrs(source.id)
+      {:ok, _} = Posts.create_post(attrs)
+
+      {:ok, other} =
+        Sources.create_source(%{
+          name: "Other Hash Source",
+          url: "https://other-hash.example/feed.xml",
+          type: "rss",
+          language: "en",
+          active: true
+        })
+
+      assert {:ok, _} = Posts.create_post(Map.put(attrs, :source_id, other.id))
     end
   end
 
@@ -162,6 +274,15 @@ defmodule Rss2Nostr.PostsTest do
       {:ok, updated} = Posts.mark_processed(post)
 
       assert updated.status == Post.status_processed()
+    end
+
+    test "mark_pending_images/2 sets status so uploads can be finished", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+      {:ok, updated} = Posts.mark_pending_images(post, "NOSTR_UPLOAD_ENDPOINT is not set")
+
+      assert updated.status == Post.status_pending_images()
+      assert updated.last_error == "NOSTR_UPLOAD_ENDPOINT is not set"
+      assert Posts.list_pending_image_posts() |> Enum.any?(&(&1.id == updated.id))
     end
 
     test "mark_published/3 sets status and event info", %{source: source} do
@@ -227,6 +348,51 @@ defmodule Rss2Nostr.PostsTest do
 
     test "returns false if post doesn't exist" do
       refute Posts.exists_by_url_hash?("nonexistent_hash")
+    end
+
+    test "source-scoped check ignores other sources and orphans", %{source: source} do
+      attrs = valid_post_attrs(source.id)
+      {:ok, _} = Posts.create_post(attrs)
+
+      {:ok, other} =
+        Sources.create_source(%{
+          name: "Scoped Hash Source",
+          url: "https://scoped-hash.example/feed.xml",
+          type: "rss",
+          language: "en",
+          active: true
+        })
+
+      assert Posts.exists_by_url_hash?(attrs.source_url_hash, source.id)
+      refute Posts.exists_by_url_hash?(attrs.source_url_hash, other.id)
+
+      {:ok, orphan} =
+        Posts.create_post(
+          attrs
+          |> Map.put(:source_id, nil)
+          |> Map.put(:source_url, "https://example.com/article/orphan")
+          |> Map.put(:source_url_hash, Post.generate_url_hash("https://example.com/article/orphan"))
+        )
+
+      refute Posts.exists_by_url_hash?(orphan.source_url_hash, source.id)
+    end
+  end
+
+  describe "adopt_orphaned_by_url_hash/2" do
+    test "reattaches a post whose source was deleted", %{source: source} do
+      attrs = valid_post_attrs(source.id)
+      {:ok, post} = Posts.create_post(Map.put(attrs, :source_id, nil))
+
+      assert {:ok, adopted} = Posts.adopt_orphaned_by_url_hash(attrs.source_url_hash, source.id)
+      assert adopted.id == post.id
+      assert adopted.source_id == source.id
+    end
+
+    test "returns :none when no orphan exists", %{source: source} do
+      attrs = valid_post_attrs(source.id)
+      {:ok, _} = Posts.create_post(attrs)
+
+      assert :none = Posts.adopt_orphaned_by_url_hash(attrs.source_url_hash, source.id)
     end
   end
 end

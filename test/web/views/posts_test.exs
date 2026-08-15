@@ -38,6 +38,7 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       assert is_binary(html)
       assert html =~ "<html"
       assert html =~ "Posts"
+      assert html =~ "Pending images"
     end
 
     test "shows status filter options" do
@@ -66,6 +67,69 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
 
       assert is_binary(html)
     end
+
+    test "filters posts by source" do
+      {source, post} = create_test_post()
+      {_other, other_post} = create_test_post()
+
+      {:ok, post} = Posts.update_post(post, %{title: "Source Filter Match"})
+      {:ok, other_post} = Posts.update_post(other_post, %{title: "Other Source Article"})
+
+      html = PostsView.index(source_id: to_string(source.id))
+
+      assert html =~ "All sources"
+      assert html =~ source.name
+      assert html =~ ~s(value="#{source.id}" selected)
+      assert html =~ post.title
+      refute html =~ other_post.title
+    end
+
+    test "keeps source_id on status filter links" do
+      {source, _post} = create_test_post()
+
+      html = PostsView.index(source_id: source.id, status: "9")
+
+      assert html =~ "source_id=#{source.id}"
+      assert html =~ ~s(name="status" value="9")
+    end
+
+    test "filters posts by search term" do
+      {_source, post} = create_test_post()
+      {_other, other_post} = create_test_post()
+
+      {:ok, post} = Posts.update_post(post, %{title: "Unique Filter Phrase"})
+      {:ok, other_post} = Posts.update_post(other_post, %{title: "Something Else Entirely"})
+
+      html = PostsView.index(q: "Unique Filter")
+
+      assert html =~ ~s(name="q")
+      assert html =~ ~s(value="Unique Filter")
+      assert html =~ post.title
+      refute html =~ other_post.title
+    end
+
+    test "keeps search term on status filter links" do
+      html = PostsView.index(q: "berlin", status: "2")
+
+      assert html =~ "q=berlin"
+      assert html =~ ~s(name="status" value="2")
+      assert html =~ ~s(value="berlin")
+    end
+
+    test "lists pending-image posts when filtering by status 9" do
+      {_source, post} = create_test_post()
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          status: Post.status_pending_images(),
+          title: "Pending Filter Article"
+        })
+
+      html = PostsView.index(status: "9")
+
+      assert html =~ post.title
+      assert html =~ "btn-active"
+    end
   end
 
   describe "show/1" do
@@ -76,6 +140,69 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
 
       assert is_binary(html)
       assert html =~ post.title or html =~ "View Test Article"
+      assert html =~ "data-post-tab=\"event\""
+      assert html =~ "EVENT"
+      assert html =~ "\"kind\""
+      assert html =~ "\"tags\""
+      assert html =~ "\"content\""
+      refute html =~ "Encrypted wrap"
+    end
+
+    test "clears leftover pending error when images are already uploaded" do
+      nostr = Application.get_env(:rss2nostr, :nostr, [])
+
+      Application.put_env(
+        :rss2nostr,
+        :nostr,
+        Keyword.put(nostr, :upload_endpoint, "https://route96.example")
+      )
+
+      on_exit(fn ->
+        Application.put_env(:rss2nostr, :nostr, nostr)
+      end)
+
+      {_source, post} = create_test_post()
+      uploaded = "https://route96.example/ready.jpg"
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          status: Post.status_pending_images(),
+          content: "![Hero](#{uploaded})",
+          image: uploaded,
+          last_error: "Images still need uploading"
+        })
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: "https://cdn.example/hero.jpg",
+          uploaded_url: uploaded
+        })
+
+      html = PostsView.show(to_string(post.id))
+
+      refute html =~ "Images still need uploading"
+      refute html =~ "Upload images"
+      assert html =~ "processed"
+    end
+
+    test "offers upload images when the post is pending images" do
+      {source, post} = create_test_post()
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          status: Post.status_pending_images(),
+          content: "Body",
+          image: "https://cdn.example/hero.jpg",
+          last_error: "NOSTR_UPLOAD_ENDPOINT is not set"
+        })
+
+      html = PostsView.show(to_string(post.id))
+
+      assert html =~ "pending images"
+      assert html =~ "Upload images"
+      assert html =~ "NOSTR_UPLOAD_ENDPOINT"
+      assert html =~ source.name or html =~ "Images"
     end
 
     test "shows post details" do

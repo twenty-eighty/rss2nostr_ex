@@ -10,6 +10,7 @@ defmodule Rss2Nostr.Import.Importer do
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Import.{FeedFetcher, FeedParser}
+  alias Rss2Nostr.Processing.Composer
 
   @type import_result :: %{
           source: Source.t(),
@@ -50,21 +51,25 @@ defmodule Rss2Nostr.Import.Importer do
 
     with {:ok, body} <- FeedFetcher.fetch(source.url),
          {:ok, items} <- FeedParser.parse(body, source.type) do
+      start_guid = source_start_guid(source)
+      guid_in_feed? = start_guid && Enum.any?(items, &(&1.guid == start_guid))
+
       # Process items in reverse order (oldest first) for proper publish sequence
       items
       |> Enum.reverse()
-      |> Enum.reduce(result, fn item, acc ->
-        case import_item(item, source, force) do
-          {:ok, :imported} ->
-            %{acc | imported: acc.imported + 1}
+      |> Enum.reduce({result, false}, fn item, {acc, started?} ->
+        case import_item(item, source, force, started?, guid_in_feed?, start_guid) do
+          {:ok, :imported, started?} ->
+            {%{acc | imported: acc.imported + 1}, started?}
 
-          {:ok, :skipped} ->
-            %{acc | skipped: acc.skipped + 1}
+          {:ok, :skipped, started?} ->
+            {%{acc | skipped: acc.skipped + 1}, started?}
 
-          {:error, reason} ->
-            %{acc | errors: [reason | acc.errors]}
+          {:error, reason, started?} ->
+            {%{acc | errors: [reason | acc.errors]}, started?}
         end
       end)
+      |> elem(0)
     else
       {:error, reason} ->
         Logger.error("Failed to fetch/parse feed #{source.name}: #{inspect(reason)}")
@@ -85,26 +90,67 @@ defmodule Rss2Nostr.Import.Importer do
   end
 
   # Import a single feed item
-  defp import_item(item, source, force) do
+  defp import_item(item, source, force, started?, guid_in_feed?, start_guid) do
+    reached_start? = started? or (guid_in_feed? and item.guid == start_guid)
     url_hash = Post.generate_url_hash(item.guid)
 
     cond do
+      guid_in_feed? and not reached_start? ->
+        {:ok, :skipped, false}
+
       is_nil(item.guid) ->
         Logger.debug("Skipping item without guid: #{item.title}")
-        {:ok, :skipped}
+        {:ok, :skipped, reached_start?}
 
-      !force && Posts.exists_by_url_hash?(url_hash) ->
+      !force && Posts.exists_by_url_hash?(url_hash, source.id) ->
         Logger.debug("Skipping duplicate: #{item.title}")
-        {:ok, :skipped}
+        {:ok, :skipped, reached_start?}
 
       should_skip_by_date?(item, source) ->
         Logger.debug("Skipping by date filter: #{item.title}")
-        {:ok, :skipped}
+        {:ok, :skipped, reached_start?}
 
       true ->
-        create_post(item, source, url_hash, force)
+        case adopt_or_create_post(item, source, url_hash, force) do
+          {:ok, status} -> {:ok, status, reached_start?}
+          {:error, reason} -> {:error, reason, reached_start?}
+        end
     end
   end
+
+  defp adopt_or_create_post(item, source, url_hash, true) do
+    create_post(item, source, url_hash, true)
+  end
+
+  defp adopt_or_create_post(item, source, url_hash, false) do
+    case Posts.adopt_orphaned_by_url_hash(url_hash, source.id) do
+      {:ok, post} ->
+        Logger.info("Reattached existing post: #{post.title}")
+        {:ok, :imported}
+
+      :none ->
+        create_post(item, source, url_hash, false)
+
+      {:error, changeset} ->
+        {:error, "Reattach failed: #{inspect(changeset.errors)}"}
+    end
+  end
+
+  defp resolve_source_html(item, source) do
+    case Composer.html_for_item(item, source) do
+      {:ok, html, _source} -> {:ok, html}
+      {:error, reason} -> {:error, "Could not load article HTML: #{reason}"}
+    end
+  end
+
+  defp source_start_guid(%Source{options: options}) when is_map(options) do
+    case options["start_guid"] || options[:start_guid] do
+      guid when is_binary(guid) and guid != "" -> guid
+      _ -> nil
+    end
+  end
+
+  defp source_start_guid(_), do: nil
 
   defp should_skip_by_date?(item, source) do
     case {source.publish_after_date, item.published_at} do
@@ -115,33 +161,43 @@ defmodule Rss2Nostr.Import.Importer do
   end
 
   defp create_post(item, source, url_hash, force) do
-    attrs = %{
-      article_identifier: item.guid,
-      title: item.title,
-      source_html: item.content || item.summary,
-      source_url: item.link,
-      source_url_hash: url_hash,
-      published_at: item.published_at,
-      imported_at: DateTime.utc_now(),
-      author_name: item.author,
-      summary: truncate_summary(item.summary),
-      image: item.image,
-      language: source.language,
-      type: source.default_post_kind,
-      pubkey: source.pubkey,
-      source_id: source.id,
-      status: Post.status_new()
-    }
+    with {:ok, source_html} <- resolve_source_html(item, source) do
+      attrs = %{
+        article_identifier: item.guid,
+        title: item.title,
+        source_html: source_html,
+        source_url: item.link,
+        source_url_hash: url_hash,
+        published_at: item.published_at,
+        imported_at: DateTime.utc_now(),
+        author_name: item.author,
+        summary: truncate_summary(item.summary),
+        image: item.image,
+        language: source.language,
+        categories: item.categories || [],
+        type: source.default_post_kind,
+        pubkey: source.pubkey,
+        source_id: source.id,
+        status: Post.status_new()
+      }
 
-    if force do
-      force_create_or_update(attrs, url_hash, item.title)
-    else
-      do_create_post(attrs)
+      if force do
+        force_create_or_update(attrs, url_hash, item.title)
+      else
+        do_create_post(attrs)
+      end
     end
   end
 
   defp force_create_or_update(attrs, url_hash, title) do
-    case Posts.get_post_by_url_hash(url_hash) do
+    existing =
+      Posts.get_post_by_url_hash(url_hash, attrs.source_id) ||
+        case Posts.adopt_orphaned_by_url_hash(url_hash, attrs.source_id) do
+          {:ok, post} -> post
+          _ -> nil
+        end
+
+    case existing do
       nil ->
         do_create_post(attrs)
 

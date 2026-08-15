@@ -137,6 +137,33 @@ defmodule Rss2Nostr.Nostr.KeysTest do
     end
   end
 
+  describe "parse_public_key/1" do
+    test "parses hex public key" do
+      hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      assert {:ok, ^hex} = Keys.parse_public_key(hex)
+    end
+
+    test "parses npub public key" do
+      hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      {:ok, npub} = NIP19.encode_npub(hex)
+      assert {:ok, ^hex} = Keys.parse_public_key(npub)
+    end
+
+    test "returns error for invalid input" do
+      assert {:error, :invalid_format} = Keys.parse_public_key("nope")
+      assert {:error, :invalid_input} = Keys.parse_public_key(nil)
+    end
+  end
+
+  describe "parse_pubkey_list/1" do
+    test "parses comma-separated hex and npub keys" do
+      hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      {:ok, npub} = NIP19.encode_npub(hex)
+
+      assert Keys.parse_pubkey_list("#{npub}, #{hex}, invalid") == [hex]
+    end
+  end
+
   describe "derive_public_key/1 edge cases" do
     test "returns error for invalid hex" do
       result = Keys.derive_public_key("not_valid_hex")

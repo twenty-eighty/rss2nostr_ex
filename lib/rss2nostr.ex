@@ -5,17 +5,18 @@ defmodule Rss2Nostr do
   This application provides:
   - RSS/Atom feed importing
   - HTML to Markdown conversion
-  - Image extraction and NIP-96 upload
+  - Image extraction and Blossom upload
   - Nostr event creation and multi-relay publishing
   - Support for local and remote (NIP-46 Bunker) signing
   """
 
   @doc """
-  Returns the configured Nostr relays.
+  Returns the test Nostr relay list.
+
+  Pass `:test` or `:public` to select an audience explicitly.
   """
-  def nostr_relays do
-    Application.get_env(:rss2nostr, :nostr)[:relays] || []
-  end
+  def nostr_relays, do: Rss2Nostr.Nostr.Relays.test()
+  def nostr_relays(audience), do: Rss2Nostr.Nostr.Relays.for(audience)
 
   @doc """
   Returns the configured Nostr private key.
@@ -32,7 +33,7 @@ defmodule Rss2Nostr do
   end
 
   @doc """
-  Returns the configured NIP-96 upload endpoint.
+  Returns the configured Blossom upload endpoint.
   """
   def upload_endpoint do
     Application.get_env(:rss2nostr, :nostr)[:upload_endpoint]

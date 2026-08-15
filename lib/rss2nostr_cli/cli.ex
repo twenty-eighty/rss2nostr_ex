@@ -54,9 +54,15 @@ defmodule Rss2Nostr.CLI do
                   kind: [
                     short: "-k",
                     long: "--kind",
-                    help: "Nostr event kind (30023 or 30024)",
+                    help: "Nostr event kind (30023 article or 30024 draft)",
                     default: "30023",
                     parser: :integer
+                  ]
+                ],
+                flags: [
+                  public: [
+                    long: "--public",
+                    help: "Publish this source's articles to public relays (default: test relays)"
                   ]
                 ]
               ],
@@ -94,6 +100,29 @@ defmodule Rss2Nostr.CLI do
                     help: "Source ID",
                     required: true,
                     parser: :integer
+                  ]
+                ]
+              ],
+              duplicate: [
+                name: "duplicate",
+                about: "Duplicate a source's settings into a new source",
+                args: [
+                  id: [
+                    help: "Source ID",
+                    required: true,
+                    parser: :integer
+                  ]
+                ],
+                options: [
+                  name: [
+                    short: "-n",
+                    long: "--name",
+                    help: "Name for the copy"
+                  ],
+                  url: [
+                    short: "-u",
+                    long: "--url",
+                    help: "Feed URL for the copy"
                   ]
                 ]
               ]
@@ -149,7 +178,7 @@ defmodule Rss2Nostr.CLI do
               upload_images: [
                 short: "-u",
                 long: "--upload-images",
-                help: "Upload images to NIP-96 server before publishing"
+                help: "Upload images to a Blossom server before publishing"
               ]
             ],
             options: [
@@ -177,7 +206,11 @@ defmodule Rss2Nostr.CLI do
               relays: [
                 short: "-r",
                 long: "--relays",
-                help: "Comma-separated list of relay URLs"
+                help: "Comma-separated list of relay URLs (overrides test/public lists)"
+              ],
+              audience: [
+                long: "--audience",
+                help: "Relay list to use for all posts: test or public (default: per source)"
               ]
             ]
           ],
@@ -187,7 +220,7 @@ defmodule Rss2Nostr.CLI do
           ],
           upload: [
             name: "upload",
-            about: "Upload an image to a NIP-96 server",
+            about: "Upload an image to a Blossom server",
             args: [
               file: [
                 help: "Local file path or URL to upload",
@@ -202,7 +235,7 @@ defmodule Rss2Nostr.CLI do
               server: [
                 short: "-s",
                 long: "--server",
-                help: "NIP-96 server URL (auto-detect if not specified)"
+                help: "Blossom server URL (uses NOSTR_UPLOAD_ENDPOINT if not specified)"
               ],
               alt: [
                 short: "-a",
@@ -213,7 +246,7 @@ defmodule Rss2Nostr.CLI do
           ],
           servers: [
             name: "servers",
-            about: "List available NIP-96 servers"
+            about: "List available Blossom servers"
           ],
           bunker: [
             name: "bunker",
@@ -260,7 +293,7 @@ defmodule Rss2Nostr.CLI do
                   upload_images: [
                     short: "-u",
                     long: "--upload-images",
-                    help: "Upload images to NIP-96 server"
+                    help: "Upload images to a Blossom server"
                   ]
                 ],
                 options: [
@@ -271,7 +304,11 @@ defmodule Rss2Nostr.CLI do
                   relays: [
                     short: "-r",
                     long: "--relays",
-                    help: "Comma-separated relay URLs"
+                    help: "Comma-separated relay URLs (overrides test/public lists)"
+                  ],
+                  audience: [
+                    long: "--audience",
+                    help: "Relay list to use for all posts: test or public (default: per source)"
                   ]
                 ]
               ],
@@ -302,8 +339,7 @@ defmodule Rss2Nostr.CLI do
                   port: [
                     short: "-p",
                     long: "--port",
-                    help: "Port to listen on",
-                    default: "4000",
+                    help: "Port to listen on (default: PORT, WEB_PORT, or 4000)",
                     parser: :integer
                   ]
                 ]
@@ -323,7 +359,7 @@ defmodule Rss2Nostr.CLI do
 
     case Optimus.parse!(optimus, args) do
       {[:source, :add], parsed} ->
-        Commands.Source.add(parsed.options)
+        Commands.Source.add(Map.merge(parsed.options, parsed.flags))
 
       {[:source, :list], _parsed} ->
         Commands.Source.list()
@@ -336,6 +372,9 @@ defmodule Rss2Nostr.CLI do
 
       {[:source, :delete], parsed} ->
         Commands.Source.delete(parsed.args.id)
+
+      {[:source, :duplicate], parsed} ->
+        Commands.Source.duplicate(parsed.args.id, parsed.options)
 
       {[:import], parsed} ->
         Commands.Import.run(parsed.options, parsed.flags)
