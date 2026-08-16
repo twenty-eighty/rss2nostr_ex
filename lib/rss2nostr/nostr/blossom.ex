@@ -2,25 +2,30 @@ defmodule Rss2Nostr.Nostr.Blossom do
   @moduledoc """
   Blossom blob storage (BUD-01 / BUD-02 / BUD-11).
 
-  Uploads images with `PUT /upload` and a kind 24242 authorization event.
+  Uploads images and audio with `PUT /upload` and a kind 24242 authorization event.
   This replaces NIP-96.
   """
 
   require Logger
 
   alias Rss2Nostr.HTTP
-  alias Rss2Nostr.Nostr.Signer
+  alias Rss2Nostr.Nostr.{NIP92, Signer}
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Processing.ImageExtractor
 
   @kind_auth 24242
   @auth_ttl_seconds 300
+  @image_download_ms 30_000
+  @audio_download_ms 180_000
+  @image_upload_ms 60_000
+  @audio_upload_ms 180_000
 
   @type upload_result :: %{
           url: String.t(),
           sha256: String.t() | nil,
           size: integer() | nil,
           type: String.t() | nil,
+          nip94: list(),
           dimensions: {integer(), integer()} | nil
         }
 
@@ -227,7 +232,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
       Map.new(
         for image <- post.images,
             present?(image.uploaded_url),
-            do: {ImageExtractor.normalize_url(image.original_url), image.uploaded_url}
+            do: {ImageExtractor.normalize_url(image.original_url), image}
       )
 
     mapping =
@@ -240,11 +245,13 @@ defmodule Rss2Nostr.Nostr.Blossom do
             Map.put(acc, image.original_url, image.uploaded_url)
 
           already_hosted?(image.original_url) or MapSet.member?(uploaded_urls, image.original_url) ->
-            {:ok, updated} = Posts.mark_image_uploaded(image, image.original_url)
+            {:ok, updated} = Posts.mark_image_uploaded(image, image.original_url, hosted_attrs(image))
             Map.put(acc, updated.original_url, updated.uploaded_url)
 
-          present?(sibling) ->
-            {:ok, updated} = Posts.mark_image_uploaded(image, sibling)
+          match?(%{uploaded_url: url} when is_binary(url), sibling) ->
+            {:ok, updated} =
+              Posts.mark_image_uploaded(image, sibling.uploaded_url, copy_upload_attrs(sibling))
+
             Map.put(acc, updated.original_url, updated.uploaded_url)
 
           true ->
@@ -280,7 +287,13 @@ defmodule Rss2Nostr.Nostr.Blossom do
     Enum.reduce(targets, {post, mapping, []}, fn image, {post, mapping, errors} ->
       case upload_from_url(image.original_url, signer: open_signer) do
         {:ok, result} ->
-          {:ok, updated} = Posts.mark_image_uploaded(image, result.url)
+          {:ok, updated} =
+            Posts.mark_image_uploaded(
+              image,
+              result.url,
+              NIP92.stored_attrs(result, alt: image.alt_text)
+            )
+
           {Posts.preload_images(post), Map.put(mapping, updated.original_url, result.url), errors}
 
         {:error, reason} ->
@@ -368,6 +381,37 @@ defmodule Rss2Nostr.Nostr.Blossom do
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 
+  defp hosted_attrs(image) do
+    NIP92.stored_attrs(
+      %{
+        url: image.original_url,
+        sha256: image.sha256,
+        size: image.file_size,
+        type: image.mime_type,
+        nip94: []
+      },
+      alt: image.alt_text
+    )
+    |> Map.merge(%{
+      imeta:
+        case image.imeta do
+          pairs when is_list(pairs) and pairs != [] -> pairs
+          _ -> NIP92.pairs_from_url(image.original_url, alt: image.alt_text, mime: image.mime_type)
+        end
+    })
+  end
+
+  defp copy_upload_attrs(image) do
+    %{
+      sha256: image.sha256,
+      mime_type: image.mime_type,
+      file_size: image.file_size,
+      dim: image.dim,
+      thumb: image.thumb,
+      imeta: image.imeta || []
+    }
+  end
+
   @doc """
   Downloads an image from a URL and uploads it to Blossom.
   """
@@ -375,11 +419,12 @@ defmodule Rss2Nostr.Nostr.Blossom do
     image_url
     |> ImageExtractor.download_urls()
     |> Enum.reduce_while({:error, {:download_failed, :no_url}}, fn url, _acc ->
-      Logger.info("Downloading image from #{url}")
+      kind = if ImageExtractor.audio_url?(url), do: "audio", else: "image"
+      Logger.info("Downloading #{kind} from #{url}")
 
-      case HTTP.get(url, receive_timeout: 30_000, retry: false) do
+      case HTTP.get(url, receive_timeout: download_timeout(url), retry: false) do
         {:ok, %{status: 200, body: data, headers: headers}} ->
-          content_type = HTTP.header(headers, "content-type") || "image/jpeg"
+          content_type = content_type_for(url, headers)
           filename = extract_filename(url, content_type)
           opts = Keyword.put_new(opts, :content_type, content_type)
           {:halt, upload_data(data, filename, opts)}
@@ -418,6 +463,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
        sha256: json["sha256"],
        size: size,
        type: json["type"],
+       nip94: json["nip94"] || [],
        dimensions: nil
      }}
   end
@@ -436,7 +482,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
                {"x-sha-256", sha256}
              ],
              body: data,
-             receive_timeout: 60_000,
+             receive_timeout: upload_timeout(content_type),
              retry: false
            ) do
         {:ok, %{status: code, body: body}} when code in [200, 201] ->
@@ -534,14 +580,48 @@ defmodule Rss2Nostr.Nostr.Blossom do
     :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
   end
 
+  defp content_type_for(url, headers) do
+    header =
+      headers
+      |> HTTP.header("content-type")
+      |> normalize_content_type()
+
+    cond do
+      header not in ["application/octet-stream", "binary/octet-stream"] -> header
+      true -> guess_content_type(url)
+    end
+  end
+
+  defp download_timeout(url) do
+    if ImageExtractor.audio_url?(url), do: @audio_download_ms, else: @image_download_ms
+  end
+
+  defp upload_timeout(content_type) when is_binary(content_type) do
+    if String.starts_with?(content_type, "audio/"), do: @audio_upload_ms, else: @image_upload_ms
+  end
+
+  defp upload_timeout(_), do: @image_upload_ms
+
   defp guess_content_type(file_path) do
-    case Path.extname(file_path) |> String.downcase() do
+    path =
+      case URI.parse(file_path) do
+        %URI{path: path} when is_binary(path) and path != "" -> path
+        _ -> file_path
+      end
+
+    case Path.extname(path) |> String.downcase() do
       ".jpg" -> "image/jpeg"
       ".jpeg" -> "image/jpeg"
       ".png" -> "image/png"
       ".gif" -> "image/gif"
       ".webp" -> "image/webp"
       ".svg" -> "image/svg+xml"
+      ".mp3" -> "audio/mpeg"
+      ".m4a" -> "audio/mp4"
+      ".aac" -> "audio/aac"
+      ".ogg" -> "audio/ogg"
+      ".opus" -> "audio/opus"
+      ".wav" -> "audio/wav"
       _ -> "application/octet-stream"
     end
   end
@@ -559,10 +639,17 @@ defmodule Rss2Nostr.Nostr.Blossom do
           "image/png" -> ".png"
           "image/gif" -> ".gif"
           "image/webp" -> ".webp"
+          "audio/mpeg" -> ".mp3"
+          "audio/mp4" -> ".m4a"
+          "audio/aac" -> ".aac"
+          "audio/ogg" -> ".ogg"
+          "audio/opus" -> ".opus"
+          "audio/wav" -> ".wav"
           _ -> ".bin"
         end
 
-      "image_#{System.system_time(:second)}#{ext}"
+      prefix = if String.starts_with?(content_type, "audio/"), do: "audio", else: "image"
+      "#{prefix}_#{System.system_time(:second)}#{ext}"
     end
   end
 end

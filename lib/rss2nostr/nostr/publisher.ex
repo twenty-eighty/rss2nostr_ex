@@ -9,7 +9,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
 
   require Logger
 
-  alias Rss2Nostr.Nostr.{Event, Keys, NIP19, NIP46, Relay, Relays, Signer}
+  alias Rss2Nostr.Nostr.{Event, Keys, NIP19, NIP46, NIP92, Relay, Relays, Signer}
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Processing.ArticleSplit
@@ -578,6 +578,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
       hashtags: publish_hashtags(post),
       language: field(post, :language),
       canonical_url: field(post, :source_url),
+      imeta: NIP92.tags_for_event(images_of(post), content, featured: field(post, :image)),
       kind: long_form_kind(post),
       author_pubkey: draft_author(post),
       client: public_article?(post)
@@ -712,9 +713,20 @@ defmodule Rss2Nostr.Nostr.Publisher do
     String.downcase(value)
   end
 
-  defp ensure_source(%Post{source: %Rss2Nostr.Sources.Source{}} = post), do: post
+  defp images_of(%Post{} = post) do
+    post = if Ecto.assoc_loaded?(post.images), do: post, else: Posts.preload_images(post)
+    post.images || []
+  end
+
+  defp images_of(_), do: []
 
   defp ensure_source(%Post{} = post) do
-    Repo.preload(post, :source)
+    post
+    |> maybe_preload(:source)
+    |> maybe_preload(:images)
+  end
+
+  defp maybe_preload(post, assoc) do
+    if Ecto.assoc_loaded?(Map.get(post, assoc)), do: post, else: Repo.preload(post, [assoc])
   end
 end

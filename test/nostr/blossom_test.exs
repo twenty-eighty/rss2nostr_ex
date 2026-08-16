@@ -104,6 +104,27 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
     test "rejects a payload without url" do
       assert {:error, :unexpected_response} = Blossom.parse_descriptor(%{"sha256" => "abc"})
     end
+
+    test "keeps a BUD-08 nip94 array" do
+      json = """
+      {
+        "url": "https://route96.example/abc.png",
+        "sha256": "aa",
+        "size": 70,
+        "type": "image/png",
+        "uploaded": 1,
+        "nip94": [["url", "https://route96.example/abc.png"], ["x", "aa"], ["m", "image/png"], ["dim", "1x1"]]
+      }
+      """
+
+      assert {:ok, result} = Blossom.parse_descriptor(json)
+      assert result.nip94 == [
+               ["url", "https://route96.example/abc.png"],
+               ["x", "aa"],
+               ["m", "image/png"],
+               ["dim", "1x1"]
+             ]
+    end
   end
 
   describe "already_hosted?/1" do
@@ -285,6 +306,41 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
 
       images = Posts.list_images_for_post(post.id)
       assert Enum.all?(images, &(&1.uploaded_url == uploaded))
+    end
+
+    test "rewrites a markdown audio link after a hosted stamp" do
+      put_upload_endpoint("https://route96.example")
+
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Hosted Audio Source",
+          url: "https://example.com/audio-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          active: true
+        })
+
+      url = "https://example.com/article-#{System.unique_integer([:positive])}"
+      audio = "https://route96.example/episode.mp3"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Already hosted audio",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          content: "[Audio](#{audio})\n\nBody",
+          status: Post.status_pending_images(),
+          source_id: source.id
+        })
+
+      {:ok, post, 1} = Rss2Nostr.Processing.ImageExtractor.extract_and_store(post)
+      {stamped, _mapping} = Blossom.stamp_hosted_images(post)
+
+      refute Blossom.pending_images?(stamped)
+      assert stamped.content =~ audio
+
+      images = Posts.list_images_for_post(post.id)
+      assert Enum.all?(images, &(&1.uploaded_url == audio))
     end
 
     test "skips posts without an image" do

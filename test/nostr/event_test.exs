@@ -126,6 +126,20 @@ defmodule Rss2Nostr.Nostr.EventTest do
       assert image_tag == ["image", "https://example.com/img.jpg"]
     end
 
+    test "adds NIP-92 imeta tags" do
+      event =
+        Event.build_long_form(@test_pubkey, "![Hero](https://cdn.example/hero.png)",
+          title: "Test",
+          image: "https://cdn.example/hero.png",
+          imeta: [
+            ["imeta", "url https://cdn.example/hero.png", "m image/png", "x aa", "dim 1x1"]
+          ]
+        )
+
+      assert ["imeta", "url https://cdn.example/hero.png", "m image/png", "x aa", "dim 1x1"] in
+               event.tags
+    end
+
     test "builds event with identifier (d tag)" do
       event =
         Event.build_long_form(@test_pubkey, "Content",

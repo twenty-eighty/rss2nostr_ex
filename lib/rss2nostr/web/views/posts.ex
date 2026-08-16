@@ -402,15 +402,16 @@ defmodule Rss2Nostr.Web.Views.Posts do
 
         """
         <div class="post-content" style="margin-top: 1.5rem">
-          <h3>Images</h3>
+          <h3>Images and audio</h3>
           <p class="help-text">
-            Staging articles must have the featured image and every referenced image uploaded.
+            Staging articles must have the featured image and every referenced image or audio file uploaded.
           </p>
           <table class="table">
             <thead>
               <tr>
                 <th>Original</th>
                 <th>Uploaded</th>
+                <th>imeta</th>
               </tr>
             </thead>
             <tbody>#{rows}</tbody>
@@ -426,14 +427,22 @@ defmodule Rss2Nostr.Web.Views.Posts do
   end
 
   defp image_row(image) do
-    uploaded = image.uploaded_url
+    uploaded = Map.get(image, :uploaded_url)
+    imeta = imeta_summary(image)
 
     """
     <tr>
       <td><code class="url">#{escape_html(truncate(image.original_url, 80))}</code></td>
       <td>#{if uploaded, do: "<code class=\"url\">#{escape_html(truncate(uploaded, 80))}</code>", else: "<span class=\"badge badge-pending-images\">pending</span>"}</td>
+      <td>#{if imeta != "", do: "<code>#{escape_html(imeta)}</code>", else: "—"}</td>
     </tr>
     """
+  end
+
+  defp imeta_summary(image) do
+    [Map.get(image, :mime_type), Map.get(image, :dim), Map.get(image, :file_size) && "#{image.file_size} B"]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" · ")
   end
 
   defp event_tab_intro(post) do

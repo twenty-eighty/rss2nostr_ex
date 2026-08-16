@@ -1,12 +1,15 @@
 defmodule Rss2Nostr.Processing.ImageExtractor do
   @moduledoc """
-  Extracts images from Markdown content and stores them for later upload.
+  Extracts images and audio file links from Markdown and stores them
+  for later Blossom upload.
   """
 
   require Logger
 
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
+
+  @audio_ext ~w(mp3 m4a aac ogg opus wav)
 
   @type image_info :: %{url: String.t(), alt: String.t(), caption: String.t() | nil}
 
@@ -18,7 +21,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   def extract_and_store(%Post{} = post) do
     post = post |> repair_post_urls() |> Posts.preload_images()
     known = known_image_urls(post)
-    images = extract_images(post.content, post.image)
+    images = extract_images(post.content, post.image) ++ extract_audio(post.content)
 
     created =
       Enum.reduce(images, 0, fn image, count ->
@@ -106,6 +109,58 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   end
 
   def extract_markdown_images(_), do: []
+
+  @doc """
+  Audio file URLs from Markdown links such as `[Audio](https://…/episode.mp3)`.
+  Image syntax (`![alt](url)`) is ignored.
+  """
+  @spec extract_audio(String.t() | nil) :: [image_info()]
+  def extract_audio(content) when is_binary(content) do
+    content
+    |> extract_markdown_audio()
+    |> Enum.map(fn item -> %{item | url: normalize_url(item.url)} end)
+    |> Enum.uniq_by(& &1.url)
+    |> Enum.filter(&valid_image_url?(&1.url))
+  end
+
+  def extract_audio(_), do: []
+
+  @spec extract_markdown_audio(String.t() | any()) :: [image_info()]
+  def extract_markdown_audio(markdown) when is_binary(markdown) do
+    pattern = ~r/(?<!!)\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/
+
+    Regex.scan(pattern, markdown)
+    |> Enum.map(fn
+      [_full, alt, url, title] ->
+        %{url: String.trim(url), alt: String.trim(alt), caption: title}
+
+      [_full, alt, url] ->
+        %{url: String.trim(url), alt: String.trim(alt), caption: nil}
+    end)
+    |> Enum.filter(&audio_url?(&1.url))
+  end
+
+  def extract_markdown_audio(_), do: []
+
+  @doc """
+  True when `url` points at an audio file (by path extension).
+  """
+  @spec audio_url?(String.t() | nil) :: boolean()
+  def audio_url?(url) when is_binary(url) do
+    ext =
+      url
+      |> String.trim()
+      |> URI.parse()
+      |> Map.get(:path, "")
+      |> to_string()
+      |> Path.extname()
+      |> String.downcase()
+      |> String.trim_leading(".")
+
+    ext in @audio_ext
+  end
+
+  def audio_url?(_), do: false
 
   @doc """
   Replaces image URLs in Markdown content with new URLs.

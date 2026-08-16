@@ -2,9 +2,9 @@ defmodule Rss2Nostr.Processing.Processor do
   @moduledoc """
   Orchestrates the processing of imported posts:
   1. Converts HTML content to Markdown
-  2. Extracts images
-  3. Uploads featured and referenced images to Blossom
-  4. Marks processed only when images are done
+  2. Extracts images and audio file links
+  3. Uploads featured and referenced images and audio to Blossom
+  4. Marks processed only when media is done
   """
 
   require Logger
@@ -60,9 +60,9 @@ defmodule Rss2Nostr.Processing.Processor do
   @doc """
   Processes a single post:
   1. Convert HTML to Markdown (unless only images remain)
-  2. Extract images
-  3. Upload featured and referenced images
-  4. Mark as processed only when images are done; otherwise pending images
+  2. Extract images and audio file links
+  3. Upload featured and referenced images and audio
+  4. Mark as processed only when media is done; otherwise pending images
   """
   @spec process_post(Post.t()) :: {:ok, Post.t()} | {:error, any()}
   def process_post(%Post{} = post) do

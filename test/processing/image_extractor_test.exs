@@ -164,6 +164,67 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
     end
   end
 
+  describe "extract_audio/1" do
+    test "extracts markdown audio links and ignores pages and images" do
+      markdown = """
+      ![Cover](https://example.com/cover.jpg)
+
+      [Audio](https://www.corbettreport.com/mp3/episode506_reading.mp3)
+
+      [YouTube](https://www.youtube.com/watch?v=abc)
+
+      [Interview](https://cdn.example/show.m4a?_=1)
+      """
+
+      urls = Enum.map(ImageExtractor.extract_audio(markdown), & &1.url)
+
+      assert "https://www.corbettreport.com/mp3/episode506_reading.mp3" in urls
+      assert "https://cdn.example/show.m4a?_=1" in urls
+      refute "https://example.com/cover.jpg" in urls
+      refute "https://www.youtube.com/watch?v=abc" in urls
+    end
+
+    test "returns empty list when there is no audio" do
+      assert ImageExtractor.extract_audio("[Read](https://corbettreport.com/nwnw639/)") == []
+    end
+  end
+
+  describe "extract_and_store/1 audio" do
+    test "stores an audio file link from markdown", %{source: source} do
+      post = create_test_post(source, "<p>x</p>")
+      audio = "https://www.corbettreport.com/mp3/episode506_reading.mp3"
+
+      {:ok, post} =
+        Posts.update_post(post, %{content: "[Audio](#{audio})\n\nBody"})
+
+      {:ok, _post, count} = ImageExtractor.extract_and_store(post)
+
+      assert count == 1
+      urls = Enum.map(Posts.list_images_for_post(post.id), & &1.original_url)
+      assert audio in urls
+    end
+
+    test "does not create a second row after the audio URL was replaced", %{source: source} do
+      original = "https://www.corbettreport.com/mp3/episode506_reading.mp3"
+      uploaded = "https://route96.example/episode.mp3"
+      post = create_test_post(source, "<p>x</p>")
+
+      {:ok, post} = Posts.update_post(post, %{content: "[Audio](#{uploaded})"})
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: original,
+          uploaded_url: uploaded
+        })
+
+      {:ok, _post, created} = ImageExtractor.extract_and_store(post)
+
+      assert created == 0
+      assert length(Posts.list_images_for_post(post.id)) == 1
+    end
+  end
+
   describe "extract_markdown_images/1" do
     test "extracts images from markdown content" do
       markdown = """

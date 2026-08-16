@@ -17,6 +17,7 @@ defmodule Rss2Nostr.Import.FeedParserTest do
         <pubDate>Mon, 01 Jan 2024 12:00:00 GMT</pubDate>
         <description>This is a test article</description>
         <content:encoded><![CDATA[<p>Full content here</p>]]></content:encoded>
+        <enclosure url="https://cdn.example/episode.mp3" type="audio/mpeg" length="123"/>
         <category>Tech</category>
         <category>News</category>
       </item>
@@ -122,6 +123,8 @@ defmodule Rss2Nostr.Import.FeedParserTest do
       assert first.content == "<p>Full content here</p>"
       assert "Tech" in first.categories
       assert "News" in first.categories
+      assert first.enclosure_url == "https://cdn.example/episode.mp3"
+      assert first.enclosure_type == "audio/mpeg"
     end
 
     test "parses RSS item without optional fields" do

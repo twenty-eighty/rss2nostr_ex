@@ -78,6 +78,62 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       assert preview.relays == ["wss://draft.example.com"]
     end
 
+    test "adds imeta tags for uploaded media in the article" do
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Imeta Source",
+          url: "https://example.com/imeta-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          publish_as: "article",
+          pubkey: @author,
+          signing_nsec: @hex
+        })
+
+      url = "https://example.com/imeta-article-#{System.unique_integer([:positive])}"
+      hero = "https://route96.example/hero.png"
+      audio = "https://route96.example/show.mp3"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Imeta Article",
+          content: "![Hero](#{hero})\n\n[Audio](#{audio})",
+          image: hero,
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          status: Post.status_processed(),
+          type: 30023,
+          source_id: source.id
+        })
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: "https://corbettreport.com/hero.png",
+          uploaded_url: hero,
+          mime_type: "image/png",
+          sha256: "aa",
+          dim: "1x1",
+          imeta: ["url #{hero}", "m image/png", "x aa", "dim 1x1"]
+        })
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: "https://corbettreport.com/show.mp3",
+          uploaded_url: audio,
+          mime_type: "audio/mpeg",
+          sha256: "bb",
+          imeta: ["url #{audio}", "m audio/mpeg", "x bb"]
+        })
+
+      post = Posts.get_post(post.id, preload: [:source, :images])
+      preview = Publisher.preview_event(post)
+
+      assert ["imeta", "url #{hero}", "m image/png", "x aa", "dim 1x1"] in preview.event.tags
+      assert ["imeta", "url #{audio}", "m audio/mpeg", "x bb"] in preview.event.tags
+    end
+
     test "keeps the source author on the p tag after the wrap is published" do
       app_pubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 

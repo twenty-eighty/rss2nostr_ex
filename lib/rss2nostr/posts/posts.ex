@@ -5,6 +5,7 @@ defmodule Rss2Nostr.Posts do
 
   import Ecto.Query
   alias Rss2Nostr.Repo
+  alias Rss2Nostr.Import.ItemIdentity
   alias Rss2Nostr.Nostr.StagingNotify
   alias Rss2Nostr.Posts.{Post, ArticleImage}
   alias Rss2Nostr.Sources.Source
@@ -242,6 +243,42 @@ defmodule Rss2Nostr.Posts do
     |> where([p], p.source_url_hash == ^hash and p.source_id == ^source_id)
     |> Repo.exists?()
   end
+
+  @doc """
+  True when a post already stores one of these `<link>` / `<guid>` values.
+
+  URL variants (scheme, www, trailing slash) are included. When `pubkey` is
+  set, only that author's posts count.
+  """
+  @spec exists_by_identity?([String.t()], keyword()) :: boolean()
+  def exists_by_identity?(values, opts \\ []) when is_list(values) do
+    keys = ItemIdentity.lookup_keys(values)
+
+    if keys == [] do
+      false
+    else
+      hashes =
+        keys
+        |> Enum.map(&Post.generate_url_hash/1)
+        |> Enum.reject(&is_nil/1)
+
+      pubkey = Keyword.get(opts, :pubkey)
+
+      Post
+      |> where(
+        [p],
+        p.source_url in ^keys or p.article_identifier in ^keys or p.source_url_hash in ^hashes
+      )
+      |> maybe_filter_pubkey(pubkey)
+      |> Repo.exists?()
+    end
+  end
+
+  defp maybe_filter_pubkey(query, pubkey) when is_binary(pubkey) and pubkey != "" do
+    where(query, [p], p.pubkey == ^pubkey)
+  end
+
+  defp maybe_filter_pubkey(query, _), do: query
 
   @doc """
   Reassigns a post left without a source (after the old source was deleted)
@@ -581,10 +618,10 @@ defmodule Rss2Nostr.Posts do
   @doc """
   Marks an image as uploaded.
   """
-  @spec mark_image_uploaded(ArticleImage.t(), String.t()) ::
+  @spec mark_image_uploaded(ArticleImage.t(), String.t(), map()) ::
           {:ok, ArticleImage.t()} | {:error, Ecto.Changeset.t()}
-  def mark_image_uploaded(%ArticleImage{} = image, uploaded_url) do
-    update_image(image, %{uploaded_url: uploaded_url})
+  def mark_image_uploaded(%ArticleImage{} = image, uploaded_url, attrs \\ %{}) do
+    update_image(image, Map.merge(attrs, %{uploaded_url: uploaded_url}))
   end
 
   @doc """

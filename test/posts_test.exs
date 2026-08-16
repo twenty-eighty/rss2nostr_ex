@@ -396,6 +396,34 @@ defmodule Rss2Nostr.PostsTest do
     end
   end
 
+  describe "exists_by_identity?/2" do
+    test "matches a stored page URL across www and slash variants", %{source: source} do
+      {:ok, _} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:source_url, "https://corbettreport.com/nwnw639/")
+          |> Map.put(:article_identifier, "https://cdn.example/show.mp3")
+          |> Map.put(:source_url_hash, Post.generate_url_hash("https://cdn.example/show.mp3"))
+          |> Map.put(:pubkey, "abc")
+        )
+
+      assert Posts.exists_by_identity?(["https://www.corbettreport.com/nwnw639"], pubkey: "abc")
+    end
+
+    test "ignores another author's post", %{source: source} do
+      {:ok, _} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:source_url, "https://corbettreport.com/nwnw639/")
+          |> Map.put(:article_identifier, "https://cdn.example/other.mp3")
+          |> Map.put(:source_url_hash, Post.generate_url_hash("https://cdn.example/other.mp3"))
+          |> Map.put(:pubkey, "author-a")
+        )
+
+      refute Posts.exists_by_identity?(["https://corbettreport.com/nwnw639/"], pubkey: "author-b")
+    end
+  end
+
   describe "adopt_orphaned_by_url_hash/2" do
     test "reattaches a post whose source was deleted", %{source: source} do
       attrs = valid_post_attrs(source.id)

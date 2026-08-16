@@ -6,7 +6,7 @@ defmodule Rss2Nostr.Nostr.Event do
   - Kind 31234: Encrypted draft wraps (NIP-37)
   """
 
-  alias Rss2Nostr.Nostr.{Keys, NIP44}
+  alias Rss2Nostr.Nostr.{Keys, NIP44, NIP92}
 
   # Event kinds
   @kind_text_note 1
@@ -45,6 +45,7 @@ defmodule Rss2Nostr.Nostr.Event do
   - :hashtags - List of hashtag strings (`t` tags)
   - :language - ISO language code (`L`/`l` NIP-32 labels)
   - :canonical_url - Original article URL (`r` tag)
+  - :imeta - NIP-92 tags (`["imeta", "url …", …]`) or pair lists
   - :author_pubkey - Intended author (added as a `p` tag on drafts)
   - :client - when true, adds the Pareto NIP-89 `client` tag (kind 30023 only)
   """
@@ -58,6 +59,7 @@ defmodule Rss2Nostr.Nostr.Event do
     hashtags = Keyword.get(opts, :hashtags, [])
     language = Keyword.get(opts, :language)
     canonical_url = Keyword.get(opts, :canonical_url)
+    imeta = Keyword.get(opts, :imeta, [])
     kind = Keyword.get(opts, :kind, @kind_long_form)
     author_pubkey = Keyword.get(opts, :author_pubkey)
     client? = Keyword.get(opts, :client, false)
@@ -70,6 +72,7 @@ defmodule Rss2Nostr.Nostr.Event do
       |> maybe_hashtag_tags(hashtags)
       |> maybe_language_tags(language)
       |> maybe_canonical_url(canonical_url)
+      |> maybe_imeta_tags(imeta)
       |> maybe_author_tag(author_pubkey)
       |> maybe_client_tag(client?, kind)
 
@@ -435,6 +438,26 @@ defmodule Rss2Nostr.Nostr.Event do
   end
 
   defp maybe_canonical_url(tags, _), do: tags
+
+  defp maybe_imeta_tags(tags, imeta) when is_list(imeta) do
+    tags ++
+      Enum.flat_map(imeta, fn item ->
+        case normalize_imeta_tag(item) do
+          nil -> []
+          tag -> [tag]
+        end
+      end)
+  end
+
+  defp maybe_imeta_tags(tags, _), do: tags
+
+  defp normalize_imeta_tag(["imeta" | pairs]), do: NIP92.tag(pairs)
+
+  defp normalize_imeta_tag(pairs) when is_list(pairs) do
+    if Enum.all?(pairs, &is_binary/1), do: NIP92.tag(pairs)
+  end
+
+  defp normalize_imeta_tag(_), do: nil
 
   defp hashtag_tokens(tag) when is_binary(tag) do
     normalized =

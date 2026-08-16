@@ -13,6 +13,12 @@ defmodule Rss2Nostr.Posts.ArticleImage do
     field(:alt_text, :string)
     field(:caption, :string)
     field(:fetch_error, :boolean, default: false)
+    field(:sha256, :string)
+    field(:mime_type, :string)
+    field(:file_size, :integer)
+    field(:dim, :string)
+    field(:thumb, :string)
+    field(:imeta, {:array, :string}, default: [])
 
     belongs_to(:post, Rss2Nostr.Posts.Post)
 
@@ -22,7 +28,20 @@ defmodule Rss2Nostr.Posts.ArticleImage do
   @doc false
   def changeset(image, attrs) do
     image
-    |> cast(attrs, [:original_url, :uploaded_url, :alt_text, :caption, :fetch_error, :post_id])
+    |> cast(attrs, [
+      :original_url,
+      :uploaded_url,
+      :alt_text,
+      :caption,
+      :fetch_error,
+      :sha256,
+      :mime_type,
+      :file_size,
+      :dim,
+      :thumb,
+      :imeta,
+      :post_id
+    ])
     |> validate_required([:original_url, :post_id])
     |> unique_constraint([:post_id, :original_url])
   end

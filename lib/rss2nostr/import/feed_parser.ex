@@ -15,6 +15,8 @@ defmodule Rss2Nostr.Import.FeedParser do
           summary: String.t() | nil,
           content: String.t() | nil,
           image: String.t() | nil,
+          enclosure_url: String.t() | nil,
+          enclosure_type: String.t() | nil,
           categories: [String.t()]
         }
 
@@ -141,6 +143,8 @@ defmodule Rss2Nostr.Import.FeedParser do
       summary: decode_html(item.description),
       content: decode_html(item.content_encoded),
       image: extract_rss_image(item),
+      enclosure_url: clean_text(item.enclosure_url),
+      enclosure_type: clean_text(item.enclosure_type),
       categories: item.categories || []
     }
   end
@@ -241,6 +245,8 @@ defmodule Rss2Nostr.Import.FeedParser do
       content: decode_html(item.content),
       # Atom doesn't typically include images in standard tags
       image: nil,
+      enclosure_url: nil,
+      enclosure_type: nil,
       categories: item.categories || []
     }
   end

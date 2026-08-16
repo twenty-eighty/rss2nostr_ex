@@ -9,7 +9,7 @@ defmodule Rss2Nostr.Import.Importer do
   alias Rss2Nostr.Sources.Source
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
-  alias Rss2Nostr.Import.{FeedFetcher, FeedParser}
+  alias Rss2Nostr.Import.{FeedFetcher, FeedParser, ItemIdentity}
   alias Rss2Nostr.Processing.Composer
 
   @type import_result :: %{
@@ -102,7 +102,15 @@ defmodule Rss2Nostr.Import.Importer do
         Logger.debug("Skipping item without guid: #{item.title}")
         {:ok, :skipped, reached_start?}
 
+      ItemIdentity.media_without_page?(item) ->
+        Logger.debug("Skipping media without page: #{item.title}")
+        {:ok, :skipped, reached_start?}
+
       !force && Posts.exists_by_url_hash?(url_hash, source.id) ->
+        Logger.debug("Skipping duplicate: #{item.title}")
+        {:ok, :skipped, reached_start?}
+
+      !force && duplicate_identity?(item, source) ->
         Logger.debug("Skipping duplicate: #{item.title}")
         {:ok, :skipped, reached_start?}
 
@@ -143,6 +151,10 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
+  defp duplicate_identity?(item, source) do
+    Posts.exists_by_identity?(ItemIdentity.identity_values(item), pubkey: source.pubkey)
+  end
+
   defp source_start_guid(%Source{options: options}) when is_map(options) do
     case options["start_guid"] || options[:start_guid] do
       guid when is_binary(guid) and guid != "" -> guid
@@ -166,7 +178,7 @@ defmodule Rss2Nostr.Import.Importer do
         article_identifier: item.guid,
         title: item.title,
         source_html: source_html,
-        source_url: item.link,
+        source_url: item.link || ItemIdentity.page_url(item),
         source_url_hash: url_hash,
         published_at: item.published_at,
         imported_at: DateTime.utc_now(),
