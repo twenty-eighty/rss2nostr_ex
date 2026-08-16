@@ -80,7 +80,10 @@ defmodule Rss2Nostr.MCP.Server do
       description: "Minutes to wait after staging before auto-publish"
     )
 
-    param(:notify_pubkey, :string, description: "npub or hex to receive a NIP-17 staging DM")
+    param(:notify_pubkey, :string,
+      description:
+        "npub or hex to receive a NIP-17 staging DM (NIP-05 or public, plus NOSTR_RELAYS_INBOX)"
+    )
     param(:fixed_hashtags, :string, description: "Comma-separated hashtags added to every article")
     run(fn args, state -> reply(Actions.add_source(args), state) end)
   end
@@ -106,7 +109,10 @@ defmodule Rss2Nostr.MCP.Server do
       description: "Minutes to wait after staging before auto-publish"
     )
 
-    param(:notify_pubkey, :string, description: "npub or hex to receive a NIP-17 staging DM")
+    param(:notify_pubkey, :string,
+      description:
+        "npub or hex to receive a NIP-17 staging DM (NIP-05 or public, plus NOSTR_RELAYS_INBOX)"
+    )
     param(:fixed_hashtags, :string, description: "Comma-separated hashtags added to every article")
     run(fn args, state -> reply(Actions.update_source(args), state) end)
   end

@@ -2,11 +2,12 @@ defmodule Rss2Nostr.Nostr.Relays do
   @moduledoc """
   Configured Nostr relay lists.
 
-  There are three audiences:
+  There are four lists:
 
   * `:draft` — relays used for NIP-37 draft wraps (Pareto client)
   * `:test` — relays used while a source is being tried out
   * `:public` — relays used for sources that should be published openly
+  * `:inbox` — extra relays always used when sending NIP-17 DMs
 
   Draft sources always use the draft list, regardless of setup/public.
   If the draft list is empty, they fall back to the test list.
@@ -41,6 +42,12 @@ defmodule Rss2Nostr.Nostr.Relays do
   """
   @spec public() :: [String.t()]
   def public, do: list(:public)
+
+  @doc """
+  Extra relays always included when sending NIP-17 DMs.
+  """
+  @spec inbox() :: [String.t()]
+  def inbox, do: list(:inbox)
 
   @doc """
   Relays for an audience (`:draft`, `:test`, or `:public`).
@@ -146,7 +153,12 @@ defmodule Rss2Nostr.Nostr.Relays do
   @doc """
   Configured lists.
   """
-  @spec all() :: %{draft: [String.t()], test: [String.t()], public: [String.t()]}
+  @spec all() :: %{
+          draft: [String.t()],
+          test: [String.t()],
+          public: [String.t()],
+          inbox: [String.t()]
+        }
   def all, do: configured_relays()
 
   @doc """
@@ -256,21 +268,23 @@ defmodule Rss2Nostr.Nostr.Relays do
         %{
           draft: wrap_list(Map.get(map, :draft, [])),
           test: wrap_list(test),
-          public: wrap_list(public)
+          public: wrap_list(public),
+          inbox: wrap_list(Map.get(map, :inbox, []))
         }
 
       map when is_map(map) ->
         %{
           draft: wrap_list(Map.get(map, :draft, [])),
           test: wrap_list(Map.get(map, :test, [])),
-          public: wrap_list(Map.get(map, :public, []))
+          public: wrap_list(Map.get(map, :public, [])),
+          inbox: wrap_list(Map.get(map, :inbox, []))
         }
 
       list when is_list(list) ->
-        %{draft: [], test: wrap_list(list), public: []}
+        %{draft: [], test: wrap_list(list), public: [], inbox: []}
 
       _ ->
-        %{draft: [], test: [], public: []}
+        %{draft: [], test: [], public: [], inbox: []}
     end
   end
 

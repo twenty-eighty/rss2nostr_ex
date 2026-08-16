@@ -49,9 +49,22 @@ defmodule Rss2Nostr.Web.Views.Settings do
       </ul>
 
       <h3>Public relays</h3>
-      <p class="help-text">Used for article sources marked public. Set with <code>NOSTR_RELAYS_PUBLIC</code>.</p>
+      <p class="help-text">
+        Used for article sources marked public, and as the inbox fallback for staging DMs
+        when the recipient’s NIP-05 response lists no relays. Set with <code>NOSTR_RELAYS_PUBLIC</code>.
+      </p>
       <ul>
         #{relay_items(relays.public)}
+      </ul>
+
+      <h3>DM relays</h3>
+      <p class="help-text">
+        Extra relays always used when sending NIP-17 staging DMs, in addition to the
+        recipient’s NIP-05 relays (or the public list if none are advertised).
+        Set with <code>NOSTR_RELAYS_INBOX</code>.
+      </p>
+      <ul>
+        #{inbox_relay_items(Map.get(relays, :inbox, []))}
       </ul>
     </div>
 
@@ -116,6 +129,11 @@ defmodule Rss2Nostr.Web.Views.Settings do
     do: "<li class=\"empty-state\">None configured; using test relays</li>"
 
   defp draft_relay_items(relays), do: relay_items(relays)
+
+  defp inbox_relay_items([]),
+    do: "<li class=\"empty-state\">None configured; DMs use NIP-05 or public relays only</li>"
+
+  defp inbox_relay_items(relays), do: relay_items(relays)
 
   defp relay_items([]), do: "<li class=\"empty-state\">None configured</li>"
 

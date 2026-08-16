@@ -531,6 +531,15 @@ defmodule Rss2Nostr.Web.Views.Assets do
       font-weight: 600;
     }
 
+    .compose-original-article {
+      margin: 0.35rem 0 0;
+      font-size: 0.875rem;
+    }
+
+    .compose-preview-panel .compose-original-article {
+      margin: 0 0 0.75rem;
+    }
+
     .compose-preview-actions {
       display: flex;
       align-items: center;

@@ -5,7 +5,7 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
 
   require Logger
 
-  alias Rss2Nostr.Nostr.{NIP17, Relays, Signer}
+  alias Rss2Nostr.Nostr.{InboxRelays, NIP17, Signer}
   alias Rss2Nostr.Nostr.Relay
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources.Source
@@ -31,7 +31,7 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
     with {:ok, {:private_key, key}} <- Signer.app_signer(),
          {:ok, wrap} <-
            NIP17.wrap(message(post, source), key, source.notify_pubkey, subject: "Staging"),
-         relays when relays != [] <- Relays.for(Relays.audience_for_source(source)) do
+         relays when relays != [] <- InboxRelays.for_pubkey(source.notify_pubkey) do
       results = Relay.publish_to_relays(relays, wrap)
       ok? = Enum.any?(results, fn {_url, result} -> result == :ok end)
 

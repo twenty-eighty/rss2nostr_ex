@@ -125,6 +125,8 @@ defmodule Rss2Nostr.Web.RouterTest do
       assert conn.status == 200
       assert conn.resp_body =~ "Settings"
       assert conn.resp_body =~ "Admin access"
+      assert conn.resp_body =~ "DM relays"
+      assert conn.resp_body =~ "NOSTR_RELAYS_INBOX"
     end
   end
 

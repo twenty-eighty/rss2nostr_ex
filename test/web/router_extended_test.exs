@@ -239,6 +239,20 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       assert get_resp_header(conn, "location") == ["/posts/#{post.id}"]
     end
 
+    test "returns JSON when the client asks for it", %{post: post} do
+      conn =
+        conn(:post, "/posts/#{post.id}/process")
+        |> put_req_header("accept", "application/json")
+
+      conn = call(conn)
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      assert body["id"] == post.id
+      assert is_integer(body["status"])
+      assert is_binary(body["status_label"])
+    end
+
     test "returns to the articles list when return_to is set", %{post: post} do
       conn =
         conn(:post, "/posts/#{post.id}/process", %{

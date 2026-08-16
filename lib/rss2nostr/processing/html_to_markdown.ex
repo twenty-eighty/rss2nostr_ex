@@ -128,13 +128,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       "h5" -> "\n\n##### #{process_nodes(children)}\n\n"
       "h6" -> "\n\n###### #{process_nodes(children)}\n\n"
       # Inline formatting
-      "strong" -> "**#{process_nodes(children)}**"
-      "b" -> "**#{process_nodes(children)}**"
-      "em" -> "*#{process_nodes(children)}*"
-      "i" -> "*#{process_nodes(children)}*"
+      "strong" -> wrap_inline(process_nodes(children), "**")
+      "b" -> wrap_inline(process_nodes(children), "**")
+      "em" -> wrap_inline(process_nodes(children), "*")
+      "i" -> wrap_inline(process_nodes(children), "*")
       "code" -> "`#{process_nodes(children)}`"
       "pre" -> "\n\n```\n#{Floki.text(children)}\n```\n\n"
-      "mark" -> "==" <> process_nodes(children) <> "=="
+      "mark" -> wrap_inline(process_nodes(children), "==")
       # Links
       "a" -> process_link(attrs, children)
       # Images
@@ -186,6 +186,22 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   defp conversion_rules do
     Process.get({__MODULE__, :conversion_rules}, [])
+  end
+
+  # CommonMark emphasis is invalid when a marker is next to whitespace
+  # (`*foo *` is literal). Nested spans and pretty-printed HTML often leave
+  # those spaces inside <em>/<strong>; move them outside the markers.
+  defp wrap_inline(content, marker) do
+    case Regex.run(~r/\A(\s*)(.*?)(\s*)\z/us, content) do
+      [_, lead, mid, trail] when mid != "" ->
+        lead <> marker <> mid <> marker <> trail
+
+      [_, lead, _, trail] ->
+        lead <> trail
+
+      _ ->
+        content
+    end
   end
 
   defp process_paragraph(children) do

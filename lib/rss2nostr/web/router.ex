@@ -293,9 +293,26 @@ defmodule Rss2Nostr.Web.Router do
 
   post "/posts/:id/process" do
     case API.Posts.process(id) do
-      {:ok, _post} -> redirect(conn, return_to(conn, "/posts/#{id}"))
-      {:error, :not_found} -> send_html(conn, 404, Views.Error.not_found())
-      {:error, :invalid_id} -> send_html(conn, 400, Views.Error.bad_request())
+      {:ok, post} ->
+        if wants_json?(conn) do
+          send_json(conn, 200, process_result(post))
+        else
+          redirect(conn, return_to(conn, "/posts/#{id}"))
+        end
+
+      {:error, :not_found} ->
+        if wants_json?(conn) do
+          send_json(conn, 404, %{error: "Post not found"})
+        else
+          send_html(conn, 404, Views.Error.not_found())
+        end
+
+      {:error, :invalid_id} ->
+        if wants_json?(conn) do
+          send_json(conn, 400, %{error: "Invalid post id"})
+        else
+          send_html(conn, 400, Views.Error.bad_request())
+        end
     end
   end
 
@@ -468,6 +485,23 @@ defmodule Rss2Nostr.Web.Router do
     else
       conn
     end
+  end
+
+  defp wants_json?(conn) do
+    conn
+    |> get_req_header("accept")
+    |> Enum.any?(&String.contains?(&1, "application/json"))
+  end
+
+  defp process_result(post) do
+    %{
+      id: post.id,
+      status: post.status,
+      status_name: Rss2Nostr.Posts.Post.status_name(post.status),
+      status_label: Rss2Nostr.Posts.Post.status_label(post.status),
+      last_error: post.last_error,
+      selectable: post.status == Rss2Nostr.Posts.Post.status_processed()
+    }
   end
 
   defp send_json(conn, status, data) do

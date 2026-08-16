@@ -68,7 +68,8 @@ Copy `.env.example` to `.env`. Values are loaded at runtime (OS environment vari
 | `NOSTR_NSEC` | Nostr private key (nsec or hex format) | For publishing |
 | `NOSTR_RELAYS_DRAFT` | Comma-separated relays for NIP-37 drafts (Pareto client). Falls back to the test list if unset | No |
 | `NOSTR_RELAYS_TEST` | Comma-separated relays for article sources that are not public | No |
-| `NOSTR_RELAYS_PUBLIC` | Comma-separated relays for public article sources | No |
+| `NOSTR_RELAYS_PUBLIC` | Comma-separated relays for public article sources; also the staging-DM fallback | No |
+| `NOSTR_RELAYS_INBOX` | Extra relays always used when sending NIP-17 staging DMs (in addition to NIP-05 / public) | No |
 | `NOSTR_RELAYS` | Alias for `NOSTR_RELAYS_TEST` if that variable is unset | No |
 | `NOSTR_RELAY_AUDIENCE` | Default audience when a source is missing: `test` or `public` | No |
 | `NOSTR_UPLOAD_ENDPOINT` | Blossom server base URL (BUD-02 `PUT /upload`) | For image upload |
@@ -76,7 +77,7 @@ Copy `.env.example` to `.env`. Values are loaded at runtime (OS environment vari
 
 ### Config File
 
-Configure scheduler intervals in `config/config.exs` and the three relay lists under `:nostr`:
+Configure scheduler intervals in `config/config.exs` and the relay lists under `:nostr`:
 
 ```elixir
 config :rss2nostr, Rss2Nostr.Scheduler,
@@ -91,11 +92,12 @@ config :rss2nostr, :nostr,
   relays: %{
     draft: ["wss://client.example"],
     test: ["wss://nos.lol", "wss://relay.damus.io"],
-    public: ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.nostr.band"]
+    public: ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.nostr.band"],
+    inbox: []
   }
 ```
 
-Draft sources always publish to the **draft** list (or **test** if that list is empty). Article sources publish to the **test** list unless they are marked public (`source add --public`, or the checkbox in the web UI). `--relays` on export still overrides all lists.
+Draft sources always publish to the **draft** list (or **test** if that list is empty). Article sources publish to the **test** list unless they are marked public (`source add --public`, or the checkbox in the web UI). `--relays` on export still overrides all lists. Staging DMs use the recipient’s NIP-05 relays (or **public** if none are advertised), plus **inbox**.
 
 ## Usage
 

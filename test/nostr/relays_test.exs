@@ -31,21 +31,24 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
     )
   end
 
-  describe "test/0, public/0, and draft/0" do
+  describe "test/0, public/0, draft/0, and inbox/0" do
     test "reads all lists from config" do
       put_relays(%{
         draft: ["wss://draft.example"],
         test: ["wss://test.example"],
-        public: ["wss://public.example"]
+        public: ["wss://public.example"],
+        inbox: ["wss://inbox.example"]
       })
 
       assert Relays.draft() == ["wss://draft.example"]
       assert Relays.test() == ["wss://test.example"]
       assert Relays.public() == ["wss://public.example"]
+      assert Relays.inbox() == ["wss://inbox.example"]
       assert Relays.for(:draft) == ["wss://draft.example"]
       assert Relays.for(:test) == ["wss://test.example"]
       assert Relays.for(:public) == ["wss://public.example"]
       assert Relays.for("public") == ["wss://public.example"]
+      assert Relays.all().inbox == ["wss://inbox.example"]
     end
 
     test "treats a legacy list as the test list" do
@@ -54,6 +57,7 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
       assert Relays.test() == ["wss://legacy.example"]
       assert Relays.public() == []
       assert Relays.draft() == []
+      assert Relays.inbox() == []
     end
 
     test "falls back to the test list when draft relays are empty" do
@@ -63,8 +67,11 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
       assert Relays.for(:draft) == ["wss://test.example"]
     end
 
-    test "empty?/0 is true only when all lists are empty" do
-      put_relays(%{draft: [], test: [], public: []})
+    test "empty?/0 is true only when publish lists are empty" do
+      put_relays(%{draft: [], test: [], public: [], inbox: []})
+      assert Relays.empty?()
+
+      put_relays(%{draft: [], test: [], public: [], inbox: ["wss://inbox.example"]})
       assert Relays.empty?()
 
       put_relays(%{draft: ["wss://draft.example"], test: [], public: []})

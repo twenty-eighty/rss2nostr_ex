@@ -110,6 +110,51 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "***bold italic***" or md =~ "**_bold italic_**" or md =~ "_**bold italic**_"
     end
 
+    test "moves spaces outside italic markers" do
+      assert HtmlToMarkdown.convert("<p><em>Patrik Baab: </em></p>") == "*Patrik Baab:*"
+      assert HtmlToMarkdown.convert("<p><em> foo</em>bar</p>") == "*foo*bar"
+      assert HtmlToMarkdown.convert("<p>before<em> foo </em>after</p>") == "before *foo* after"
+    end
+
+    test "moves spaces outside bold markers" do
+      assert HtmlToMarkdown.convert("<p><strong>bold </strong>text</p>") == "**bold** text"
+    end
+
+    test "does not wrap whitespace-only emphasis" do
+      md = HtmlToMarkdown.convert("<p>keep<em>   </em>going</p>")
+
+      refute md =~ "*"
+      assert md =~ "keep"
+      assert md =~ "going"
+    end
+
+    test "peels pretty-printed newlines out of emphasis" do
+      html = """
+      <p>
+        <em>
+          Patrik Baab:
+        </em>
+      </p>
+      """
+
+      assert HtmlToMarkdown.convert(html) == "*Patrik Baab:*"
+    end
+
+    test "peels a nested whitespace span out of italic" do
+      html = "<p><em><span>Patrik Baab: </span></em></p>"
+      assert HtmlToMarkdown.convert(html) == "*Patrik Baab:*"
+    end
+
+    test "keeps italic around inner bold" do
+      html = "<p><em>foo <strong>bar</strong></em></p>"
+      assert HtmlToMarkdown.convert(html) == "*foo **bar***"
+    end
+
+    test "keeps bold around inner italic" do
+      html = "<p><strong>foo <em>bar</em></strong></p>"
+      assert HtmlToMarkdown.convert(html) == "**foo *bar***"
+    end
+
     test "strips script and style tags" do
       html = "<p>Content</p><script>alert('xss')</script><style>.cls{}</style>"
       md = HtmlToMarkdown.convert(html)

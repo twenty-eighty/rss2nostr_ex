@@ -79,14 +79,15 @@ existing_relays =
       %{
         draft: List.wrap(Map.get(map, :draft, [])),
         test: List.wrap(test),
-        public: List.wrap(public)
+        public: List.wrap(public),
+        inbox: List.wrap(Map.get(map, :inbox, []))
       }
 
     list when is_list(list) ->
-      %{draft: [], test: list, public: []}
+      %{draft: [], test: list, public: [], inbox: []}
 
     _ ->
-      %{draft: [], test: [], public: []}
+      %{draft: [], test: [], public: [], inbox: []}
   end
 
 draft_relays = parse_relay_list.(System.get_env("NOSTR_RELAYS_DRAFT"))
@@ -96,6 +97,7 @@ test_relays =
     parse_relay_list.(System.get_env("NOSTR_RELAYS"))
 
 public_relays = parse_relay_list.(System.get_env("NOSTR_RELAYS_PUBLIC"))
+inbox_relays = parse_relay_list.(System.get_env("NOSTR_RELAYS_INBOX"))
 
 relays =
   existing_relays
@@ -107,6 +109,9 @@ relays =
   end)
   |> then(fn relays ->
     if public_relays, do: Map.put(relays, :public, public_relays), else: relays
+  end)
+  |> then(fn relays ->
+    if inbox_relays, do: Map.put(relays, :inbox, inbox_relays), else: relays
   end)
 
 config :rss2nostr, :nostr, relays: relays

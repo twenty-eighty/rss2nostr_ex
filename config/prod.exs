@@ -5,7 +5,7 @@ config :rss2nostr, Rss2Nostr.Repo, pool_size: 10
 
 # Nostr configuration
 config :rss2nostr, :nostr,
-  relays: %{draft: [], test: [], public: []},
+  relays: %{draft: [], test: [], public: [], inbox: []},
   relay_audience: :public,
   private_key: nil,
   public_key: nil,

@@ -11,6 +11,28 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
     assert html =~ ~s(<a href="https://example.com">here</a>)
   end
 
+  test "does not treat a space before a closing marker as emphasis" do
+    html = Markdown.to_html("*Patrik Baab: *\n\n*foo*")
+
+    refute html =~ "<em>Patrik Baab:"
+    assert html =~ "*Patrik Baab: *"
+    assert html =~ "<em>foo</em>"
+  end
+
+  test "does not treat a space after an opening marker as emphasis" do
+    html = Markdown.to_html("x * foo*")
+
+    refute html =~ "<em>"
+    assert html =~ "* foo*"
+  end
+
+  test "renders *** as bold italic" do
+    html = Markdown.to_html("***bold italic***")
+
+    assert html =~ "<strong><em>bold italic</em></strong>"
+    refute html =~ "***"
+  end
+
   test "renders images and lists" do
     html =
       Markdown.to_html("""

@@ -16,7 +16,8 @@ config :rss2nostr, :nostr,
   relays: %{
     draft: ["wss://draft.example.com"],
     test: ["wss://nos.lol"],
-    public: ["wss://relay.example.com"]
+    public: ["wss://relay.example.com"],
+    inbox: []
   },
   relay_audience: :test,
   private_key: nil,

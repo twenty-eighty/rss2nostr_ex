@@ -85,6 +85,8 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "start-blocks"
       assert html =~ "Technical settings"
       assert html =~ "Nostr event preview"
+      assert html =~ "data-original-article"
+      assert html =~ "Open original article"
       assert html =~ "compose-preview-rendered"
       assert html =~ "compose-preview-event"
       assert html =~ "show-split-parts"
@@ -119,6 +121,7 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       articles = Sources.show(source, tab: "articles")
       assert articles =~ "Publish selected"
       assert articles =~ "Import now"
+      assert articles =~ "js-upload-images"
     end
 
     test "keeps an unknown stored language in the select" do

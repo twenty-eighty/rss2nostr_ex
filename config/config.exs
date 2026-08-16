@@ -17,8 +17,8 @@ config :rss2nostr, Rss2Nostr.Scheduler,
     cleanup: :timer.hours(24)
   }
 
-# Draft / test / public Nostr relays. Overridden per env and by
-# NOSTR_RELAYS_DRAFT / NOSTR_RELAYS_TEST / NOSTR_RELAYS_PUBLIC
+# Draft / test / public / inbox Nostr relays. Overridden per env and by
+# NOSTR_RELAYS_DRAFT / NOSTR_RELAYS_TEST / NOSTR_RELAYS_PUBLIC / NOSTR_RELAYS_INBOX
 # (NOSTR_RELAYS still fills the test list).
 config :rss2nostr, :nostr,
   relays: %{
@@ -31,7 +31,8 @@ config :rss2nostr, :nostr,
       "wss://relay.damus.io",
       "wss://nos.lol",
       "wss://relay.nostr.band"
-    ]
+    ],
+    inbox: []
   },
   relay_audience: :test
 

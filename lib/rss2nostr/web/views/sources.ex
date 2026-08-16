@@ -291,6 +291,9 @@ defmodule Rss2Nostr.Web.Views.Sources do
         <select id="preview_article">
           <option value="">Loading articles…</option>
         </select>
+        <p class="compose-original-article" data-original-article hidden>
+          <a target="_blank" rel="noopener noreferrer">Open original article</a>
+        </p>
         <p class="help-text">This only affects the preview. Import still starts from the article chosen on the Feed tab.</p>
       </div>
       #{compose_layout(params, source)}
@@ -314,8 +317,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
       else
         Enum.map_join(posts, "", fn post ->
           """
-          <tr>
-            <td>
+          <tr id="article-#{post.id}">
+            <td class="article-select">
               #{if post.status == Post.status_processed() do
             ~s(<input type="checkbox" name="post_ids[]" value="#{post.id}">)
           else
@@ -323,12 +326,12 @@ defmodule Rss2Nostr.Web.Views.Sources do
           end}
             </td>
             <td><a href="/posts/#{post.id}">#{escape_html(truncate(post.title, 70))}</a></td>
-            <td><span class="badge #{status_class(post.status)}">#{Post.status_label(post.status)}</span></td>
+            <td class="article-status"><span class="badge #{status_class(post.status)}">#{Post.status_label(post.status)}</span></td>
             <td>#{format_datetime(post.published_at)}</td>
             <td class="actions">
               <a href="/posts/#{post.id}" class="btn btn-small">Preview</a>
               #{if post.status == Post.status_pending_images() do
-            ~s(<button type="submit" class="btn btn-small" form="upload-post-#{post.id}">Upload images</button>)
+            ~s(<button type="submit" class="btn btn-small js-upload-images" form="upload-post-#{post.id}">Upload images</button>)
           end}
             </td>
           </tr>
@@ -362,6 +365,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
         <button type="submit" class="btn btn-secondary" formaction="/sources/#{source.id}/reprocess-selected">Reprocess selected</button>
       </div>
     </form>
+    #{articles_upload_script()}
     """
   end
 
@@ -377,6 +381,82 @@ defmodule Rss2Nostr.Web.Views.Sources do
       </form>
       """
     end)
+  end
+
+  defp articles_upload_script do
+    """
+    <script>
+    (function () {
+      function statusClass(status) {
+        switch (status) {
+          case 0: return "badge-new";
+          case 1: return "badge-processing";
+          case 2: return "badge-processed";
+          case 6: return "badge-published";
+          case 9: return "badge-pending-images";
+          default: return "badge-error";
+        }
+      }
+
+      function updateRow(row, body) {
+        const statusCell = row.querySelector(".article-status");
+        if (statusCell) {
+          const badge = document.createElement("span");
+          badge.className = "badge " + statusClass(body.status);
+          badge.textContent = body.status_label || body.status_name || "";
+          if (body.last_error) badge.title = body.last_error;
+          statusCell.replaceChildren(badge);
+        }
+
+        const select = row.querySelector(".article-select");
+        const upload = row.querySelector(".js-upload-images");
+
+        if (body.selectable) {
+          if (select && !select.querySelector("input")) {
+            const box = document.createElement("input");
+            box.type = "checkbox";
+            box.name = "post_ids[]";
+            box.value = String(body.id);
+            select.replaceChildren(box);
+          }
+          if (upload) upload.remove();
+        } else if (upload) {
+          upload.disabled = false;
+          upload.textContent = "Upload images";
+          if (body.last_error) upload.title = body.last_error;
+        }
+      }
+
+      document.querySelectorAll(".js-upload-images").forEach(function (button) {
+        button.addEventListener("click", async function (event) {
+          event.preventDefault();
+          const form = document.getElementById(button.getAttribute("form"));
+          if (!form) return;
+
+          const row = button.closest("tr");
+          button.disabled = true;
+          button.textContent = "Uploading…";
+
+          try {
+            const res = await fetch(form.action, {
+              method: "POST",
+              headers: { Accept: "application/json" },
+              body: new FormData(form),
+              credentials: "same-origin"
+            });
+            const body = await res.json();
+            if (!res.ok) throw new Error(body.error || "Upload failed");
+            if (row) updateRow(row, body);
+          } catch (err) {
+            button.disabled = false;
+            button.textContent = "Upload images";
+            button.title = err.message || "Upload failed";
+          }
+        });
+      });
+    })();
+    </script>
+    """
   end
 
   defp publishing_tab(source, params, errors) do
@@ -471,6 +551,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
         #{error_message(errors, :notify_pubkey)}
         <p class="help-text">
           Optional. Receives a NIP-17 DM when an article first enters staging or is revised.
+          Delivered to the recipient’s NIP-05 relays (or the public list if none are advertised),
+          plus any extra relays in <code>NOSTR_RELAYS_INBOX</code>.
         </p>
       </div>
     </fieldset>
@@ -1134,6 +1216,9 @@ defmodule Rss2Nostr.Web.Views.Sources do
           <button type="button" class="btn btn-small btn-secondary" id="refresh-preview">Refresh</button>
         </div>
       </div>
+      <p class="compose-original-article" data-original-article hidden>
+        <a target="_blank" rel="noopener noreferrer">Open original article</a>
+      </p>
       <p id="compose-preview-status" class="help-text">Pick an article to preview the Markdown.</p>
       <div id="compose-preview-meta" class="compose-preview-meta" hidden></div>
       <article id="compose-preview-rendered" class="compose-preview-rendered" hidden></article>
@@ -1219,6 +1304,32 @@ defmodule Rss2Nostr.Web.Views.Sources do
       function setPreviewStatus(message) {
         if (statusEl) statusEl.textContent = message || "";
       }
+
+      function selectedArticleLink() {
+        if (!articleSelect || !articleSelect.selectedOptions[0]) return "";
+        return articleSelect.selectedOptions[0].dataset.link || "";
+      }
+
+      function setOriginalArticle(url) {
+        document.querySelectorAll("[data-original-article]").forEach(function (el) {
+          const a = el.querySelector("a");
+          if (!url) {
+            el.hidden = true;
+            if (a) {
+              a.removeAttribute("href");
+              a.removeAttribute("title");
+            }
+            return;
+          }
+          el.hidden = false;
+          if (a) {
+            a.href = url;
+            a.title = url;
+          }
+        });
+      }
+
+      window.rss2nostrSetOriginalArticle = setOriginalArticle;
 
       async function runPreview() {
         if (!urlInput.value) return;
@@ -1326,6 +1437,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
           showSplitParts = false;
           if (splitInput) splitInput.checked = false;
         }
+
+        setOriginalArticle(body.link || selectedArticleLink());
 
         if (metaEl) {
           metaEl.hidden = false;
@@ -1570,7 +1683,10 @@ defmodule Rss2Nostr.Web.Views.Sources do
         radio.addEventListener("change", schedulePreview);
       });
       if (articleSelect && articleSelect.id === "preview_article") {
-        articleSelect.addEventListener("change", schedulePreview);
+        articleSelect.addEventListener("change", function () {
+          setOriginalArticle(selectedArticleLink());
+          schedulePreview();
+        });
       }
       if (refresh) refresh.addEventListener("click", runPreview);
       if (splitInput) {
@@ -1623,11 +1739,16 @@ defmodule Rss2Nostr.Web.Views.Sources do
         items.forEach(function (item, index) {
           const option = document.createElement("option");
           option.value = item.guid || item.link || "";
+          if (item.link) option.dataset.link = item.link;
           option.textContent = (item.published_at ? item.published_at.slice(0, 10) + " — " : "") +
             (item.title || item.guid || "Untitled");
           if (index === 0) option.selected = true;
           select.appendChild(option);
         });
+        const selected = select.selectedOptions[0];
+        if (window.rss2nostrSetOriginalArticle) {
+          window.rss2nostrSetOriginalArticle(selected && selected.dataset.link);
+        }
         if (window.rss2nostrScheduleComposePreview) window.rss2nostrScheduleComposePreview();
       }).catch(function (err) {
         select.innerHTML = "";

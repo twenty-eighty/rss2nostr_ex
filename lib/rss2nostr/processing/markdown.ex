@@ -184,8 +184,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     |> replace_links()
     |> replace_footnotes()
     |> replace_code()
-    |> replace_strong()
-    |> replace_em()
+    |> replace_emphasis()
   end
 
   defp replace_footnotes(text) do
@@ -226,16 +225,30 @@ defmodule Rss2Nostr.Processing.Markdown do
     Regex.replace(~r/`([^`]+)`/, text, fn _, code -> "<code>#{code}</code>" end)
   end
 
-  defp replace_strong(text) do
+  # CommonMark flanking: a `*`/`_` run cannot open if followed by whitespace,
+  # and cannot close if preceded by whitespace. Longer runs first so
+  # `***bold italic***` does not leave a stray marker.
+  defp replace_emphasis(text) do
     text
-    |> then(&Regex.replace(~r/\*\*(.+?)\*\*/, &1, fn _, inner -> "<strong>#{inner}</strong>" end))
-    |> then(&Regex.replace(~r/__(.+?)__/, &1, fn _, inner -> "<strong>#{inner}</strong>" end))
+    |> replace_delimited(~r/\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*/, fn inner ->
+      "<strong><em>#{inner}</em></strong>"
+    end)
+    |> replace_delimited(~r/\*\*(?!\s)(.+?)(?<!\s)\*\*/, fn inner ->
+      "<strong>#{inner}</strong>"
+    end)
+    |> replace_delimited(~r/__(?!\s)(.+?)(?<!\s)__/, fn inner ->
+      "<strong>#{inner}</strong>"
+    end)
+    |> replace_delimited(~r/(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)/, fn inner ->
+      "<em>#{inner}</em>"
+    end)
+    |> replace_delimited(~r/(?<![A-Za-z0-9_])_(?!\s)(.+?)(?<!\s)_(?![A-Za-z0-9_])/, fn inner ->
+      "<em>#{inner}</em>"
+    end)
   end
 
-  defp replace_em(text) do
-    text
-    |> then(&Regex.replace(~r/\*(.+?)\*/, &1, fn _, inner -> "<em>#{inner}</em>" end))
-    |> then(&Regex.replace(~r/_(.+?)_/, &1, fn _, inner -> "<em>#{inner}</em>" end))
+  defp replace_delimited(text, regex, fun) do
+    Regex.replace(regex, text, fn _, inner -> fun.(inner) end)
   end
 
   defp safe_url(url) do
