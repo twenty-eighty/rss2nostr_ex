@@ -4,11 +4,13 @@ defmodule Rss2Nostr.Web.Views.Posts do
   """
 
   alias Rss2Nostr.Web.Views.Layout
+  alias Rss2Nostr.Web.Views.Sources, as: SourceViews
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
-  alias Rss2Nostr.Processing.Processor
+  alias Rss2Nostr.Processing.{Markdown, Processor}
   alias Rss2Nostr.Sources
-  alias Rss2Nostr.Nostr.{Blossom, Publisher, Relays}
+  alias Rss2Nostr.Sources.Source
+  alias Rss2Nostr.Nostr.{Blossom, Publisher, Relays, Signer}
 
   @per_page 20
 
@@ -18,6 +20,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
     q = blank_to_nil(trim_filter(Keyword.get(opts, :q)))
     page = Keyword.get(opts, :page, 1)
     notice = Keyword.get(opts, :notice)
+    notice_kind = Keyword.get(opts, :notice_kind)
     offset = (page - 1) * @per_page
 
     posts =
@@ -65,13 +68,13 @@ defmodule Rss2Nostr.Web.Views.Posts do
       <h1>Posts</h1>
     </div>
 
-    #{if notice, do: "<p class=\"success\">#{escape_html(notice)}</p>", else: ""}
+    #{flash_notice(notice, notice_kind)}
 
     <div class="filter-bar">
       <a href="#{posts_path(status: nil, source_id: source_id, q: q)}" class="btn btn-small #{if is_nil(status_filter), do: "btn-active"}">All</a>
       <a href="#{posts_path(status: "0", source_id: source_id, q: q)}" class="btn btn-small #{if status_filter == "0", do: "btn-active"}">New</a>
       <a href="#{posts_path(status: "9", source_id: source_id, q: q)}" class="btn btn-small #{if status_filter == "9", do: "btn-active"}">Pending images</a>
-      <a href="#{posts_path(status: "2", source_id: source_id, q: q)}" class="btn btn-small #{if status_filter == "2", do: "btn-active"}">Processed</a>
+      <a href="#{posts_path(status: "2", source_id: source_id, q: q)}" class="btn btn-small #{if status_filter == "2", do: "btn-active"}">Staging</a>
       <a href="#{posts_path(status: "6", source_id: source_id, q: q)}" class="btn btn-small #{if status_filter == "6", do: "btn-active"}">Published</a>
       <form method="get" action="/posts" class="filter-source">
         #{if status_filter, do: ~s(<input type="hidden" name="status" value="#{escape_attr(to_string(status_filter))}">), else: ""}
@@ -86,6 +89,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
       </form>
     </div>
 
+    #{post_action_forms(posts, status_filter, source_id, q, page)}
     <form action="/posts/publish-selected" method="POST">
     <table class="table">
       <thead>
@@ -118,7 +122,9 @@ defmodule Rss2Nostr.Web.Views.Posts do
     Layout.render("Posts", content, active_nav: "posts")
   end
 
-  def show(id) do
+  def show(id, opts \\ []) do
+    notice = Keyword.get(opts, :notice)
+
     case Posts.get_post(String.to_integer(id), preload: [:source, :images]) do
       nil ->
         Layout.render(
@@ -131,6 +137,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
         post = Processor.finish_if_images_ready(post)
         status_class = status_to_class(post.status)
         status_label = Post.status_label(post.status)
+        editable? = post.status in [Post.status_processed(), Post.status_published()]
 
         content = """
         <div class="page-header">
@@ -138,63 +145,43 @@ defmodule Rss2Nostr.Web.Views.Posts do
           <span class="badge #{status_class}">#{status_label}</span>
         </div>
 
+        #{flash_notice(notice, Keyword.get(opts, :notice_kind))}
+
         <div class="post-meta">
           #{if post.source_url, do: "<p><strong>Source:</strong> <a href=\"#{escape_html(post.source_url)}\" target=\"_blank\">#{escape_html(truncate(post.source_url, 60))}</a></p>"}
           #{if post.published_at, do: "<p><strong>Published:</strong> #{format_datetime(post.published_at)}</p>"}
+          #{staging_hold_note(post)}
           #{if post.event_id, do: "<p><strong>Event ID:</strong> <code>#{post.event_id}</code></p>"}
           #{if post.nostr_address, do: "<p><strong>Nostr Address:</strong> <code>#{truncate(post.nostr_address, 60)}</code></p>"}
           <p><strong>Relays:</strong> #{audience_label(post)}</p>
-          #{if post.last_error, do: "<p class=\"error\"><strong>Last error:</strong> #{escape_html(post.last_error)}</p>"}
+          #{publish_notes(post)}
         </div>
 
         <div class="post-actions">
-          #{if post.status in [Post.status_new(), Post.status_pending_images()] do
-          """
-          <form action="/posts/#{post.id}/process" method="POST" style="display:inline">
-            <button type="submit" class="btn btn-primary">#{if post.status == Post.status_pending_images(), do: "Upload images", else: "Process"}</button>
-          </form>
-          """
-        end}
-          #{if post.status == Post.status_processed() do
-          """
-          <form action="/posts/#{post.id}/publish" method="POST" style="display:inline">
-            <button type="submit" class="btn btn-primary">Publish to #{if Relays.audience_for_post(post) == :public, do: "public", else: "test"} relays</button>
-          </form>
-          """
-        end}
+          #{show_actions(post)}
           <a href="/posts" class="btn btn-secondary">Back to List</a>
         </div>
 
         <div class="compose-tabs" role="tablist" style="margin: 1.25rem 0 1rem">
           <button type="button" class="compose-tab is-active" data-post-tab="article" role="tab" aria-selected="true">Article</button>
+          <button type="button" class="compose-tab" data-post-tab="preview" role="tab" aria-selected="false">Preview</button>
           <button type="button" class="compose-tab" data-post-tab="event" role="tab" aria-selected="false">Event</button>
         </div>
 
         <div id="post-article-tab">
-          #{if post.image do
-          """
-          <div class="post-image">
-            <h3>Featured Image</h3>
-            <img src="#{escape_html(post.image)}" alt="Featured image" style="max-width: 400px;">
-          </div>
-          """
-        end}
+          #{if editable?, do: editor_form(post), else: read_only_article(post)}
+        </div>
 
-          <div class="post-content">
-            <h3>Content</h3>
-            <div class="content-preview">
-              #{if post.content, do: "<pre>#{escape_html(post.content)}</pre>", else: "<p class=\"empty-state\">No content yet. Process the post first.</p>"}
-            </div>
-          </div>
+        <div id="post-preview-tab" hidden>
+          #{article_preview(post)}
         </div>
 
         <div id="post-event-tab" hidden>
           <p class="help-text">
-            Inner article <code>EVENT</code> as it will be NIP-44-encrypted into a
-            kind 31234 wrap when published. Long drafts are split so each part
-            stays under the 65535-byte plaintext limit.
+            #{event_tab_intro(post)}
             <code>id</code> and <code>sig</code> are added when publishing;
             <code>created_at</code> is a preview timestamp.
+            Changing the title does not change the <code>d</code> tag.
           </p>
           #{event_preview(post)}
         </div>
@@ -216,6 +203,171 @@ defmodule Rss2Nostr.Web.Views.Posts do
     end
   end
 
+  defp show_actions(post) do
+    audience = relay_target_name(post)
+
+    cond do
+      post.status in [Post.status_new(), Post.status_pending_images()] ->
+        """
+        <form action="/posts/#{post.id}/process" method="POST" style="display:inline">
+          <button type="submit" class="btn btn-primary">#{if post.status == Post.status_pending_images(), do: "Upload images", else: "Process"}</button>
+        </form>
+        """
+
+      post.status == Post.status_processed() ->
+        """
+        <form action="/posts/#{post.id}/publish" method="POST" style="display:inline">
+          <button type="submit" class="btn btn-primary">Publish to #{audience} relays</button>
+        </form>
+        """
+
+      post.status == Post.status_published() ->
+        """
+        <form action="/posts/#{post.id}/publish" method="POST" style="display:inline">
+          <button type="submit" class="btn btn-primary">Republish to #{audience} relays</button>
+        </form>
+        <form action="/posts/#{post.id}/revise" method="POST" style="display:inline">
+          <button type="submit" class="btn btn-secondary">Revise</button>
+        </form>
+        """
+
+      true ->
+        ""
+    end
+  end
+
+  defp editor_form(post) do
+    hashtags = Enum.join(post.categories || [], ", ")
+
+    """
+    <form action="/posts/#{post.id}" method="POST" class="form form-wide post-editor">
+      <div class="form-group">
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" value="#{escape_attr(post.title)}">
+      </div>
+      <div class="form-group">
+        <label for="summary">Summary</label>
+        <textarea id="summary" name="summary" rows="3">#{escape_html(post.summary)}</textarea>
+      </div>
+      <div class="form-group">
+        <label for="hashtags">Hashtags</label>
+        <input type="text" id="hashtags" name="hashtags" value="#{escape_attr(hashtags)}" placeholder="comma-separated">
+        <p class="help-text">Stored as categories and published as <code>t</code> tags.</p>
+      </div>
+      <div class="form-group">
+        <label for="language">Language</label>
+        #{SourceViews.language_select(post.language || "de")}
+      </div>
+      <div class="form-group">
+        <label for="content">Markdown</label>
+        <textarea id="content" name="content" class="post-editor-markdown">#{escape_html(post.content)}</textarea>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+    """
+  end
+
+  defp read_only_article(post) do
+    """
+    #{featured_image(post)}
+    <div class="post-content">
+      <h3>Content</h3>
+      <div class="content-preview">
+        #{if post.content, do: "<pre>#{escape_html(post.content)}</pre>", else: "<p class=\"empty-state\">No content yet. Process the post first.</p>"}
+      </div>
+    </div>
+    """
+  end
+
+  defp article_preview(post) do
+    rendered =
+      if present?(post.content) do
+        ~s(<div class="compose-preview-rendered">#{Markdown.to_html(post.content)}</div>)
+      else
+        ~s(<p class="empty-state">No content yet.</p>)
+      end
+
+    """
+    #{featured_image(post)}
+    #{rendered}
+    """
+  end
+
+  defp featured_image(post) do
+    if present?(post.image) do
+      """
+      <div class="post-image">
+        <h3>Featured Image</h3>
+        <img src="#{escape_html(post.image)}" alt="Featured image" style="max-width: 400px;">
+      </div>
+      """
+    else
+      ""
+    end
+  end
+
+  defp staging_hold_note(post) do
+    source = post.source
+
+    cond do
+      post.status != Post.status_processed() ->
+        ""
+
+      not match?(%Source{}, source) ->
+        ""
+
+      true ->
+        hold = source.staging_hold_minutes || 0
+        staged = format_datetime(post.staged_at)
+
+        detail =
+          cond do
+            not Source.automated?(source) ->
+              "Waiting for manual publish."
+
+            hold <= 0 ->
+              "Ready to auto-publish."
+
+            rem(hold, 60) == 0 ->
+              "Auto-publishes #{div(hold, 60)}h after staging."
+
+            true ->
+              "Auto-publishes #{hold} minutes after staging."
+          end
+
+        "<p><strong>Staged:</strong> #{staged} — #{escape_html(detail)}</p>"
+    end
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_), do: false
+
+  defp flash_notice(nil, _), do: ""
+  defp flash_notice("", _), do: ""
+
+  defp flash_notice(notice, kind) do
+    class =
+      case kind do
+        "error" -> "error"
+        "warning" -> "warning"
+        _ -> "success"
+      end
+
+    ~s(<p class="#{class}">#{escape_html(notice)}</p>)
+  end
+
+  defp publish_notes(%{last_error: error} = post) when is_binary(error) and error != "" do
+    if post.status == Post.status_published() do
+      ~s(<p class="warning"><strong>Publish notes:</strong> #{escape_html(error)}</p>)
+    else
+      ~s(<p class="error"><strong>Last error:</strong> #{escape_html(error)}</p>)
+    end
+  end
+
+  defp publish_notes(_), do: ""
+
   defp images_section(post) do
     images = post.images || []
 
@@ -235,7 +387,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
         <div class="post-content" style="margin-top: 1.5rem">
           <h3>Images</h3>
           <p class="help-text">
-            Processed articles must have the featured image and every referenced image uploaded.
+            Staging articles must have the featured image and every referenced image uploaded.
           </p>
           <table class="table">
             <thead>
@@ -267,6 +419,29 @@ defmodule Rss2Nostr.Web.Views.Posts do
     """
   end
 
+  defp event_tab_intro(post) do
+    cond do
+      Signer.encrypted_draft?(post.source) ->
+        """
+        Inner article <code>EVENT</code> as it will be NIP-44-encrypted into a
+        kind 31234 wrap when published. Long drafts are split so each
+        published <code>["EVENT", wrap]</code> stays under 65535 bytes.
+        """
+
+      Signer.plain_draft?(post.source) ->
+        """
+        Kind 30024 <code>EVENT</code> signed by the app key when published.
+        Long drafts are split so each published event stays under 65535 bytes.
+        """
+
+      true ->
+        """
+        Kind 30023 <code>EVENT</code> as it will be signed and published.
+        Long articles are split so each published event stays under 65535 bytes.
+        """
+    end
+  end
+
   defp event_preview(post) do
     preview = Publisher.preview_event(post)
     relays = Enum.map_join(preview.relays, "\n", & &1)
@@ -279,7 +454,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
           """
           <p class="help-text">
             This article will be published as #{total} NIP-37 drafts so each
-            encrypted payload stays within 65535 bytes.
+            published wrap stays within 65535 bytes.
           </p>
           """
 
@@ -287,6 +462,13 @@ defmodule Rss2Nostr.Web.Views.Posts do
           """
           <p class="help-text">
             This inner article is NIP-44-encrypted into a kind 31234 wrap when published.
+          </p>
+          """
+
+        preview.plain_draft ->
+          """
+          <p class="help-text">
+            Published as kind 30024, signed by the app key.
           </p>
           """
 
@@ -322,14 +504,18 @@ defmodule Rss2Nostr.Web.Views.Posts do
     <script>
     (function () {
       const tabs = document.querySelectorAll("[data-post-tab]");
-      const article = document.getElementById("post-article-tab");
-      const event = document.getElementById("post-event-tab");
-      if (!tabs.length || !article || !event) return;
+      const panels = {
+        article: document.getElementById("post-article-tab"),
+        preview: document.getElementById("post-preview-tab"),
+        event: document.getElementById("post-event-tab")
+      };
+      if (!tabs.length || !panels.article || !panels.preview || !panels.event) return;
       tabs.forEach(function (tab) {
         tab.addEventListener("click", function () {
           const name = tab.getAttribute("data-post-tab");
-          article.hidden = name !== "article";
-          event.hidden = name !== "event";
+          Object.keys(panels).forEach(function (key) {
+            panels[key].hidden = key !== name;
+          });
           tabs.forEach(function (other) {
             const selected = other === tab;
             other.classList.toggle("is-active", selected);
@@ -342,28 +528,41 @@ defmodule Rss2Nostr.Web.Views.Posts do
     """
   end
 
+  defp post_action_forms(posts, status_filter, source_id, q, page) do
+    return_to = posts_path(status: status_filter, source_id: source_id, q: q, page: page)
+
+    Enum.map_join(posts, "", fn post ->
+      case post.status do
+        status when status in [0, 9] ->
+          """
+          <form id="post-action-#{post.id}" action="/posts/#{post.id}/process" method="POST" hidden>
+            <input type="hidden" name="return_to" value="#{escape_attr(return_to)}">
+          </form>
+          """
+
+        2 ->
+          """
+          <form id="post-action-#{post.id}" action="/posts/#{post.id}/publish" method="POST" hidden>
+            <input type="hidden" name="return_to" value="#{escape_attr(return_to)}">
+          </form>
+          """
+
+        _ ->
+          ""
+      end
+    end)
+  end
+
   defp action_buttons(post) do
     case post.status do
       0 ->
-        """
-        <form action="/posts/#{post.id}/process" method="POST" style="display:inline">
-          <button type="submit" class="btn btn-small">Process</button>
-        </form>
-        """
+        ~s(<button type="submit" class="btn btn-small" form="post-action-#{post.id}">Process</button>)
 
       9 ->
-        """
-        <form action="/posts/#{post.id}/process" method="POST" style="display:inline">
-          <button type="submit" class="btn btn-small">Upload images</button>
-        </form>
-        """
+        ~s(<button type="submit" class="btn btn-small" form="post-action-#{post.id}">Upload images</button>)
 
       2 ->
-        """
-        <form action="/posts/#{post.id}/publish" method="POST" style="display:inline">
-          <button type="submit" class="btn btn-small">Export</button>
-        </form>
-        """
+        ~s(<button type="submit" class="btn btn-small" form="post-action-#{post.id}">Export</button>)
 
       _ ->
         ""
@@ -371,9 +570,18 @@ defmodule Rss2Nostr.Web.Views.Posts do
   end
 
   defp audience_label(post) do
-    case Relays.audience_for_post(post) do
+    case Relays.target_for(post) do
+      :draft -> "<span class=\"badge badge-test\">Draft</span>"
       :public -> "<span class=\"badge badge-public\">Public</span>"
       _ -> "<span class=\"badge badge-test\">Test</span>"
+    end
+  end
+
+  defp relay_target_name(post) do
+    case Relays.target_for(post) do
+      :draft -> "draft"
+      :public -> "public"
+      _ -> "test"
     end
   end
 

@@ -46,6 +46,7 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
       {:ok, processed} = Processor.process_post(post)
 
       assert processed.status == Post.status_processed()
+      assert processed.staged_at
       assert processed.content != nil
     end
 
@@ -162,7 +163,8 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
     test "does not mark processed while images still need uploading", %{source: source} do
       post =
         create_post(source, %{
-          source_html: ~s(<p><img src="https://cdn.example/hero.jpg" alt="Hero"></p><p>Article</p>),
+          source_html:
+            ~s(<p><img src="https://cdn.example/hero.jpg" alt="Hero"></p><p>Article</p>),
           image: "https://cdn.example/hero.jpg"
         })
 
@@ -176,7 +178,12 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
 
     test "marks processed when images are already on the Blossom host", %{source: source} do
       nostr = Application.get_env(:rss2nostr, :nostr, [])
-      Application.put_env(:rss2nostr, :nostr, Keyword.put(nostr, :upload_endpoint, "https://route96.example"))
+
+      Application.put_env(
+        :rss2nostr,
+        :nostr,
+        Keyword.put(nostr, :upload_endpoint, "https://route96.example")
+      )
 
       on_exit(fn ->
         Application.put_env(:rss2nostr, :nostr, nostr)
@@ -271,7 +278,8 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
           last_error: "NOSTR_UPLOAD_ENDPOINT is not set"
         })
 
-      {:ok, _} = Posts.create_image(%{post_id: post.id, original_url: "https://cdn.example/hero.jpg"})
+      {:ok, _} =
+        Posts.create_image(%{post_id: post.id, original_url: "https://cdn.example/hero.jpg"})
 
       {:ok, result} = Processor.process_post(post)
 

@@ -34,16 +34,22 @@ defmodule Rss2Nostr.Web.Views.Settings do
 
     <div class="settings-section">
       <h2>Relays</h2>
-      <p>Relays follow the source state: setup always uses the test list. Automated public sources use the public list.</p>
+      <p>Draft sources always use the draft list. Article sources use the test list in setup, then the public list once automated and marked public.</p>
+
+      <h3>Draft relays</h3>
+      <p class="help-text">Used for NIP-37 drafts (Pareto client). Set with <code>NOSTR_RELAYS_DRAFT</code>. Falls back to the test list if empty.</p>
+      <ul>
+        #{draft_relay_items(relays.draft)}
+      </ul>
 
       <h3>Test relays</h3>
-      <p class="help-text">Used for sources that are not marked public. Set with <code>NOSTR_RELAYS_TEST</code> (or <code>NOSTR_RELAYS</code>).</p>
+      <p class="help-text">Used for article sources that are not marked public. Set with <code>NOSTR_RELAYS_TEST</code> (or <code>NOSTR_RELAYS</code>).</p>
       <ul>
         #{relay_items(relays.test)}
       </ul>
 
       <h3>Public relays</h3>
-      <p class="help-text">Used for sources marked public. Set with <code>NOSTR_RELAYS_PUBLIC</code>.</p>
+      <p class="help-text">Used for article sources marked public. Set with <code>NOSTR_RELAYS_PUBLIC</code>.</p>
       <ul>
         #{relay_items(relays.public)}
       </ul>
@@ -68,6 +74,10 @@ defmodule Rss2Nostr.Web.Views.Settings do
         <tr>
           <td>Export</td>
           <td>10 minutes</td>
+        </tr>
+        <tr>
+          <td>Cleanup</td>
+          <td>24 hours</td>
         </tr>
       </table>
     </div>
@@ -101,6 +111,11 @@ defmodule Rss2Nostr.Web.Views.Settings do
 
     Layout.render("Settings", content, active_nav: "settings")
   end
+
+  defp draft_relay_items([]),
+    do: "<li class=\"empty-state\">None configured; using test relays</li>"
+
+  defp draft_relay_items(relays), do: relay_items(relays)
 
   defp relay_items([]), do: "<li class=\"empty-state\">None configured</li>"
 

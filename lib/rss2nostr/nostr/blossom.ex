@@ -223,14 +223,28 @@ defmodule Rss2Nostr.Nostr.Blossom do
     uploaded_urls =
       MapSet.new(for image <- post.images, present?(image.uploaded_url), do: image.uploaded_url)
 
+    uploaded_by_canonical =
+      Map.new(
+        for image <- post.images,
+            present?(image.uploaded_url),
+            do: {ImageExtractor.normalize_url(image.original_url), image.uploaded_url}
+      )
+
     mapping =
       Enum.reduce(post.images, %{}, fn image, acc ->
+        canonical = ImageExtractor.normalize_url(image.original_url)
+        sibling = uploaded_by_canonical[canonical]
+
         cond do
           present?(image.uploaded_url) ->
             Map.put(acc, image.original_url, image.uploaded_url)
 
           already_hosted?(image.original_url) or MapSet.member?(uploaded_urls, image.original_url) ->
             {:ok, updated} = Posts.mark_image_uploaded(image, image.original_url)
+            Map.put(acc, updated.original_url, updated.uploaded_url)
+
+          present?(sibling) ->
+            {:ok, updated} = Posts.mark_image_uploaded(image, sibling)
             Map.put(acc, updated.original_url, updated.uploaded_url)
 
           true ->
@@ -358,21 +372,25 @@ defmodule Rss2Nostr.Nostr.Blossom do
   Downloads an image from a URL and uploads it to Blossom.
   """
   def upload_from_url(image_url, opts \\ []) do
-    Logger.info("Downloading image from #{image_url}")
+    image_url
+    |> ImageExtractor.download_urls()
+    |> Enum.reduce_while({:error, {:download_failed, :no_url}}, fn url, _acc ->
+      Logger.info("Downloading image from #{url}")
 
-    case HTTP.get(image_url, receive_timeout: 30_000, retry: false) do
-      {:ok, %{status: 200, body: data, headers: headers}} ->
-        content_type = HTTP.header(headers, "content-type") || "image/jpeg"
-        filename = extract_filename(image_url, content_type)
-        opts = Keyword.put_new(opts, :content_type, content_type)
-        upload_data(data, filename, opts)
+      case HTTP.get(url, receive_timeout: 30_000, retry: false) do
+        {:ok, %{status: 200, body: data, headers: headers}} ->
+          content_type = HTTP.header(headers, "content-type") || "image/jpeg"
+          filename = extract_filename(url, content_type)
+          opts = Keyword.put_new(opts, :content_type, content_type)
+          {:halt, upload_data(data, filename, opts)}
 
-      {:ok, %{status: code}} ->
-        {:error, {:download_failed, code}}
+        {:ok, %{status: code}} ->
+          {:cont, {:error, {:download_failed, code}}}
 
-      {:error, exception} ->
-        {:error, {:download_failed, exception}}
-    end
+        {:error, exception} ->
+          {:cont, {:error, {:download_failed, exception}}}
+      end
+    end)
   end
 
   @doc """

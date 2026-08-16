@@ -140,6 +140,28 @@ defmodule Rss2Nostr.Web.RouterTest do
     end
   end
 
+  describe "GET /mcp" do
+    test "does not redirect loopback clients to login" do
+      conn = call(conn(:get, "/mcp"), auth: false)
+
+      refute conn.status == 302
+      refute conn.status == 401
+    end
+
+    test "requires a bearer token when MCP_TOKEN is set" do
+      original = Application.get_env(:rss2nostr, :mcp)
+
+      on_exit(fn ->
+        Application.put_env(:rss2nostr, :mcp, original)
+      end)
+
+      Application.put_env(:rss2nostr, :mcp, token: "secret-token")
+
+      conn = call(conn(:get, "/mcp"), auth: false)
+      assert conn.status == 401
+    end
+  end
+
   describe "GET /api/status" do
     test "returns JSON status" do
       conn = call(conn(:get, "/api/status"))

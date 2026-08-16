@@ -534,7 +534,57 @@ defmodule Rss2Nostr.Web.Views.Assets do
     .compose-preview-actions {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 0.75rem;
+    }
+
+    .compose-split-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin: 0;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--gray-600);
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .compose-split-toggle[hidden] {
+      display: none;
+    }
+
+    .compose-split-toggle input {
+      width: auto;
+      margin: 0;
+    }
+
+    .compose-preview-part {
+      white-space: normal;
+    }
+
+    .compose-preview-part + .compose-preview-part {
+      margin-top: 1.75rem;
+      padding-top: 1.5rem;
+      border-top: 2px dashed var(--gray-300);
+    }
+
+    .compose-preview-part-label {
+      margin: 0 0 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--gray-600);
+    }
+
+    .compose-preview-part-markdown {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.8125rem;
+      line-height: 1.5;
     }
 
     .source-tabs {
@@ -641,8 +691,28 @@ defmodule Rss2Nostr.Web.Views.Assets do
       border-radius: 8px;
     }
 
+    .compose-preview-rendered figure {
+      margin: 0 0 1.25rem;
+    }
+
+    .compose-preview-rendered figcaption {
+      margin-top: 0.4rem;
+      font-size: 0.9em;
+      color: var(--gray-600);
+      text-align: center;
+    }
+
     .compose-preview-rendered a {
       color: var(--primary);
+    }
+
+    .compose-preview-rendered .footnote-ref {
+      font-size: 0.75em;
+      line-height: 0;
+    }
+
+    .compose-preview-rendered .footnote {
+      font-size: 0.92em;
     }
 
     .compose-preview-rendered blockquote {
@@ -748,6 +818,13 @@ defmodule Rss2Nostr.Web.Views.Assets do
       font-size: 1rem;
       background: var(--input-bg);
       color: var(--text);
+    }
+
+    .post-editor-markdown {
+      min-height: 28rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.95rem;
+      line-height: 1.5;
     }
 
     .form-group input:focus, .form-group select:focus {

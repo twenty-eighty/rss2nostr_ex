@@ -69,9 +69,12 @@ defmodule Rss2Nostr.Web.API.Sources do
         bunker_connection: blank_to_nil(params["bunker_connection"]),
         publish_after_date: parse_datetime(params["start_published_at"]),
         fetch_source_from: params["fetch_source_from"] || "fetch_from_url",
+        staging_hold_minutes: parse_hold_minutes(params["staging_hold_minutes"]) || 0,
+        notify_pubkey: blank_to_nil(params["notify_pubkey"]),
         options: composition_options(params)
       }
       |> maybe_put(:publish_as, blank_to_nil(params["publish_as"]))
+      |> maybe_put_fixed_hashtags(params)
 
     Sources.create_source(attrs)
   end
@@ -93,6 +96,9 @@ defmodule Rss2Nostr.Web.API.Sources do
       |> maybe_put_bunker(params)
       |> maybe_put(:signing_nsec, blank_to_nil(params["signing_nsec"]))
       |> maybe_put(:publish_after_date, parse_datetime(params["start_published_at"]))
+      |> maybe_put_hold_minutes(params)
+      |> maybe_put_notify_pubkey(params)
+      |> maybe_put_fixed_hashtags(params)
       |> maybe_put_public(params, source)
 
     Sources.update_source(source, attrs)
@@ -264,6 +270,47 @@ defmodule Rss2Nostr.Web.API.Sources do
       attrs
     end
   end
+
+  defp maybe_put_hold_minutes(attrs, params) do
+    if Map.has_key?(params, "staging_hold_minutes") do
+      Map.put(
+        attrs,
+        :staging_hold_minutes,
+        parse_hold_minutes(params["staging_hold_minutes"]) || 0
+      )
+    else
+      attrs
+    end
+  end
+
+  defp maybe_put_notify_pubkey(attrs, params) do
+    if Map.has_key?(params, "notify_pubkey") do
+      Map.put(attrs, :notify_pubkey, params["notify_pubkey"] || "")
+    else
+      attrs
+    end
+  end
+
+  defp maybe_put_fixed_hashtags(attrs, params) do
+    if Map.has_key?(params, "fixed_hashtags") do
+      Map.put(attrs, :fixed_hashtags, params["fixed_hashtags"])
+    else
+      attrs
+    end
+  end
+
+  defp parse_hold_minutes(nil), do: nil
+  defp parse_hold_minutes(""), do: 0
+  defp parse_hold_minutes(value) when is_integer(value) and value >= 0, do: value
+
+  defp parse_hold_minutes(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} when int >= 0 -> int
+      _ -> nil
+    end
+  end
+
+  defp parse_hold_minutes(_), do: nil
 
   defp maybe_put_public(attrs, params, source) do
     if Map.has_key?(params, "public") do

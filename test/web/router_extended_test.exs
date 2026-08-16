@@ -239,6 +239,26 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       assert get_resp_header(conn, "location") == ["/posts/#{post.id}"]
     end
 
+    test "returns to the articles list when return_to is set", %{post: post} do
+      conn =
+        conn(:post, "/posts/#{post.id}/process", %{
+          "return_to" => "/sources/33?tab=articles"
+        })
+
+      conn = call(conn)
+
+      assert conn.status == 302
+      assert get_resp_header(conn, "location") == ["/sources/33?tab=articles"]
+    end
+
+    test "ignores an external return_to", %{post: post} do
+      conn = conn(:post, "/posts/#{post.id}/process", %{"return_to" => "https://evil.example/"})
+      conn = call(conn)
+
+      assert conn.status == 302
+      assert get_resp_header(conn, "location") == ["/posts/#{post.id}"]
+    end
+
     test "returns 404 for non-existent post" do
       conn = conn(:post, "/posts/999999/process")
       conn = call(conn)

@@ -97,7 +97,10 @@ defmodule Rss2Nostr.Web.API.PostsTest do
       processed_result = API.list(%{"status" => "processed"})
 
       assert Enum.all?(new_result.posts, fn p -> p.status == "new" end)
-      assert Enum.all?(processed_result.posts, fn p -> p.status == "processed" end)
+      assert Enum.all?(processed_result.posts, fn p -> p.status == "staging" end)
+
+      staging_result = API.list(%{"status" => "staging"})
+      assert Enum.all?(staging_result.posts, fn p -> p.status == "staging" end)
     end
 
     test "handles invalid page parameter gracefully" do
@@ -175,6 +178,68 @@ defmodule Rss2Nostr.Web.API.PostsTest do
       System.delete_env("NOSTR_NSEC")
 
       assert {:error, "NOSTR_NSEC not configured"} = API.publish(to_string(post.id))
+    end
+  end
+
+  describe "update/2" do
+    test "edits a staging post", %{source: source} do
+      url = "https://example.com/article/edit-test"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Old title",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          content: "old body",
+          status: Post.status_processed(),
+          source_id: source.id
+        })
+
+      {:ok, updated} =
+        API.update(to_string(post.id), %{
+          "title" => "New title",
+          "summary" => "A summary",
+          "hashtags" => "nostr, rss",
+          "language" => "en",
+          "content" => "new body"
+        })
+
+      assert updated.title == "New title"
+      assert updated.summary == "A summary"
+      assert updated.categories == ["nostr", "rss"]
+      assert updated.language == "en"
+      assert updated.content == "new body"
+    end
+
+    test "rejects edits on new posts", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+
+      assert {:error, "Post cannot be edited in this status"} =
+               API.update(to_string(post.id), %{"title" => "Nope"})
+    end
+  end
+
+  describe "revise/1" do
+    test "moves a published post to staging", %{source: source} do
+      url = "https://example.com/article/revise-test"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Published",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          status: Post.status_published(),
+          source_id: source.id
+        })
+
+      {:ok, revised} = API.revise(to_string(post.id))
+      assert revised.status == Post.status_processed()
+      assert revised.staged_at
+    end
+
+    test "rejects a post that is not published", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+      assert {:error, "Only published articles can be revised"} = API.revise(to_string(post.id))
     end
   end
 

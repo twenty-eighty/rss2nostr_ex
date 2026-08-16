@@ -6,6 +6,9 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources
 
+  @hex "0000000000000000000000000000000000000000000000000000000000000001"
+  @author "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
   setup do
     original = Application.get_env(:rss2nostr, :nostr)
 
@@ -28,12 +31,18 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
     )
   end
 
-  describe "test/0 and public/0" do
-    test "reads both lists from config" do
-      put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
+  describe "test/0, public/0, and draft/0" do
+    test "reads all lists from config" do
+      put_relays(%{
+        draft: ["wss://draft.example"],
+        test: ["wss://test.example"],
+        public: ["wss://public.example"]
+      })
 
+      assert Relays.draft() == ["wss://draft.example"]
       assert Relays.test() == ["wss://test.example"]
       assert Relays.public() == ["wss://public.example"]
+      assert Relays.for(:draft) == ["wss://draft.example"]
       assert Relays.for(:test) == ["wss://test.example"]
       assert Relays.for(:public) == ["wss://public.example"]
       assert Relays.for("public") == ["wss://public.example"]
@@ -44,19 +53,31 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
 
       assert Relays.test() == ["wss://legacy.example"]
       assert Relays.public() == []
+      assert Relays.draft() == []
     end
 
-    test "empty?/0 is true only when both lists are empty" do
-      put_relays(%{test: [], public: []})
+    test "falls back to the test list when draft relays are empty" do
+      put_relays(%{draft: [], test: ["wss://test.example"], public: ["wss://public.example"]})
+
+      assert Relays.draft() == []
+      assert Relays.for(:draft) == ["wss://test.example"]
+    end
+
+    test "empty?/0 is true only when all lists are empty" do
+      put_relays(%{draft: [], test: [], public: []})
       assert Relays.empty?()
 
-      put_relays(%{test: ["wss://test.example"], public: []})
+      put_relays(%{draft: ["wss://draft.example"], test: [], public: []})
+      refute Relays.empty?()
+
+      put_relays(%{draft: [], test: ["wss://test.example"], public: []})
       refute Relays.empty?()
     end
   end
 
   describe "parse_audience/1" do
-    test "accepts test and public" do
+    test "accepts draft, test, and public" do
+      assert Relays.parse_audience("draft") == :draft
       assert Relays.parse_audience("test") == :test
       assert Relays.parse_audience("public") == :public
       assert Relays.parse_audience(:public) == :public
@@ -104,6 +125,68 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
       unloaded = Posts.get_post(post.id)
 
       assert Relays.for_post(unloaded) == ["wss://public.example"]
+    end
+
+    test "uses the draft list for a draft source even when public and automated" do
+      put_relays(%{
+        draft: ["wss://draft.example"],
+        test: ["wss://test.example"],
+        public: ["wss://public.example"]
+      })
+
+      nostr = Application.get_env(:rss2nostr, :nostr, [])
+
+      Application.put_env(
+        :rss2nostr,
+        :nostr,
+        Keyword.put(nostr, :private_key, @hex)
+      )
+
+      {:ok, source} =
+        Sources.create_source(
+          source_attrs(public: true, mode: "automated")
+          |> Map.merge(%{publish_as: "draft", pubkey: @author, signing_nsec: nil})
+        )
+
+      post = create_post(source)
+
+      assert Relays.audience_for_post(post) == :public
+      assert Relays.target_for(post) == :draft
+      assert Relays.for_post(post) == ["wss://draft.example"]
+      assert Relays.publish_relays(post, audience: :public) == ["wss://draft.example"]
+    end
+
+    test "uses the draft list for an unencrypted draft source" do
+      put_relays(%{
+        draft: ["wss://draft.example"],
+        test: ["wss://test.example"],
+        public: ["wss://public.example"]
+      })
+
+      {:ok, source} =
+        Sources.create_source(
+          source_attrs([])
+          |> Map.merge(%{publish_as: "draft_plain", pubkey: @author, signing_nsec: nil})
+        )
+
+      post = create_post(source)
+
+      assert Relays.target_for(post) == :draft
+      assert Relays.for_post(post) == ["wss://draft.example"]
+    end
+
+    test "falls back to test relays when a draft source has no draft list" do
+      put_relays(%{draft: [], test: ["wss://test.example"], public: ["wss://public.example"]})
+
+      {:ok, source} =
+        Sources.create_source(
+          source_attrs([])
+          |> Map.merge(%{publish_as: "draft", pubkey: @author, signing_nsec: nil})
+        )
+
+      post = create_post(source)
+
+      assert Relays.for_post(post) == ["wss://test.example"]
     end
   end
 

@@ -21,8 +21,18 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
       """)
 
     assert html =~ ~s(<img src="https://example.com/pic.jpg" alt="Alt">)
+    refute html =~ "<figure>"
     assert html =~ "<li>one</li>"
     assert html =~ "<li>two</li>"
+  end
+
+  test "renders an image title as a visible caption" do
+    html = Markdown.to_html("![](https://example.com/pic.jpg \"Ashot Grigorian\")")
+
+    assert html =~ "<figure>"
+    assert html =~ ~s(<img src="https://example.com/pic.jpg" alt="">)
+    assert html =~ "<figcaption>Ashot Grigorian</figcaption>"
+    refute html =~ "<p><figure>"
   end
 
   test "escapes raw HTML and drops javascript URLs" do
@@ -39,5 +49,19 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
     assert html =~ "<pre><code>"
     assert html =~ "**not bold**"
     refute html =~ "<strong>"
+  end
+
+  test "renders Markdown footnotes as linked superscripts" do
+    html =
+      Markdown.to_html("""
+      investor.[^43]
+
+      [^43]: Merz made similar arrangements.
+      """)
+
+    assert html =~ ~s(<sup class="footnote-ref" id="fnref-43"><a href="#fn-43">43</a></sup>)
+    assert html =~ ~s(<p class="footnote" id="fn-43"><a href="#fnref-43">43</a>.)
+    assert html =~ "Merz made similar arrangements."
+    refute html =~ "[^43]"
   end
 end

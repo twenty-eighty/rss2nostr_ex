@@ -12,6 +12,7 @@ Import RSS/Atom feeds and publish them as Nostr long-form content (NIP-23).
 - **Scheduler**: Automatic import, processing, and publishing on schedule
 - **Web Interface**: Admin dashboard for managing sources, posts, and scheduler
 - **CLI**: Full command-line interface for all operations
+- **MCP**: AI clients can manage sources, articles, and the scheduler
 
 ## Requirements
 
@@ -62,10 +63,12 @@ Copy `.env.example` to `.env`. Values are loaded at runtime (OS environment vari
 | `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_DB` | Dev database connection | No |
 | `PORT` or `WEB_PORT` | Web server port (default 4000) | No |
 | `ADMIN_NOSTR_PUBKEYS` | Comma-separated npub or hex keys allowed to log into the admin UI via [NIP-07](https://nips.nostr.com/7) | For the web UI |
+| `MCP_TOKEN` | Bearer token for the HTTP MCP endpoint at `/mcp` | For remote MCP clients |
 | `SECRET_KEY_BASE` | Signs the admin session cookie. Generate with `openssl rand -base64 48` | Recommended |
 | `NOSTR_NSEC` | Nostr private key (nsec or hex format) | For publishing |
-| `NOSTR_RELAYS_TEST` | Comma-separated relays for sources that are not public | No |
-| `NOSTR_RELAYS_PUBLIC` | Comma-separated relays for public sources | No |
+| `NOSTR_RELAYS_DRAFT` | Comma-separated relays for NIP-37 drafts (Pareto client). Falls back to the test list if unset | No |
+| `NOSTR_RELAYS_TEST` | Comma-separated relays for article sources that are not public | No |
+| `NOSTR_RELAYS_PUBLIC` | Comma-separated relays for public article sources | No |
 | `NOSTR_RELAYS` | Alias for `NOSTR_RELAYS_TEST` if that variable is unset | No |
 | `NOSTR_RELAY_AUDIENCE` | Default audience when a source is missing: `test` or `public` | No |
 | `NOSTR_UPLOAD_ENDPOINT` | Blossom server base URL (BUD-02 `PUT /upload`) | For image upload |
@@ -73,24 +76,26 @@ Copy `.env.example` to `.env`. Values are loaded at runtime (OS environment vari
 
 ### Config File
 
-Configure scheduler intervals in `config/config.exs` and the two relay lists under `:nostr`:
+Configure scheduler intervals in `config/config.exs` and the three relay lists under `:nostr`:
 
 ```elixir
 config :rss2nostr, Rss2Nostr.Scheduler,
   intervals: %{
     import: :timer.minutes(15),
     process: :timer.minutes(5),
-    export: :timer.minutes(10)
+    export: :timer.minutes(10),
+    cleanup: :timer.hours(24)
   }
 
 config :rss2nostr, :nostr,
   relays: %{
+    draft: ["wss://client.example"],
     test: ["wss://nos.lol", "wss://relay.damus.io"],
     public: ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.nostr.band"]
   }
 ```
 
-Each source publishes to the **test** list unless it is marked public (`source add --public`, or the checkbox in the web UI). `--relays` on export still overrides both lists.
+Draft sources always publish to the **draft** list (or **test** if that list is empty). Article sources publish to the **test** list unless they are marked public (`source add --public`, or the checkbox in the web UI). `--relays` on export still overrides all lists.
 
 ## Usage
 
@@ -176,6 +181,22 @@ Each source publishes to the **test** list unless it is marked public (`source a
 ./rss2nostr scheduler run process
 ./rss2nostr scheduler run export
 ```
+
+#### MCP (AI clients)
+
+stdio (Cursor, Claude Desktop, and similar):
+
+```bash
+mix rss2nostr.mcp
+# or, after `mix escript.build`:
+./rss2nostr mcp
+```
+
+Copy `.cursor/mcp.json.example` to `.cursor/mcp.json` (that file is gitignored). Cursor can omit `cwd` when the project is already the workspace.
+
+When the web server is running, the same tools are also at `http://localhost:4000/mcp`. Loopback clients need no token. Set `MCP_TOKEN` and send `Authorization: Bearer …` for anything else.
+
+Tools cover sources (discover, add, update, import, delete), articles (list, process, publish), the scheduler, and status.
 
 #### NIP-46 Bunker (Remote Signing)
 

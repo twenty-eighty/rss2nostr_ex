@@ -15,12 +15,15 @@ defmodule Rss2Nostr.Nostr.Publisher do
   alias Rss2Nostr.Processing.ArticleSplit
   alias Rss2Nostr.Repo
 
+  @type relay_failure :: %{url: String.t(), error: String.t()}
+
   @type publish_result :: %{
           success: boolean(),
           event_id: String.t() | nil,
           naddr: String.t() | nil,
           successful_relays: [String.t()],
-          failed_relays: [String.t()]
+          failed_relays: [relay_failure()],
+          report: String.t()
         }
 
   @doc """
@@ -56,7 +59,13 @@ defmodule Rss2Nostr.Nostr.Publisher do
 
       results =
         Enum.map(signed_events, fn signed_event ->
-          publish_signed_event(signed_event, published_kind(post), pubkey_hex, relays, min_success)
+          publish_signed_event(
+            signed_event,
+            published_kind(post),
+            pubkey_hex,
+            relays,
+            min_success
+          )
         end)
 
       close_signer(signer)
@@ -75,8 +84,14 @@ defmodule Rss2Nostr.Nostr.Publisher do
     {successful, failed} =
       Enum.reduce(results, {[], []}, fn {url, result}, {success, fail} ->
         case result do
-          :ok -> {[url | success], fail}
-          {:error, _} -> {success, [url | fail]}
+          :ok ->
+            {[url | success], fail}
+
+          {:error, reason} ->
+            {success, [%{url: url, error: Relay.format_error(reason)} | fail]}
+
+          reason ->
+            {success, [%{url: url, error: Relay.format_error(reason)} | fail]}
         end
       end)
 
@@ -101,9 +116,20 @@ defmodule Rss2Nostr.Nostr.Publisher do
   defp summarize_publish(post, pubkey_hex, results) do
     first = List.first(results) || %{success: false, event_id: nil, naddr: nil}
     success = results != [] and Enum.all?(results, & &1.success)
+    successful = results |> Enum.flat_map(& &1.successful_relays) |> Enum.uniq()
+    failed = merge_failures(Enum.flat_map(results, & &1.failed_relays))
+    report = format_report(successful, failed)
 
-    if success do
-      Posts.mark_published(post, first.event_id, pubkey_hex, first.naddr)
+    {:ok, post} =
+      if success do
+        Posts.mark_published(post, first.event_id, pubkey_hex, first.naddr)
+      else
+        {:ok, post}
+      end
+
+    if failed != [] or not success do
+      _ = Posts.update_post(post, %{last_error: report_or_failure(report)})
+      Logger.warning("Publish report for post #{post.id}: #{report_or_failure(report)}")
     end
 
     {:ok,
@@ -111,10 +137,40 @@ defmodule Rss2Nostr.Nostr.Publisher do
        success: success,
        event_id: first.event_id,
        naddr: first.naddr,
-       successful_relays: first.successful_relays || [],
-       failed_relays: first.failed_relays || [],
+       successful_relays: successful,
+       failed_relays: failed,
+       report: report,
        parts: length(results)
      }}
+  end
+
+  @spec format_report([String.t()], [relay_failure()]) :: String.t()
+  def format_report(successful, failed) do
+    accepted =
+      case successful do
+        [] -> nil
+        urls -> "Accepted by #{Enum.join(urls, ", ")}."
+      end
+
+    issues =
+      Enum.map(failed, fn
+        %{url: url, error: error} -> "#{url}: #{error}"
+        {url, error} -> "#{url}: #{error}"
+      end)
+
+    [accepted | issues]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  defp report_or_failure(""), do: "Publish failed"
+  defp report_or_failure(report), do: report
+
+  defp merge_failures(failures) do
+    failures
+    |> Enum.reverse()
+    |> Enum.uniq_by(& &1.url)
+    |> Enum.reverse()
   end
 
   @doc """
@@ -137,7 +193,8 @@ defmodule Rss2Nostr.Nostr.Publisher do
       parts: parts,
       inner: nil,
       encrypted: false,
-      draft: draft?(post_or_attrs),
+      draft: encrypted_draft?(post_or_attrs),
+      plain_draft: plain_draft?(post_or_attrs),
       json: Jason.encode!(["EVENT", event], pretty: true),
       message: ["EVENT", event],
       relays: relays,
@@ -194,6 +251,12 @@ defmodule Rss2Nostr.Nostr.Publisher do
     end)
   end
 
+  @doc """
+  `d` tag used when publishing this post.
+  """
+  @spec identifier(Post.t() | map()) :: String.t()
+  def identifier(post), do: generate_identifier(post)
+
   # Generate a unique identifier for the post (d tag)
   defp generate_identifier(post) do
     source_url = field(post, :source_url)
@@ -234,8 +297,8 @@ defmodule Rss2Nostr.Nostr.Publisher do
   end
 
   defp long_form_kind(post) do
-    if draft?(post) do
-      Event.kind_long_form()
+    if draft_kind?(post) do
+      Event.kind_long_form_draft()
     else
       case field(post, :type) do
         kind when kind in [30023, 30024] -> kind
@@ -245,28 +308,60 @@ defmodule Rss2Nostr.Nostr.Publisher do
   end
 
   defp published_kind(post) do
-    if draft?(post), do: Event.kind_draft_wrap(), else: Event.kind_long_form()
+    cond do
+      encrypted_draft?(post) -> Event.kind_draft_wrap()
+      plain_draft?(post) -> Event.kind_long_form_draft()
+      true -> Event.kind_long_form()
+    end
   end
 
-  defp draft?(post) do
+  defp public_article?(post) do
+    not draft_kind?(post) and Relays.target_for(post) == :public
+  end
+
+  defp draft_kind?(post), do: encrypted_draft?(post) or plain_draft?(post)
+
+  defp encrypted_draft?(post) do
     case source_of(post) do
       %Rss2Nostr.Sources.Source{} = source ->
-        Signer.publish_as(source) == "draft"
+        Signer.encrypted_draft?(source)
 
       _ ->
-        case field(post, :type) do
-          30023 -> false
-          30024 -> true
-          31234 -> true
-          _ -> true
+        case field(post, :publish_as) do
+          "draft_plain" ->
+            false
+
+          "article" ->
+            false
+
+          "draft" ->
+            true
+
+          _ ->
+            case field(post, :type) do
+              30023 -> false
+              30024 -> true
+              31234 -> true
+              _ -> true
+            end
         end
+    end
+  end
+
+  defp plain_draft?(post) do
+    case source_of(post) do
+      %Rss2Nostr.Sources.Source{} = source ->
+        Signer.plain_draft?(source)
+
+      _ ->
+        field(post, :publish_as) == "draft_plain"
     end
   end
 
   defp prepare_events(post, pubkey_hex, signer) do
     inners = build_inner_events(post, inner_pubkey(post, pubkey_hex))
 
-    if draft?(post) do
+    if encrypted_draft?(post) do
       wrap_all(inners, post, signer)
     else
       {:ok, inners}
@@ -303,13 +398,15 @@ defmodule Rss2Nostr.Nostr.Publisher do
   defp draft_author(post, source \\ nil) do
     source = source || source_of(post)
 
-    if draft?(post) do
-      field(post, :pubkey) || field(source, :pubkey)
+    if draft_kind?(post) do
+      # posts.pubkey is the wrap/app signer after publish.
+      # The intended author is always the source field.
+      field(source, :pubkey)
     end
   end
 
   defp inner_pubkey(post, signer_pubkey) do
-    author = draft_author(post)
+    author = if encrypted_draft?(post), do: draft_author(post)
 
     if Keys.valid_pubkey?(author) do
       String.downcase(author)
@@ -344,14 +441,22 @@ defmodule Rss2Nostr.Nostr.Publisher do
   end
 
   defp split_content(post, pubkey_hex, content) do
-    if draft?(post) do
-      ArticleSplit.split(content, fn chunk, index ->
-        post
-        |> build_event(pubkey_hex, content: chunk, index: index, total: 99)
-        |> Event.draft_plaintext_size()
-      end)
+    ArticleSplit.split(
+      content,
+      fn chunk, index ->
+        measure_published_size(post, pubkey_hex, chunk, index)
+      end,
+      max_size: Event.max_event_size()
+    )
+  end
+
+  defp measure_published_size(post, pubkey_hex, chunk, index) do
+    inner = build_event(post, pubkey_hex, content: chunk, index: index, total: 99)
+
+    if encrypted_draft?(post) do
+      Event.estimate_wrap_message_size(inner, author_pubkey: draft_author(post))
     else
-      [content]
+      Event.estimate_event_message_size(inner)
     end
   end
 
@@ -364,15 +469,16 @@ defmodule Rss2Nostr.Nostr.Publisher do
 
     Event.build_long_form(pubkey_hex, content,
       title: title,
-      summary: if(index == 1, do: field(post, :summary)),
-      image: if(index == 1, do: field(post, :image)),
-      published_at: unix_published_at(field(post, :published_at)),
+      summary: field(post, :summary),
+      image: field(post, :image),
+      published_at: part_published_at(field(post, :published_at), index, total),
       identifier: identifier,
-      hashtags: field(post, :categories) || [],
+      hashtags: publish_hashtags(post),
       language: field(post, :language),
       canonical_url: field(post, :source_url),
       kind: long_form_kind(post),
-      author_pubkey: draft_author(post)
+      author_pubkey: draft_author(post),
+      client: public_article?(post)
     )
   end
 
@@ -391,7 +497,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
     author = draft_author(post, source)
 
     cond do
-      Keys.valid_pubkey?(author) ->
+      encrypted_draft?(post) and Keys.valid_pubkey?(author) ->
         String.downcase(author)
 
       true ->
@@ -412,6 +518,18 @@ defmodule Rss2Nostr.Nostr.Publisher do
 
   defp preview_relays(_, _), do: Relays.test()
 
+  defp publish_hashtags(post) do
+    (fixed_hashtags(post) ++ (field(post, :categories) || []))
+    |> Event.normalize_hashtags()
+  end
+
+  defp fixed_hashtags(post) do
+    case source_of(post) do
+      %{fixed_hashtags: tags} when is_list(tags) -> tags
+      _ -> []
+    end
+  end
+
   defp source_of(%Post{source: %Rss2Nostr.Sources.Source{} = source}), do: source
   defp source_of(%Post{} = post), do: ensure_source(post).source
   defp source_of(_), do: nil
@@ -422,6 +540,14 @@ defmodule Rss2Nostr.Nostr.Publisher do
   defp field(%{__struct__: _} = struct, key), do: Map.get(struct, key)
   defp field(map, key) when is_map(map), do: map[key] || map[Atom.to_string(key)]
   defp field(_, _), do: nil
+
+  # Later parts get +1s so clients that sort by published_at keep reading order.
+  defp part_published_at(published_at, _index, 1), do: unix_published_at(published_at)
+
+  defp part_published_at(published_at, index, _total) do
+    base = unix_published_at(published_at) || System.os_time(:second)
+    base + (index - 1)
+  end
 
   defp unix_published_at(%DateTime{} = dt), do: DateTime.to_unix(dt)
   defp unix_published_at(unix) when is_integer(unix), do: unix

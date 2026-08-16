@@ -95,4 +95,13 @@ defmodule Rss2Nostr.Scheduler.TasksTest do
       assert match?({:ok, _}, result)
     end
   end
+
+  describe "run_cleanup/0" do
+    test "returns ok or a missing-key error" do
+      result = Tasks.run_cleanup()
+
+      assert match?({:ok, %{deleted: _, skipped: _}}, result) or
+               result == {:error, :no_app_private_key}
+    end
+  end
 end

@@ -63,10 +63,10 @@ defmodule Rss2Nostr.Web.API.Posts do
   def publish(id, _params \\ %{}) do
     with {:ok, post_id} <- parse_id(id),
          %Post{} = post <- Posts.get_post(post_id, preload: [:source]) do
-      case publish_posts([post]) do
-        {:ok, %{published: 1} = result} -> {:ok, result}
-        {:ok, %{errors: [reason | _]}} -> {:error, reason}
-        {:ok, result} -> {:error, result[:error] || "Publish failed"}
+      case publish_one(post) do
+        {:ok, %{success: true} = result} -> {:ok, result}
+        {:ok, result} -> {:error, result[:report] || "Publish failed"}
+        {:error, reason} -> {:error, format_error(reason)}
       end
     else
       nil -> {:error, :not_found}
@@ -93,10 +93,46 @@ defmodule Rss2Nostr.Web.API.Posts do
         end
       end)
 
-    published = Enum.count(results, &match?({:ok, _}, &1))
-    errors = for {:error, reason} <- results, do: format_error(reason)
+    classified = Enum.map(Enum.zip(posts, results), &classify_publish/1)
+    published = Enum.count(classified, &(&1.status == :published))
+    issues = for %{issue: issue} when is_binary(issue) <- classified, do: issue
 
-    {:ok, %{published: published, failed: length(errors), errors: errors}}
+    {:ok,
+     %{
+       published: published,
+       failed: length(posts) - published,
+       errors: issues,
+       results: Enum.map(classified, & &1.result)
+     }}
+  end
+
+  defp classify_publish({post, {:ok, %{success: true, failed_relays: []} = result}}) do
+    %{status: :published, issue: nil, result: Map.put(result, :title, post.title)}
+  end
+
+  defp classify_publish({post, {:ok, %{success: true, report: report} = result}}) do
+    %{
+      status: :published,
+      issue: post_issue(post, report),
+      result: Map.put(result, :title, post.title)
+    }
+  end
+
+  defp classify_publish({post, {:ok, result}}) do
+    %{
+      status: :failed,
+      issue: post_issue(post, result[:report] || "Publish failed"),
+      result: result
+    }
+  end
+
+  defp classify_publish({post, {:error, reason}}) do
+    %{status: :failed, issue: post_issue(post, format_error(reason)), result: nil}
+  end
+
+  defp post_issue(post, message) do
+    title = post.title || "Post #{post.id}"
+    "#{title}: #{message}"
   end
 
   defp publish_one(%Post{} = post) do
@@ -116,8 +152,41 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
+  @spec update(String.t(), map()) ::
+          {:ok, Post.t()} | {:error, atom() | String.t() | Ecto.Changeset.t()}
+  def update(id, params) do
+    with {:ok, post_id} <- parse_id(id),
+         %Post{} = post <- Posts.get_post(post_id),
+         :ok <- editable?(post) do
+      Posts.update_post(post, editor_attrs(params))
+    else
+      nil -> {:error, :not_found}
+      {:error, :invalid_id} -> {:error, :invalid_id}
+      {:error, :not_editable} -> {:error, "Post cannot be edited in this status"}
+      other -> other
+    end
+  end
+
+  @spec revise(String.t()) :: {:ok, Post.t()} | {:error, atom() | String.t()}
+  def revise(id) do
+    with {:ok, post_id} <- parse_id(id),
+         %Post{} = post <- Posts.get_post(post_id, preload: [:source]) do
+      case Posts.revise_to_staging(post) do
+        {:ok, post} -> {:ok, post}
+        {:error, :not_published} -> {:error, "Only published articles can be revised"}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, :invalid_id} -> {:error, :invalid_id}
+    end
+  end
+
   defp require_ready(post) do
     cond do
+      post.status == Post.status_published() and not Blossom.pending_images?(post) ->
+        {:ok, post}
+
       post.status == Post.status_processed() and not Blossom.pending_images?(post) ->
         {:ok, post}
 
@@ -131,12 +200,64 @@ defmodule Rss2Nostr.Web.API.Posts do
         end
 
       true ->
-        {:error, "Post is not processed"}
+        {:error, "Post is not ready to publish"}
     end
   end
 
+  defp editable?(post) do
+    if post.status in [Post.status_processed(), Post.status_published()] do
+      :ok
+    else
+      {:error, :not_editable}
+    end
+  end
+
+  defp editor_attrs(params) do
+    %{}
+    |> maybe_put(:title, params["title"])
+    |> maybe_put(:summary, params["summary"])
+    |> maybe_put(:content, params["content"])
+    |> maybe_put(:language, blank_to_nil(params["language"]))
+    |> maybe_put_categories(params)
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_categories(attrs, params) do
+    cond do
+      Map.has_key?(params, "categories") ->
+        Map.put(attrs, :categories, parse_categories(params["categories"]))
+
+      Map.has_key?(params, "hashtags") ->
+        Map.put(attrs, :categories, parse_categories(params["hashtags"]))
+
+      true ->
+        attrs
+    end
+  end
+
+  defp parse_categories(nil), do: []
+
+  defp parse_categories(list) when is_list(list),
+    do: Enum.map(list, &to_string/1) |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+
+  defp parse_categories(value) when is_binary(value) do
+    value
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp parse_categories(_), do: []
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value) when is_binary(value), do: String.trim(value)
+  defp blank_to_nil(value), do: value
+
   defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason), do: inspect(reason)
+  defp format_error(reason), do: Rss2Nostr.Nostr.Relay.format_error(reason)
 
   @spec delete(String.t()) :: {:ok, Post.t()} | {:error, atom()}
   def delete(id) do
@@ -169,6 +290,7 @@ defmodule Rss2Nostr.Web.API.Posts do
       status: Post.status_name(post.status),
       source_id: post.source_id,
       published_at: post.published_at,
+      staged_at: post.staged_at,
       nostr_event_id: post.event_id,
       inserted_at: post.inserted_at,
       updated_at: post.updated_at
@@ -184,6 +306,9 @@ defmodule Rss2Nostr.Web.API.Posts do
         Post.status_processing()
 
       "processed" ->
+        Post.status_processed()
+
+      "staging" ->
         Post.status_processed()
 
       "pending_images" ->

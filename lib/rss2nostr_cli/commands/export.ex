@@ -115,27 +115,24 @@ defmodule Rss2Nostr.CLI.Commands.Export do
   end
 
   defp describe_relay_target(_relays, _audience) do
-    Output.info("  Relays: per source (test vs public)")
+    Output.info("  Relays: per source (draft, test, or public)")
   end
 
-  defp publish_opts(private_key, relays, _audience) when is_list(relays) do
-    [private_key: private_key, relays: relays]
-  end
-
-  defp publish_opts(private_key, _relays, audience) when audience in [:test, :public] do
-    [private_key: private_key, relays: Relays.for(audience)]
-  end
-
-  defp publish_opts(private_key, _relays, _audience) do
+  defp publish_opts(private_key, relays, audience) do
     [private_key: private_key]
+    |> maybe_put(:relays, if(is_list(relays), do: relays))
+    |> maybe_put(:audience, if(audience in [:test, :public], do: audience))
   end
 
-  defp relays_for_post(_post, relays, _audience) when is_list(relays), do: relays
+  defp relays_for_post(post, relays, audience) do
+    []
+    |> maybe_put(:relays, if(is_list(relays), do: relays))
+    |> maybe_put(:audience, if(audience in [:test, :public], do: audience))
+    |> then(&Relays.publish_relays(post, &1))
+  end
 
-  defp relays_for_post(_post, _relays, audience) when audience in [:test, :public],
-    do: Relays.for(audience)
-
-  defp relays_for_post(post, _relays, _audience), do: Relays.for_post(post)
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp export_dry_run(post_id, limit, private_key, relays, audience) do
     posts = get_posts_to_export(post_id, limit)
@@ -235,6 +232,12 @@ defmodule Rss2Nostr.CLI.Commands.Export do
       Output.error("  ✗ #{title}")
       if result[:error], do: Output.error("    Error: #{inspect(result.error)}")
     end
+
+    Enum.each(result[:failed_relays] || [], fn
+      %{url: url, error: error} -> Output.error("    #{url}: #{error}")
+      {url, error} -> Output.error("    #{url}: #{error}")
+      url when is_binary(url) -> Output.error("    #{url}")
+    end)
   end
 
   defp preview_post_export(post, private_key) do

@@ -14,6 +14,7 @@ config :rss2nostr, Rss2Nostr.Repo,
 # Nostr configuration for tests
 config :rss2nostr, :nostr,
   relays: %{
+    draft: ["wss://draft.example.com"],
     test: ["wss://nos.lol"],
     public: ["wss://relay.example.com"]
   },

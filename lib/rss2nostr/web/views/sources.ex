@@ -146,6 +146,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
         </div>
 
         #{publish_as_fields(params, nil, errors)}
+        #{fixed_hashtag_fields(params, nil, errors)}
       </div>
 
       <div class="form-actions">
@@ -167,7 +168,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
     params = Keyword.get(opts, :params, %{})
     saved? = Keyword.get(opts, :saved, false)
     notice = Keyword.get(opts, :notice)
-    audience = Relays.audience_for_source(source)
+    notice_kind = Keyword.get(opts, :notice_kind)
+    target = Relays.target_for(source)
 
     content = """
     <div class="page-header">
@@ -176,8 +178,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
         <span class="badge #{if source.mode == "automated", do: "badge-processed", else: "badge-test"}">
           #{if source.mode == "automated", do: "Automated", else: "Setup"}
         </span>
-        <span class="badge #{if audience == :public, do: "badge-public", else: "badge-test"}">
-          #{if audience == :public, do: "Public relays", else: "Test relays"}
+        <span class="badge #{if target == :public, do: "badge-public", else: "badge-test"}">
+          #{relay_target_label(target)}
         </span>
         <form action="/sources/#{source.id}/duplicate" method="POST" style="display:inline">
           <button type="submit" class="btn btn-secondary">Duplicate</button>
@@ -187,7 +189,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
     </div>
 
     #{if saved?, do: "<p class=\"success\">Settings saved.</p>", else: ""}
-    #{if notice, do: "<p class=\"success\">#{escape_html(notice)}</p>", else: ""}
+    #{flash_notice(notice, notice_kind)}
 
     <nav class="source-tabs" aria-label="Source sections">
       #{tab_link(source, "feed", "Feed", tab)}
@@ -264,7 +266,9 @@ defmodule Rss2Nostr.Web.Views.Sources do
           Intended for public relays
         </label>
         <p class="help-text">
-          Used only after this source is automated. While in setup, publishes always go to the test relays.
+          Used only after this source is automated, and only for articles.
+          Drafts always use the draft relay list. While in setup, article
+          publishes always go to the test relays.
         </p>
       </div>
       <div class="form-actions">
@@ -302,8 +306,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
 
   defp articles_tab(source) do
     posts = Posts.list_posts_for_source(source.id, limit: 100)
-    audience = Relays.audience_for_source(source)
-    relay_label = if audience == :public, do: "public relays", else: "test relays"
+    relay_label = relay_target_name(Relays.target_for(source))
 
     rows =
       if Enum.empty?(posts) do
@@ -325,11 +328,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
             <td class="actions">
               <a href="/posts/#{post.id}" class="btn btn-small">Preview</a>
               #{if post.status == Post.status_pending_images() do
-            """
-            <form action="/posts/#{post.id}/process" method="POST" style="display:inline">
-              <button type="submit" class="btn btn-small">Upload images</button>
-            </form>
-            """
+            ~s(<button type="submit" class="btn btn-small" form="upload-post-#{post.id}">Upload images</button>)
           end}
             </td>
           </tr>
@@ -343,7 +342,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
         <button type="submit" class="btn btn-secondary">Import now</button>
       </form>
     </div>
-    <p class="help-text">Selected processed articles publish to the #{relay_label}. Setup never uses the public list. Articles stay in pending images until featured and inline images are uploaded.</p>
+    <p class="help-text">Selected staging articles publish to the #{relay_label}. Setup never uses the public list. Articles stay in pending images until featured and inline images are uploaded. Manual publish ignores the staging hold.</p>
+    #{upload_forms(source, posts)}
     <form action="/sources/#{source.id}/publish-selected" method="POST">
       <table class="table">
         <thead>
@@ -365,6 +365,20 @@ defmodule Rss2Nostr.Web.Views.Sources do
     """
   end
 
+  defp upload_forms(source, posts) do
+    return_to = "/sources/#{source.id}?tab=articles"
+
+    posts
+    |> Enum.filter(&(&1.status == Post.status_pending_images()))
+    |> Enum.map_join("", fn post ->
+      """
+      <form id="upload-post-#{post.id}" action="/posts/#{post.id}/process" method="POST" hidden>
+        <input type="hidden" name="return_to" value="#{escape_attr(return_to)}">
+      </form>
+      """
+    end)
+  end
+
   defp publishing_tab(source, params, errors) do
     signer_ok? = Signer.configured?(source)
 
@@ -372,6 +386,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
     <form action="/sources/#{source.id}" method="POST" class="form form-wide">
       <input type="hidden" name="tab" value="publishing">
       #{publish_as_fields(params, source, errors)}
+      #{fixed_hashtag_fields(params, source, errors)}
+      #{staging_fields(params, source, errors)}
       #{error_message(errors, :mode)}
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Save publishing settings</button>
@@ -399,11 +415,74 @@ defmodule Rss2Nostr.Web.Views.Sources do
     """
   end
 
+  defp fixed_hashtag_fields(params, source, errors) do
+    tags =
+      params["fixed_hashtags"] ||
+        (source && Enum.join(source.fixed_hashtags || [], ", ")) ||
+        ""
+
+    tags =
+      case tags do
+        list when is_list(list) -> Enum.join(list, ", ")
+        value -> to_string(value)
+      end
+
+    """
+    <div class="form-group">
+      <label for="fixed_hashtags">Fixed hashtags</label>
+      <input type="text" id="fixed_hashtags" name="fixed_hashtags"
+             value="#{escape_attr(tags)}" placeholder="comma-separated">
+      #{error_message(errors, :fixed_hashtags)}
+      <p class="help-text">
+        Added to every published article as <code>t</code> tags.
+        Duplicates of article hashtags are dropped.
+      </p>
+    </div>
+    """
+  end
+
+  defp staging_fields(params, source, errors) do
+    hold =
+      params["staging_hold_minutes"] ||
+        (source && source.staging_hold_minutes) ||
+        0
+
+    notify =
+      params["notify_pubkey"] || (source && source.notify_pubkey) || ""
+
+    """
+    <fieldset class="compose-fieldset">
+      <legend>Staging</legend>
+      <div class="form-group">
+        <label for="staging_hold_minutes">Hold before auto-publish (minutes)</label>
+        <input type="number" id="staging_hold_minutes" name="staging_hold_minutes" min="0" step="1"
+               value="#{escape_attr(to_string(hold))}">
+        #{error_message(errors, :staging_hold_minutes)}
+        <p class="help-text">
+          After an article enters staging, automated export waits this long.
+          0 publishes on the next scheduler run. Manual Publish ignores the hold.
+          Setup sources never auto-publish.
+        </p>
+      </div>
+      <div class="form-group">
+        <label for="notify_pubkey">Notify pubkey</label>
+        <input type="text" id="notify_pubkey" name="notify_pubkey" placeholder="npub1… or hex"
+               value="#{escape_attr(notify)}" autocomplete="off">
+        #{error_message(errors, :notify_pubkey)}
+        <p class="help-text">
+          Optional. Receives a NIP-17 DM when an article first enters staging or is revised.
+        </p>
+      </div>
+    </fieldset>
+    """
+  end
+
   defp publish_as_fields(params, source, errors) do
     publish_as = params["publish_as"] || (source && source.publish_as) || "draft"
-    draft_checked = if publish_as == "article", do: "", else: "checked"
+    draft_checked = if publish_as == "draft", do: "checked", else: ""
+    plain_checked = if publish_as == "draft_plain", do: "checked", else: ""
     article_checked = if publish_as == "article", do: "checked", else: ""
-    draft_hidden = if publish_as == "article", do: "hidden", else: ""
+    draft_hidden = if publish_as in ["draft", "draft_plain"], do: "", else: "hidden"
     article_hidden = if publish_as == "article", do: "", else: "hidden"
     nsec_set? = source && Signer.signing_nsec_configured?(source)
     bunker = params["bunker_connection"] || (source && source.bunker_connection) || ""
@@ -421,6 +500,13 @@ defmodule Rss2Nostr.Web.Views.Sources do
           </span>
         </label>
         <label class="choice">
+          <input type="radio" name="publish_as" value="draft_plain" #{plain_checked}>
+          <span>
+            <strong>Draft (unencrypted)</strong>
+            <span class="help-text">A kind 30024 event signed by the app key. The author’s pubkey is a <code>p</code> tag.</span>
+          </span>
+        </label>
+        <label class="choice">
           <input type="radio" name="publish_as" value="article" #{article_checked}>
           <span>
             <strong>Article (kind 30023)</strong>
@@ -435,7 +521,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
         <input type="text" id="pubkey" name="pubkey" placeholder="npub1… or hex"
                value="#{escape_attr(pubkey)}" autocomplete="off">
         #{error_message(errors, :pubkey)}
-        <p class="help-text">Required for drafts. Added as a <code>p</code> tag on the encrypted wrap so the intended author is known.</p>
+        <p class="help-text">Required for drafts. Added as a <code>p</code> tag so the intended author is known.</p>
       </div>
     </div>
     <div id="article-signer-fields" #{article_hidden}>
@@ -471,7 +557,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
       function sync() {
         const selected = document.querySelector("input[name='publish_as']:checked");
         const value = selected ? selected.value : "draft";
-        if (draft) draft.hidden = value !== "draft";
+        if (draft) draft.hidden = value !== "draft" && value !== "draft_plain";
         if (article) article.hidden = value !== "article";
         if (window.rss2nostrSyncAddSourceSubmit) window.rss2nostrSyncAddSourceSubmit();
       }
@@ -565,7 +651,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
     """
   end
 
-  defp language_select(selected) do
+  def language_select(selected) do
     selected = selected || "de"
 
     options =
@@ -633,6 +719,20 @@ defmodule Rss2Nostr.Web.Views.Sources do
     ]
   end
 
+  defp flash_notice(nil, _), do: ""
+  defp flash_notice("", _), do: ""
+
+  defp flash_notice(notice, kind) do
+    class =
+      case kind do
+        "error" -> "error"
+        "warning" -> "warning"
+        _ -> "success"
+      end
+
+    ~s(<p class="#{class}">#{escape_html(notice)}</p>)
+  end
+
   defp error_message(errors, field) do
     case errors[field] do
       nil -> ""
@@ -697,9 +797,11 @@ defmodule Rss2Nostr.Web.Views.Sources do
           const nsec = document.getElementById("signing_nsec");
           const bunker = document.getElementById("bunker_connection");
           identityOk = present(nsec && nsec.value) || present(bunker && bunker.value);
-        } else {
+        } else if (selectedPublishAs() === "draft" || selectedPublishAs() === "draft_plain") {
           const pubkey = document.getElementById("pubkey");
           identityOk = present(pubkey && pubkey.value);
+        } else {
+          identityOk = true;
         }
         submit.disabled = !(nameOk && urlOk && identityOk);
       }
@@ -1025,13 +1127,17 @@ defmodule Rss2Nostr.Web.Views.Sources do
             <button type="button" class="compose-tab" data-preview-tab="source" role="tab" aria-selected="false">Markdown</button>
             <button type="button" class="compose-tab" data-preview-tab="event" role="tab" aria-selected="false">Event</button>
           </div>
+          <label id="compose-split-toggle" class="compose-split-toggle" hidden>
+            <input type="checkbox" id="show-split-parts">
+            Show split parts
+          </label>
           <button type="button" class="btn btn-small btn-secondary" id="refresh-preview">Refresh</button>
         </div>
       </div>
       <p id="compose-preview-status" class="help-text">Pick an article to preview the Markdown.</p>
       <div id="compose-preview-meta" class="compose-preview-meta" hidden></div>
       <article id="compose-preview-rendered" class="compose-preview-rendered" hidden></article>
-      <pre id="compose-preview" class="compose-preview" hidden></pre>
+      <div id="compose-preview" class="compose-preview" hidden></div>
       <pre id="compose-preview-event" class="compose-preview" hidden></pre>
     </div>
     """
@@ -1064,9 +1170,13 @@ defmodule Rss2Nostr.Web.Views.Sources do
       const startBlocksEl = document.getElementById("start-blocks");
       const fetchRadios = document.querySelectorAll("input[name='fetch_source_from']");
       const tabs = document.querySelectorAll("[data-preview-tab]");
+      const splitToggle = document.getElementById("compose-split-toggle");
+      const splitInput = document.getElementById("show-split-parts");
       let timer = null;
       let activeTab = "rendered";
       let bodyChosen = !!(selector && selector.value.trim());
+      let lastPreview = null;
+      let showSplitParts = false;
 
       function articleGuid() {
         return articleSelect ? (articleSelect.value || "") : "";
@@ -1132,51 +1242,117 @@ defmodule Rss2Nostr.Web.Views.Sources do
         }
       }
 
+      function previewParts(body) {
+        return body.nostr_parts_preview || [];
+      }
+
+      function appendHero(parent, body) {
+        if (!body.image) return;
+        const hero = document.createElement("p");
+        hero.className = "compose-hero";
+        const img = document.createElement("img");
+        img.src = body.image;
+        img.alt = body.title || "";
+        hero.appendChild(img);
+        parent.appendChild(hero);
+      }
+
+      function appendHtml(parent, html, markdown) {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = html || "";
+        if (!html && markdown) {
+          const fallback = document.createElement("p");
+          fallback.textContent = markdown;
+          wrap.appendChild(fallback);
+        }
+        if (!html && !markdown) {
+          const empty = document.createElement("p");
+          empty.textContent = "(empty)";
+          wrap.appendChild(empty);
+        }
+        parent.appendChild(wrap);
+      }
+
+      function partLabel(part) {
+        return "Part " + part.index + "/" + part.total;
+      }
+
+      function renderArticlePreview(body) {
+        const parts = previewParts(body);
+        const split = showSplitParts && parts.length > 1;
+
+        renderedEl.replaceChildren();
+        appendHero(renderedEl, body);
+        if (split) {
+          parts.forEach(function (part) {
+            const section = document.createElement("section");
+            section.className = "compose-preview-part";
+            const label = document.createElement("p");
+            label.className = "compose-preview-part-label";
+            label.textContent = partLabel(part);
+            section.appendChild(label);
+            appendHtml(section, part.html, part.markdown);
+            renderedEl.appendChild(section);
+          });
+        } else {
+          appendHtml(renderedEl, body.html, body.markdown);
+        }
+
+        previewEl.replaceChildren();
+        if (split) {
+          parts.forEach(function (part) {
+            const section = document.createElement("section");
+            section.className = "compose-preview-part";
+            const label = document.createElement("p");
+            label.className = "compose-preview-part-label";
+            label.textContent = partLabel(part);
+            const pre = document.createElement("pre");
+            pre.className = "compose-preview-part-markdown";
+            pre.textContent = part.markdown || "(empty)";
+            section.appendChild(label);
+            section.appendChild(pre);
+            previewEl.appendChild(section);
+          });
+        } else {
+          previewEl.textContent = body.markdown || "(empty)";
+        }
+      }
+
       function renderPreview(body) {
+        lastPreview = body;
+        const parts = previewParts(body);
+        if (splitToggle) splitToggle.hidden = parts.length <= 1;
+        if (parts.length <= 1) {
+          showSplitParts = false;
+          if (splitInput) splitInput.checked = false;
+        }
+
         if (metaEl) {
           metaEl.hidden = false;
           metaEl.replaceChildren();
           appendMeta(metaEl, "Title", body.title);
           appendMeta(metaEl, "Summary", body.summary);
           appendMeta(metaEl, "Image", body.image);
+          if (parts.length > 1) {
+            appendMeta(metaEl, "Parts", parts.length + " Nostr events");
+          }
           if (selector && selector.value && body.selector_matched === false) {
             appendMeta(metaEl, "Selector", "Did not match; using the full HTML.");
           }
         }
 
-        renderedEl.replaceChildren();
-        if (body.image) {
-          const hero = document.createElement("p");
-          hero.className = "compose-hero";
-          const img = document.createElement("img");
-          img.src = body.image;
-          img.alt = body.title || "";
-          hero.appendChild(img);
-          renderedEl.appendChild(hero);
-        }
-        const bodyWrap = document.createElement("div");
-        bodyWrap.innerHTML = body.html || "";
-        if (!body.html && body.markdown) {
-          const fallback = document.createElement("p");
-          fallback.textContent = body.markdown;
-          bodyWrap.appendChild(fallback);
-        }
-        if (!body.html && !body.markdown) {
-          const empty = document.createElement("p");
-          empty.textContent = "(empty)";
-          bodyWrap.appendChild(empty);
-        }
-        renderedEl.appendChild(bodyWrap);
-        previewEl.textContent = body.markdown || "(empty)";
+        renderArticlePreview(body);
         if (eventEl) {
           const relays = (body.nostr_relays || []).join("\\n");
           let text = relays ? "Relays:\\n" + relays + "\\n\\n" : "";
           const parts = body.nostr_parts_json || [];
           if (body.nostr_draft && parts.length > 1) {
             text += "This article will be published as " + parts.length +
-              " NIP-37 drafts so each encrypted payload stays within 65535 bytes.\\n\\n";
+              " NIP-37 drafts so each published wrap stays within 65535 bytes.\\n\\n";
           } else if (body.nostr_draft) {
             text += "This inner article is NIP-44-encrypted into a kind 31234 wrap when published.\\n\\n";
+          } else if (body.nostr_plain_draft) {
+            text += "Published as kind 30024, signed by the app key.\\n\\n";
           }
           if (parts.length) {
             parts.forEach(function (json, i) {
@@ -1397,6 +1573,12 @@ defmodule Rss2Nostr.Web.Views.Sources do
         articleSelect.addEventListener("change", schedulePreview);
       }
       if (refresh) refresh.addEventListener("click", runPreview);
+      if (splitInput) {
+        splitInput.addEventListener("change", function () {
+          showSplitParts = splitInput.checked;
+          if (lastPreview) renderArticlePreview(lastPreview);
+        });
+      }
       tabs.forEach(function (tab) {
         tab.addEventListener("click", function () {
           activeTab = tab.getAttribute("data-preview-tab") || "rendered";
@@ -1509,11 +1691,19 @@ defmodule Rss2Nostr.Web.Views.Sources do
   end
 
   defp avatar_relays do
-    (Relays.test() ++ Relays.public())
+    (Relays.draft() ++ Relays.test() ++ Relays.public())
     |> Enum.uniq()
     |> Enum.take(4)
     |> Enum.join(",")
   end
+
+  defp relay_target_label(:draft), do: "Draft relays"
+  defp relay_target_label(:public), do: "Public relays"
+  defp relay_target_label(_), do: "Test relays"
+
+  defp relay_target_name(:draft), do: "draft relays"
+  defp relay_target_name(:public), do: "public relays"
+  defp relay_target_name(_), do: "test relays"
 
   defp source_avatar_script do
     """

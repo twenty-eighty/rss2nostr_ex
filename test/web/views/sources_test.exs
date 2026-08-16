@@ -87,6 +87,8 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "Nostr event preview"
       assert html =~ "compose-preview-rendered"
       assert html =~ "compose-preview-event"
+      assert html =~ "show-split-parts"
+      assert html =~ "Show split parts"
       assert html =~ "data-preview-tab=\"event\""
       assert html =~ "Link rows"
       assert html =~ "conversion_rules"
@@ -105,8 +107,14 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
 
       publishing = Sources.show(source, tab: "publishing")
       assert publishing =~ "Draft (encrypted, NIP-37)"
+      assert publishing =~ "Draft (unencrypted)"
       assert publishing =~ "Article (kind 30023)"
       assert publishing =~ "Bunker URL"
+      assert publishing =~ "staging_hold_minutes"
+      assert publishing =~ "notify_pubkey"
+      assert publishing =~ "fixed_hashtags"
+      assert publishing =~ "Fixed hashtags"
+      assert publishing =~ "Hold before auto-publish"
 
       articles = Sources.show(source, tab: "articles")
       assert articles =~ "Publish selected"
@@ -139,6 +147,7 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "disabled"
       assert html =~ "Publish as"
       assert html =~ "Draft (encrypted, NIP-37)"
+      assert html =~ "Draft (unencrypted)"
       assert html =~ "Article (kind 30023)"
       assert html =~ "Author public key"
       assert html =~ "signing_nsec"

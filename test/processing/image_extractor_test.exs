@@ -118,6 +118,31 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
       assert original in urls
     end
 
+    test "does not create a new row for the unwrapped form of an uploaded CDN URL", %{
+      source: source
+    } do
+      cdn =
+        "https://substackcdn.com/image/fetch/w_56,c_limit,f_auto/https%3A%2F%2Fbucketeer-e05bbc84-baa3-437e-9518-adb32be77984.s3.amazonaws.com%2Fpublic%2Fimages%2Fa8e73950-03bb-4589-afaf-d9cdd55ab61b_500x500.png"
+
+      origin =
+        "https://bucketeer-e05bbc84-baa3-437e-9518-adb32be77984.s3.amazonaws.com/public/images/a8e73950-03bb-4589-afaf-d9cdd55ab61b_500x500.png"
+
+      post = create_test_post(source, "<p>x</p>")
+      {:ok, post} = Posts.update_post(post, %{content: "![Card](#{origin})"})
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: cdn,
+          uploaded_url: "https://route96.example/card.png"
+        })
+
+      {:ok, _post, created} = ImageExtractor.extract_and_store(post)
+
+      assert created == 0
+      assert length(Posts.list_images_for_post(post.id)) == 1
+    end
+
     test "does not create a new row for a URL that was already uploaded", %{source: source} do
       original = "https://cdn.example/hero.jpg"
       uploaded = "https://route96.example/hero.jpg"
@@ -190,6 +215,32 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
 
       assert ImageExtractor.normalize_url(url) ==
                "https://pbs.substack.com/profile_images/1829651769380503552/bMTtwSuG.jpg"
+    end
+  end
+
+  describe "download_urls/1" do
+    test "adds a Substack CDN fetch URL after a blocked S3 origin" do
+      origin =
+        "https://bucketeer-e05bbc84-baa3-437e-9518-adb32be77984.s3.amazonaws.com/public/images/a8e73950-03bb-4589-afaf-d9cdd55ab61b_500x500.png"
+
+      urls = ImageExtractor.download_urls(origin)
+
+      assert hd(urls) == origin
+      assert Enum.any?(urls, &String.starts_with?(&1, "https://substackcdn.com/image/fetch/"))
+      assert Enum.any?(urls, &String.contains?(&1, "https%3A%2F%2Fbucketeer"))
+    end
+
+    test "does not wrap a URL that is already on the Substack CDN" do
+      cdn =
+        "https://substackcdn.com/image/fetch/w_56,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fbucketeer-e05bbc84-baa3-437e-9518-adb32be77984.s3.amazonaws.com%2Fpublic%2Fimages%2Fa8e73950-03bb-4589-afaf-d9cdd55ab61b_500x500.png"
+
+      origin =
+        "https://bucketeer-e05bbc84-baa3-437e-9518-adb32be77984.s3.amazonaws.com/public/images/a8e73950-03bb-4589-afaf-d9cdd55ab61b_500x500.png"
+
+      urls = ImageExtractor.download_urls(cdn)
+      assert hd(urls) == cdn
+      assert origin in urls
+      refute Enum.any?(urls, &String.contains?(&1, "substackcdn.com/image/fetch/%"))
     end
   end
 

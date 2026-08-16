@@ -86,6 +86,22 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
       assert source.signing_nsec_ciphertext
     end
 
+    test "creates an unencrypted draft source with a pubkey" do
+      hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+      params = %{
+        "name" => "Plain Draft Source",
+        "url" => unique_url(),
+        "publish_as" => "draft_plain",
+        "pubkey" => hex
+      }
+
+      {:ok, source} = API.create(params)
+      assert source.publish_as == "draft_plain"
+      assert source.default_post_kind == 30024
+      assert source.pubkey == hex
+    end
+
     test "requires a pubkey when creating a draft source" do
       params = %{
         "name" => "Draft Source",
@@ -206,6 +222,15 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
       assert updated.options["start_guid"] == "keep-me"
       assert updated.options["body_selector"] == "article"
       assert updated.options["skip_classes"] == ["shariff"]
+    end
+
+    test "stores fixed hashtags from publishing settings" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+
+      {:ok, updated} =
+        API.update(source, %{"fixed_hashtags" => "#PatrikBaab, bitcoin, patrikbaab"})
+
+      assert updated.fixed_hashtags == ["patrikbaab", "bitcoin"]
     end
   end
 

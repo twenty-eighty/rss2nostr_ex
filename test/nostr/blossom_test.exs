@@ -239,6 +239,54 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       assert is_nil(updated.last_error)
     end
 
+    test "reuses an uploaded CDN copy for the unwrapped S3 URL" do
+      put_upload_endpoint("https://route96.example")
+
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "CDN Fallback Source",
+          url: "https://example.com/cdn-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          active: true
+        })
+
+      url = "https://example.com/article-#{System.unique_integer([:positive])}"
+
+      cdn =
+        "https://substackcdn.com/image/fetch/w_56,c_limit,f_auto/https%3A%2F%2Fbucketeer-e05bbc84-baa3-437e-9518-adb32be77984.s3.amazonaws.com%2Fpublic%2Fimages%2Fa8e73950-03bb-4589-afaf-d9cdd55ab61b_500x500.png"
+
+      origin =
+        "https://bucketeer-e05bbc84-baa3-437e-9518-adb32be77984.s3.amazonaws.com/public/images/a8e73950-03bb-4589-afaf-d9cdd55ab61b_500x500.png"
+
+      uploaded = "https://route96.example/card.png"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "CDN sibling",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          content: "![Card](#{origin})",
+          status: Post.status_pending_images(),
+          source_id: source.id
+        })
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: cdn,
+          uploaded_url: uploaded
+        })
+
+      {:ok, _} = Posts.create_image(%{post_id: post.id, original_url: origin})
+
+      {stamped, _mapping} = Blossom.stamp_hosted_images(post)
+      refute Blossom.pending_images?(stamped)
+
+      images = Posts.list_images_for_post(post.id)
+      assert Enum.all?(images, &(&1.uploaded_url == uploaded))
+    end
+
     test "skips posts without an image" do
       {:ok, source} =
         Sources.create_source(%{

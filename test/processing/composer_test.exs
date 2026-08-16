@@ -64,7 +64,7 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       refute result.markdown =~ "hero.jpg"
     end
 
-    test "keeps an existing image and leaves it in the Markdown" do
+    test "keeps an existing image and leaves a different leading image in the Markdown" do
       html = ~s(<p><img src="https://example.com/hero.jpg" alt="Hero"></p><p>Article</p>)
 
       result =
@@ -75,6 +75,22 @@ defmodule Rss2Nostr.Processing.ComposerTest do
 
       assert result.image == "https://example.com/existing.jpg"
       assert result.markdown =~ "hero.jpg"
+    end
+
+    test "drops a leading body image that is the same asset as the featured image" do
+      featured =
+        "https://substackcdn.com/image/fetch/$s_!A5Ic!,w_1200,h_675,c_fill,f_jpg,q_auto:good/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F73510e44-7195-418e-aa14-9e863d228777_1280x512.jpeg"
+
+      body =
+        "https://substackcdn.com/image/fetch/$s_!A5Ic!,w_1456,c_limit,f_auto,q_auto:good/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F73510e44-7195-418e-aa14-9e863d228777_1280x512.jpeg"
+
+      html = ~s(<p><img src="#{body}" alt=""></p><p>Article body</p>)
+
+      result = Composer.compose(html, %{image: featured, skip_classes: []})
+
+      assert result.image == featured
+      assert result.markdown =~ "Article body"
+      refute result.markdown =~ "73510e44-7195-418e-aa14-9e863d228777"
     end
 
     test "takes Substack body markup and drops chrome" do
@@ -206,6 +222,23 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert html =~ "<strong>world</strong>"
       refute html =~ "<script>"
       assert html =~ "&lt;script&gt;"
+    end
+  end
+
+  describe "preview_parts/1" do
+    test "renders markdown and HTML for each split chunk" do
+      parts = Composer.preview_parts([
+        %{content: "# One\n\nFirst part"},
+        %{content: "# Two\n\nSecond part"}
+      ])
+
+      assert length(parts) == 2
+      assert hd(parts).index == 1
+      assert hd(parts).total == 2
+      assert hd(parts).markdown == "# One\n\nFirst part"
+      assert hd(parts).html =~ "First part"
+      assert List.last(parts).index == 2
+      assert List.last(parts).markdown == "# Two\n\nSecond part"
     end
   end
 

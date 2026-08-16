@@ -73,9 +73,37 @@ defmodule Rss2Nostr.Processing.Markdown do
       String.starts_with?(first, "|") ->
         table_html(lines)
 
+      footnote_def?(first) ->
+        footnote_def_html(lines)
+
       true ->
         text = lines |> Enum.join("\n") |> String.trim()
-        if text == "", do: "", else: "<p>#{inline(text)}</p>"
+        html = inline(text)
+
+        cond do
+          html == "" -> ""
+          figure_only?(html) -> html
+          true -> "<p>#{html}</p>"
+        end
+    end
+  end
+
+  defp figure_only?(html) do
+    String.starts_with?(html, "<figure") and String.ends_with?(html, "</figure>")
+  end
+
+  defp footnote_def?(line), do: String.match?(String.trim_leading(line), ~r/^\[\^\d+\]:/)
+
+  defp footnote_def_html(lines) do
+    text = lines |> Enum.join("\n") |> String.trim()
+
+    case Regex.run(~r/^\[\^(\d+)\]:\s*(.*)/s, text) do
+      [_, n, body] ->
+        inner = if body == "", do: "", else: " #{inline(body)}"
+        ~s(<p class="footnote" id="fn-#{n}"><a href="#fnref-#{n}">#{n}</a>.#{inner}</p>)
+
+      _ ->
+        "<p>#{inline(text)}</p>"
     end
   end
 
@@ -154,9 +182,16 @@ defmodule Rss2Nostr.Processing.Markdown do
     |> escape()
     |> replace_images()
     |> replace_links()
+    |> replace_footnotes()
     |> replace_code()
     |> replace_strong()
     |> replace_em()
+  end
+
+  defp replace_footnotes(text) do
+    Regex.replace(~r/\[\^(\d+)\](?!:)/, text, fn _, n ->
+      ~s(<sup class="footnote-ref" id="fnref-#{n}"><a href="#fn-#{n}">#{n}</a></sup>)
+    end)
   end
 
   defp replace_images(text) do
@@ -167,8 +202,13 @@ defmodule Rss2Nostr.Processing.Markdown do
             alt
 
           safe ->
-            title_attr = if title != "", do: ~s( title="#{title}"), else: ""
-            ~s(<img src="#{escape_attr(safe)}" alt="#{alt}"#{title_attr}>)
+            img = ~s(<img src="#{escape_attr(safe)}" alt="#{alt}">)
+
+            if title != "" do
+              ~s(<figure>#{img}<figcaption>#{title}</figcaption></figure>)
+            else
+              img
+            end
         end
     end)
   end

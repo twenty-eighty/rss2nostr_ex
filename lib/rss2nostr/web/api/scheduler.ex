@@ -12,8 +12,8 @@ defmodule Rss2Nostr.Web.API.Scheduler do
       nil ->
         %{
           running: false,
-          intervals: %{import: "15m", process: "5m", export: "10m"},
-          task_status: %{import: :idle, process: :idle, export: :idle},
+          intervals: %{import: "15m", process: "5m", export: "10m", cleanup: "24h"},
+          task_status: %{import: :idle, process: :idle, export: :idle, cleanup: :idle},
           last_run: %{},
           export_configured: System.get_env("NOSTR_NSEC") != nil
         }
@@ -45,7 +45,7 @@ defmodule Rss2Nostr.Web.API.Scheduler do
     end
   end
 
-  def run_task(task) when task in ["import", "process", "export"] do
+  def run_task(task) when task in ["import", "process", "export", "cleanup"] do
     task_atom = String.to_atom(task)
 
     case Process.whereis(Rss2Nostr.Scheduler) do
@@ -56,6 +56,7 @@ defmodule Rss2Nostr.Web.API.Scheduler do
             :import -> Tasks.run_import()
             :process -> Tasks.run_process()
             :export -> Tasks.run_export(get_export_config())
+            :cleanup -> Tasks.run_cleanup()
           end
 
         {:ok, "Task #{task} executed: #{inspect(result)}"}

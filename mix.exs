@@ -23,7 +23,7 @@ defmodule Rss2Nostr.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :runtime_tools, :inets],
+      extra_applications: [:logger, :runtime_tools, :inets, :ex_mcp],
       mod: {Rss2Nostr.Application, []}
     ]
   end
@@ -57,6 +57,9 @@ defmodule Rss2Nostr.MixProject do
       # Web Server
       {:plug, "~> 1.15"},
       {:bandit, "~> 1.12"},
+
+      # MCP (AI management)
+      {:ex_mcp, "~> 1.0.0-rc.6"},
 
       # Utilities
       {:timex, "~> 3.7"},

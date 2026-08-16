@@ -67,6 +67,10 @@ defmodule Rss2Nostr.Nostr.SignerTest do
     source = %Source{publish_as: "draft"}
     assert {:error, :no_app_private_key} = Signer.resolve(source)
     assert {:ok, {:private_key, _}} = Signer.resolve(source, private_key: @hex)
+
+    plain = %Source{publish_as: "draft_plain"}
+    assert Signer.plain_draft?(plain)
+    assert {:ok, {:private_key, _}} = Signer.resolve(plain, private_key: @hex)
   end
 
   test "upload_signer/1 prefers a source nsec over the app key" do
@@ -90,7 +94,8 @@ defmodule Rss2Nostr.Nostr.SignerTest do
       bunker_connection: "bunker://abc?relay=wss://relay.example"
     }
 
-    assert {:ok, {:bunker, "bunker://abc?relay=wss://relay.example"}} = Signer.upload_signer(source)
+    assert {:ok, {:bunker, "bunker://abc?relay=wss://relay.example"}} =
+             Signer.upload_signer(source)
   end
 
   test "upload_signer/1 falls back to the app key only for drafts with a pubkey" do
@@ -116,6 +121,9 @@ defmodule Rss2Nostr.Nostr.SignerTest do
 
     article = %Source{publish_as: "article"}
     assert {:error, :no_source_signer} = Signer.upload_signer(article)
+
+    plain = %Source{publish_as: "draft_plain"}
+    assert {:ok, {:private_key, _}} = Signer.upload_signer(plain)
   end
 
   test "app_signer/0 reads the configured NOSTR_NSEC" do

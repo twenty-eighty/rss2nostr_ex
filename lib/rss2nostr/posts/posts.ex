@@ -5,7 +5,9 @@ defmodule Rss2Nostr.Posts do
 
   import Ecto.Query
   alias Rss2Nostr.Repo
+  alias Rss2Nostr.Nostr.StagingNotify
   alias Rss2Nostr.Posts.{Post, ArticleImage}
+  alias Rss2Nostr.Sources.Source
 
   # Post queries
 
@@ -81,6 +83,63 @@ defmodule Rss2Nostr.Posts do
   @spec list_processed_posts(keyword()) :: [Post.t()]
   def list_processed_posts(opts \\ []) do
     list_posts_by_status(Post.status_processed(), opts)
+  end
+
+  @doc """
+  Staging posts on active automated sources whose hold has elapsed.
+  """
+  @spec list_exportable_posts(keyword()) :: [Post.t()]
+  def list_exportable_posts(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+    now = utc_now()
+
+    Post
+    |> join(:inner, [p], s in Source, on: p.source_id == s.id)
+    |> where([p, s], p.status == ^Post.status_processed())
+    |> where([p, s], s.active == true and s.mode == "automated")
+    |> where(
+      [p, s],
+      is_nil(p.staged_at) or
+        datetime_add(p.staged_at, s.staging_hold_minutes, "minute") <= ^now
+    )
+    |> order_by([p], asc: p.staged_at)
+    |> limit(^limit)
+    |> preload([p, s], source: s)
+    |> Repo.all()
+  end
+
+  @doc """
+  Published posts whose app-signed drafts have not been cleaned up yet.
+  """
+  @spec list_draft_cleanup_candidates(keyword()) :: [Post.t()]
+  def list_draft_cleanup_candidates(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    Post
+    |> join(:inner, [p], s in Source, on: p.source_id == s.id)
+    |> where([p], p.status == ^Post.status_published())
+    |> where([p], is_nil(p.draft_cleaned_at))
+    |> order_by([p], asc: p.id)
+    |> limit(^limit)
+    |> preload([p, s], source: s)
+    |> Repo.all()
+  end
+
+  @spec mark_draft_cleaned(Post.t()) :: {:ok, Post.t()} | {:error, Ecto.Changeset.t()}
+  def mark_draft_cleaned(%Post{} = post) do
+    update_post(post, %{draft_cleaned_at: utc_now()})
+  end
+
+  @spec hold_elapsed?(Post.t(), DateTime.t()) :: boolean()
+  def hold_elapsed?(%Post{} = post, now \\ utc_now()) do
+    post = preload_source(post)
+    hold = (post.source && post.source.staging_hold_minutes) || 0
+
+    cond do
+      is_nil(post.staged_at) -> true
+      hold <= 0 -> true
+      true -> DateTime.compare(DateTime.add(post.staged_at, hold, :minute), now) != :gt
+    end
   end
 
   @doc """
@@ -252,7 +311,49 @@ defmodule Rss2Nostr.Posts do
   """
   @spec mark_processed(Post.t()) :: {:ok, Post.t()} | {:error, Ecto.Changeset.t()}
   def mark_processed(%Post{} = post) do
-    update_post(post, %{status: Post.status_processed(), last_error: nil})
+    enter_staging(post)
+  end
+
+  @doc """
+  Moves a complete article into staging.
+
+  The first time, or when `reset_hold: true` (Revise), `staged_at` is
+  stamped and a NIP-17 DM is sent. Reprocess of an already staged
+  article keeps the original hold and does not notify again.
+  """
+  @spec enter_staging(Post.t(), keyword()) :: {:ok, Post.t()} | {:error, Ecto.Changeset.t()}
+  def enter_staging(%Post{} = post, opts \\ []) do
+    reset_hold? = Keyword.get(opts, :reset_hold, false)
+    notify? = Keyword.get(opts, :notify, true)
+    stamp? = is_nil(post.staged_at) or reset_hold?
+
+    attrs = %{status: Post.status_processed(), last_error: nil}
+    attrs = if stamp?, do: Map.put(attrs, :staged_at, utc_now()), else: attrs
+
+    with {:ok, post} <- update_post(post, attrs) do
+      if notify? and stamp? do
+        _ = StagingNotify.maybe_notify(post)
+      end
+
+      {:ok, post}
+    end
+  end
+
+  @doc """
+  Returns a published article to staging and restarts the hold.
+  """
+  @spec revise_to_staging(Post.t()) ::
+          {:ok, Post.t()} | {:error, :not_published | Ecto.Changeset.t()}
+  def revise_to_staging(%Post{} = post) do
+    if post.status == Post.status_published() do
+      enter_staging(post, reset_hold: true)
+    else
+      {:error, :not_published}
+    end
+  end
+
+  defp utc_now do
+    DateTime.utc_now() |> DateTime.truncate(:second)
   end
 
   @doc """
@@ -276,7 +377,8 @@ defmodule Rss2Nostr.Posts do
       status: Post.status_published(),
       event_id: event_id,
       pubkey: pubkey,
-      nostr_address: nostr_address
+      nostr_address: nostr_address,
+      last_error: nil
     })
   end
 
@@ -394,6 +496,9 @@ defmodule Rss2Nostr.Posts do
         Post.status_processing()
 
       "processed" ->
+        Post.status_processed()
+
+      "staging" ->
         Post.status_processed()
 
       "signing" ->

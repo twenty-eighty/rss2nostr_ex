@@ -120,18 +120,27 @@ defmodule Rss2Nostr.Processing.Processor do
     end
   end
 
-  defp compose_and_store(post) do
+  defp compose_and_store(%Post{} = post) do
     post = Posts.preload_source(post)
-    composed = Composer.compose(post.source_html, Composer.opts_from_source(post.source))
-    markdown = composed.markdown
-    summary = post.summary || composed.summary || generate_summary(markdown)
-    image = post.image || composed.image
+    composed = Composer.compose(post.source_html, compose_opts_for(post))
+    store_composed(post, composed)
+  end
 
+  defp compose_opts_for(%Post{source: source, source_url: article_url}) do
+    source
+    |> Composer.opts_from_source()
+    |> Map.put(:url, article_url || feed_url(source))
+  end
+
+  defp feed_url(%{url: url}), do: url
+  defp feed_url(_), do: nil
+
+  defp store_composed(%Post{} = post, composed) do
     {:ok, post} =
       Posts.update_post(post, %{
-        content: markdown,
-        summary: summary,
-        image: image
+        content: composed.markdown,
+        summary: post.summary || composed.summary || generate_summary(composed.markdown),
+        image: post.image || composed.image
       })
 
     ensure_images(post)
@@ -161,13 +170,15 @@ defmodule Rss2Nostr.Processing.Processor do
   end
 
   defp finish_images(post) do
-    {:ok, post} = Posts.mark_processed(post)
-    Logger.info("Processed: #{post.title}")
+    {:ok, post} = Posts.enter_staging(post)
+    Logger.info("Staging: #{post.title}")
     {:ok, post}
   end
 
   defp pend_images(post, "Images still need uploading") do
-    {:ok, post} = Posts.update_post(post, %{status: Post.status_pending_images(), last_error: nil})
+    {:ok, post} =
+      Posts.update_post(post, %{status: Post.status_pending_images(), last_error: nil})
+
     Logger.info("Pending images: #{post.title}")
     {:ok, post}
   end
@@ -179,9 +190,16 @@ defmodule Rss2Nostr.Processing.Processor do
   end
 
   defp format_image_error(:no_upload_endpoint), do: "NOSTR_UPLOAD_ENDPOINT is not set"
-  defp format_image_error(:no_app_private_key), do: "NOSTR_NSEC is not set (needed to upload draft images)"
-  defp format_image_error(:no_source_pubkey), do: "Draft source needs an intended author pubkey to upload images with the app key"
-  defp format_image_error(:no_source_signer), do: "Source has no nsec or bunker URL for image upload"
+
+  defp format_image_error(:no_app_private_key),
+    do: "NOSTR_NSEC is not set (needed to upload draft images)"
+
+  defp format_image_error(:no_source_pubkey),
+    do: "Draft source needs an intended author pubkey to upload images with the app key"
+
+  defp format_image_error(:no_source_signer),
+    do: "Source has no nsec or bunker URL for image upload"
+
   defp format_image_error(:images_pending), do: "Images still need uploading"
   defp format_image_error(:no_source), do: "Post has no source for image upload"
   defp format_image_error(reason) when is_binary(reason), do: reason
@@ -232,7 +250,12 @@ defmodule Rss2Nostr.Processing.Processor do
   """
   @spec reprocess_post(Post.t()) :: {:ok, Post.t()} | {:error, any()}
   def reprocess_post(%Post{} = post) do
-    {:ok, post} = Posts.update_post(post, %{status: Post.status_new()})
+    attrs = %{status: Post.status_new()}
+
+    attrs =
+      if post.status == Post.status_published(), do: Map.put(attrs, :staged_at, nil), else: attrs
+
+    {:ok, post} = Posts.update_post(post, attrs)
     process_post(post)
   end
 

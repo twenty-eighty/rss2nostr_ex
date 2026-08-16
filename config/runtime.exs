@@ -75,10 +75,21 @@ end
 
 existing_relays =
   case Application.get_env(:rss2nostr, :nostr, []) |> Keyword.get(:relays) do
-    %{test: test, public: public} -> %{test: List.wrap(test), public: List.wrap(public)}
-    list when is_list(list) -> %{test: list, public: []}
-    _ -> %{test: [], public: []}
+    %{test: test, public: public} = map ->
+      %{
+        draft: List.wrap(Map.get(map, :draft, [])),
+        test: List.wrap(test),
+        public: List.wrap(public)
+      }
+
+    list when is_list(list) ->
+      %{draft: [], test: list, public: []}
+
+    _ ->
+      %{draft: [], test: [], public: []}
   end
+
+draft_relays = parse_relay_list.(System.get_env("NOSTR_RELAYS_DRAFT"))
 
 test_relays =
   parse_relay_list.(System.get_env("NOSTR_RELAYS_TEST")) ||
@@ -88,6 +99,9 @@ public_relays = parse_relay_list.(System.get_env("NOSTR_RELAYS_PUBLIC"))
 
 relays =
   existing_relays
+  |> then(fn relays ->
+    if draft_relays, do: Map.put(relays, :draft, draft_relays), else: relays
+  end)
   |> then(fn relays ->
     if test_relays, do: Map.put(relays, :test, test_relays), else: relays
   end)
@@ -134,6 +148,10 @@ case System.get_env("ADMIN_NOSTR_PUBKEYS") do
 
   _ ->
     :ok
+end
+
+if mcp_token = System.get_env("MCP_TOKEN") || System.get_env("RSS2NOSTR_MCP_TOKEN") do
+  config :rss2nostr, :mcp, token: mcp_token
 end
 
 secret = System.get_env("SECRET_KEY_BASE")

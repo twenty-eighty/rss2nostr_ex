@@ -14,9 +14,7 @@ defmodule Rss2Nostr.Scheduler.Tasks do
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Import.Importer
   alias Rss2Nostr.Processing.Processor
-  alias Rss2Nostr.Nostr.{Publisher, Relays, Signer}
-  alias Rss2Nostr.Sources.Source
-  alias Rss2Nostr.Repo
+  alias Rss2Nostr.Nostr.{DraftCleanup, Publisher, Relays, Signer}
 
   @type import_result ::
           {:ok,
@@ -24,6 +22,8 @@ defmodule Rss2Nostr.Scheduler.Tasks do
   @type process_result :: {:ok, %{processed: non_neg_integer(), errors: non_neg_integer()}}
   @type export_result ::
           {:ok, %{published: non_neg_integer(), errors: non_neg_integer()}} | {:error, atom()}
+  @type cleanup_result ::
+          {:ok, %{deleted: non_neg_integer(), skipped: non_neg_integer()}} | {:error, atom()}
 
   @doc """
   Runs the import task: fetches articles from all active sources.
@@ -133,14 +133,10 @@ defmodule Rss2Nostr.Scheduler.Tasks do
   end
 
   defp do_export(config, relays, audience, limit) do
-    posts =
-      Posts.list_processed_posts(limit: limit * 3)
-      |> Repo.preload(:source)
-      |> Enum.filter(&exportable?/1)
-      |> Enum.take(limit)
+    posts = Posts.list_exportable_posts(limit: limit)
 
     if Enum.empty?(posts) do
-      Logger.info("[Scheduler] No processed posts to export")
+      Logger.info("[Scheduler] No staging posts ready to export")
       {:ok, %{published: 0, errors: 0}}
     else
       results = Enum.map(posts, &export_post(&1, config, relays, audience))
@@ -153,9 +149,6 @@ defmodule Rss2Nostr.Scheduler.Tasks do
       {:ok, %{published: published, errors: errors}}
     end
   end
-
-  defp exportable?(%{source: %Source{active: true, mode: "automated"}}), do: true
-  defp exportable?(_), do: false
 
   defp export_post(post, config, relays, audience) do
     case Signer.resolve(post.source, private_key: config[:private_key]) do
@@ -182,5 +175,14 @@ defmodule Rss2Nostr.Scheduler.Tasks do
 
   defp publish_opts(signer, post, :per_post, audience) do
     [signer: signer, relays: Relays.publish_relays(post, audience: audience)]
+  end
+
+  @doc """
+  Deletes app-signed drafts after the same article exists as kind 30023.
+  """
+  @spec run_cleanup(keyword()) :: cleanup_result()
+  def run_cleanup(opts \\ []) do
+    Logger.info("[Scheduler] Starting draft cleanup task")
+    DraftCleanup.run(opts)
   end
 end

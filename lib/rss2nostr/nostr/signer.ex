@@ -2,11 +2,12 @@ defmodule Rss2Nostr.Nostr.Signer do
   @moduledoc """
   Resolves who signs a source's events and Blossom uploads.
 
-  Drafts (NIP-37 kind 31234 wraps) use the app `NOSTR_NSEC`.
-  Articles (kind 30023) use a per-source nsec or a bunker URL.
+  Encrypted drafts (NIP-37 kind 31234 wraps) and unencrypted kind 30024
+  drafts use the app `NOSTR_NSEC`. Articles (kind 30023) use a per-source
+  nsec or a bunker URL.
 
-  Image uploads prefer the source nsec or bunker. The app key is only
-  a fallback for draft sources that also have an intended author pubkey.
+  Image uploads prefer the source nsec or bunker. The app key is a
+  fallback for draft sources (drafts also need an author pubkey).
   """
 
   alias Rss2Nostr.Nostr.{Event, Keys, NIP46, Secret}
@@ -15,10 +16,21 @@ defmodule Rss2Nostr.Nostr.Signer do
   @type signer :: {:private_key, binary()} | {:bunker, String.t()}
   @type open_signer :: {:private_key, binary()} | {:bunker, pid()}
 
+  @publish_as_values ~w(draft draft_plain article)
+
   @spec publish_as(Source.t() | map() | nil) :: String.t()
-  def publish_as(%{publish_as: value}) when value in ["draft", "article"], do: value
+  def publish_as(%{publish_as: value}) when value in @publish_as_values, do: value
   def publish_as(%{default_post_kind: 30023}), do: "article"
   def publish_as(_), do: "draft"
+
+  @spec draft?(Source.t() | map() | nil) :: boolean()
+  def draft?(source), do: publish_as(source) in ~w(draft draft_plain)
+
+  @spec encrypted_draft?(Source.t() | map() | nil) :: boolean()
+  def encrypted_draft?(source), do: publish_as(source) == "draft"
+
+  @spec plain_draft?(Source.t() | map() | nil) :: boolean()
+  def plain_draft?(source), do: publish_as(source) == "draft_plain"
 
   @spec resolve(Source.t() | nil, keyword()) :: {:ok, signer()} | {:error, atom()}
   def resolve(source, opts \\ [])
@@ -27,7 +39,7 @@ defmodule Rss2Nostr.Nostr.Signer do
   def resolve(%Source{} = source, opts) do
     case publish_as(source) do
       "article" -> source_signer(source)
-      "draft" -> draft_signer(opts)
+      value when value in ["draft", "draft_plain"] -> draft_signer(opts)
     end
   end
 
@@ -54,10 +66,13 @@ defmodule Rss2Nostr.Nostr.Signer do
       present?(source.bunker_connection) ->
         {:ok, {:bunker, source.bunker_connection}}
 
-      publish_as(source) == "draft" and present?(source.pubkey) ->
+      plain_draft?(source) ->
         app_private_key()
 
-      publish_as(source) == "draft" ->
+      encrypted_draft?(source) and present?(source.pubkey) ->
+        app_private_key()
+
+      encrypted_draft?(source) ->
         {:error, :no_source_pubkey}
 
       true ->

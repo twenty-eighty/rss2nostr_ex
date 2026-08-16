@@ -2,21 +2,33 @@ defmodule Rss2Nostr.Nostr.Relays do
   @moduledoc """
   Configured Nostr relay lists.
 
-  There are two audiences:
+  There are three audiences:
 
+  * `:draft` — relays used for NIP-37 draft wraps (Pareto client)
   * `:test` — relays used while a source is being tried out
   * `:public` — relays used for sources that should be published openly
 
-  Each source has a `public` flag that selects the list once it is
-  `automated`. Sources in `setup` always use the test list. An explicit
-  `:relays` option is stripped of public relays while the source is in setup.
+  Draft sources always use the draft list, regardless of setup/public.
+  If the draft list is empty, they fall back to the test list.
+
+  Each article source has a `public` flag that selects test vs public
+  once it is `automated`. Sources in `setup` always use the test list.
+  An explicit `:relays` option is stripped of public relays while the
+  source is in setup.
   """
 
+  alias Rss2Nostr.Nostr.Signer
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Repo
   alias Rss2Nostr.Sources.Source
 
-  @type audience :: :test | :public
+  @type audience :: :draft | :test | :public
+
+  @doc """
+  Relays used for NIP-37 draft wraps.
+  """
+  @spec draft() :: [String.t()]
+  def draft, do: list(:draft)
 
   @doc """
   Relays used for testing unpublished or trial sources.
@@ -31,17 +43,22 @@ defmodule Rss2Nostr.Nostr.Relays do
   def public, do: list(:public)
 
   @doc """
-  Relays for an audience (`:test` or `:public`).
+  Relays for an audience (`:draft`, `:test`, or `:public`).
+
+  `:draft` falls back to the test list when no draft relays are set.
   """
   @spec for(audience() | String.t() | atom() | nil) :: [String.t()]
+  def for(:draft), do: draft_or_test()
   def for(:test), do: test()
   def for(:public), do: public()
+  def for("draft"), do: draft_or_test()
   def for("test"), do: test()
   def for("public"), do: public()
   def for(_), do: test()
 
   @doc """
-  Relays for a post, based on its source's mode and `public` flag.
+  Relays for a post: draft list when the source publishes drafts,
+  otherwise test/public from the source mode and `public` flag.
 
   Missing or unloaded sources use the test list so articles are not published
   widely by accident.
@@ -49,42 +66,45 @@ defmodule Rss2Nostr.Nostr.Relays do
   @spec for_post(Post.t() | map()) :: [String.t()]
   def for_post(post) do
     post
-    |> audience_for_post()
+    |> target_for()
     |> __MODULE__.for()
   end
 
   @doc """
-  Relays that may be used to publish a post.
+  Relays that may be used to publish a post or source.
 
-  Setup sources always get the test list. An explicit relay list cannot
-  include public relays unless the source is automated.
+  Draft sources always get the draft list (or test, if draft is empty).
+  Setup article sources always get the test list. An explicit relay list
+  cannot include public relays unless the source is automated.
   """
   @spec publish_relays(Post.t() | Source.t() | map(), keyword()) :: [String.t()]
   def publish_relays(post_or_source, opts \\ []) do
-    audience = audience_of(post_or_source)
     requested = Keyword.get(opts, :relays)
     forced = parse_audience(Keyword.get(opts, :audience))
 
-    effective =
-      cond do
-        audience == :test -> :test
-        forced in [:test, :public] -> forced
-        true -> audience
-      end
-
     case requested do
       list when is_list(list) ->
-        if effective == :test, do: reject_public(list), else: list
+        if restrict_public?(post_or_source), do: reject_public(list), else: list
 
       _ ->
-        __MODULE__.for(effective)
+        configured_publish_relays(post_or_source, forced)
     end
   end
 
   @doc """
-  Audience for a post (`:public` only when the source is automated and public).
+  Which list a post or source publishes to (`:draft`, `:test`, or `:public`).
   """
-  @spec audience_for_post(Post.t() | map()) :: audience()
+  @spec target_for(Post.t() | Source.t() | map() | nil) :: audience()
+  def target_for(post_or_source) do
+    if draft?(post_or_source), do: :draft, else: audience_of(post_or_source)
+  end
+
+  @doc """
+  Audience for a post (`:public` only when the source is automated and public).
+
+  Does not account for drafts; use `target_for/1` when choosing a relay list.
+  """
+  @spec audience_for_post(Post.t() | map()) :: :test | :public
   def audience_for_post(%{source: %Source{} = source}), do: audience_for_source(source)
 
   def audience_for_post(%{source: %Ecto.Association.NotLoaded{}} = post) do
@@ -98,26 +118,15 @@ defmodule Rss2Nostr.Nostr.Relays do
   @doc """
   Audience for a source. Setup always uses `:test`.
   """
-  @spec audience_for_source(Source.t() | map() | nil) :: audience()
+  @spec audience_for_source(Source.t() | map() | nil) :: :test | :public
   def audience_for_source(%{mode: "automated", public: true}), do: :public
   def audience_for_source(_), do: :test
-
-  defp audience_of(%Source{} = source), do: audience_for_source(source)
-  defp audience_of(post), do: audience_for_post(post)
-
-  defp reject_public([]), do: []
-
-  defp reject_public(list) do
-    public_set = MapSet.new(public())
-    filtered = Enum.reject(list, &MapSet.member?(public_set, &1))
-    if filtered == [], do: test(), else: filtered
-  end
 
   @doc """
   Default audience when none is specified (dev/test: `:test`, prod: `:public`).
   Override with `NOSTR_RELAY_AUDIENCE` or `:nostr` `:relay_audience`.
   """
-  @spec default_audience() :: audience()
+  @spec default_audience() :: :test | :public
   def default_audience do
     case Application.get_env(:rss2nostr, :nostr, []) |> Access.get(:relay_audience) do
       :public -> :public
@@ -129,29 +138,33 @@ defmodule Rss2Nostr.Nostr.Relays do
   end
 
   @doc """
-  True when both relay lists are empty.
+  True when the test, public, and draft lists are all empty.
   """
   @spec empty?() :: boolean()
-  def empty?, do: test() == [] and public() == []
+  def empty?, do: test() == [] and public() == [] and draft() == []
 
   @doc """
-  Both configured lists.
+  Configured lists.
   """
-  @spec all() :: %{test: [String.t()], public: [String.t()]}
+  @spec all() :: %{draft: [String.t()], test: [String.t()], public: [String.t()]}
   def all, do: configured_relays()
 
   @doc """
-  Parses `"test"` / `"public"` from CLI or form params. Returns `nil` if absent or invalid.
+  Parses `"draft"` / `"test"` / `"public"` from CLI or form params.
+  Returns `nil` if absent or invalid.
   """
   @spec parse_audience(term()) :: audience() | nil
   def parse_audience(nil), do: nil
+  def parse_audience(:draft), do: :draft
   def parse_audience(:test), do: :test
   def parse_audience(:public), do: :public
+  def parse_audience("draft"), do: :draft
   def parse_audience("test"), do: :test
   def parse_audience("public"), do: :public
 
   def parse_audience(value) when is_binary(value) do
     case String.downcase(String.trim(value)) do
+      "draft" -> :draft
       "test" -> :test
       "public" -> :public
       _ -> nil
@@ -179,6 +192,55 @@ defmodule Rss2Nostr.Nostr.Relays do
     |> Enum.reject(&(&1 == ""))
   end
 
+  defp configured_publish_relays(post_or_source, forced) do
+    cond do
+      draft?(post_or_source) ->
+        draft_or_test()
+
+      audience_of(post_or_source) == :test ->
+        test()
+
+      forced in [:test, :public] ->
+        __MODULE__.for(forced)
+
+      true ->
+        __MODULE__.for(audience_of(post_or_source))
+    end
+  end
+
+  defp restrict_public?(post_or_source), do: audience_of(post_or_source) == :test
+
+  defp audience_of(%Source{} = source), do: audience_for_source(source)
+  defp audience_of(post), do: audience_for_post(post)
+
+  defp draft?(%Source{} = source), do: Signer.draft?(source)
+
+  defp draft?(%{source: %Source{} = source}), do: draft?(source)
+
+  defp draft?(%{source: %Ecto.Association.NotLoaded{}} = post) do
+    post
+    |> Repo.preload(:source)
+    |> draft?()
+  end
+
+  defp draft?(%{publish_as: value}) when value in ["draft", "draft_plain"], do: true
+  defp draft?(_), do: false
+
+  defp draft_or_test do
+    case draft() do
+      [] -> test()
+      list -> list
+    end
+  end
+
+  defp reject_public([]), do: []
+
+  defp reject_public(list) do
+    public_set = MapSet.new(public())
+    filtered = Enum.reject(list, &MapSet.member?(public_set, &1))
+    if filtered == [], do: test(), else: filtered
+  end
+
   defp list(audience) do
     configured_relays()
     |> Map.get(audience, [])
@@ -190,17 +252,25 @@ defmodule Rss2Nostr.Nostr.Relays do
 
   defp configured_relays do
     case Application.get_env(:rss2nostr, :nostr, []) |> Access.get(:relays) do
-      %{test: test, public: public} ->
-        %{test: wrap_list(test), public: wrap_list(public)}
+      %{test: test, public: public} = map ->
+        %{
+          draft: wrap_list(Map.get(map, :draft, [])),
+          test: wrap_list(test),
+          public: wrap_list(public)
+        }
 
       map when is_map(map) ->
-        %{test: wrap_list(Map.get(map, :test, [])), public: wrap_list(Map.get(map, :public, []))}
+        %{
+          draft: wrap_list(Map.get(map, :draft, [])),
+          test: wrap_list(Map.get(map, :test, [])),
+          public: wrap_list(Map.get(map, :public, []))
+        }
 
       list when is_list(list) ->
-        %{test: wrap_list(list), public: []}
+        %{draft: [], test: wrap_list(list), public: []}
 
       _ ->
-        %{test: [], public: []}
+        %{draft: [], test: [], public: []}
     end
   end
 

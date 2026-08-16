@@ -154,6 +154,57 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "![" or md =~ "https://example.com/photo.jpg"
     end
 
+    test "finds an image nested inside a Substack figure link" do
+      html = """
+      <div class="captioned-image-container">
+        <figure>
+          <a target="_blank" href="https://substackcdn.com/image/fetch/f_auto/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F45b3c34b-433c-4d7c-a9dd-56048068b673_1280x640.jpeg" class="image-link image2">
+            <div class="image2-inset">
+              <picture>
+                <source type="image/webp" srcset="https://substackcdn.com/image/fetch/w_424,f_webp/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F45b3c34b-433c-4d7c-a9dd-56048068b673_1280x640.jpeg 424w">
+                <img src="https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F45b3c34b-433c-4d7c-a9dd-56048068b673_1280x640.jpeg" alt="">
+              </picture>
+            </div>
+          </a>
+          <figcaption>Ashot Grigorian</figcaption>
+        </figure>
+      </div>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "substack-post-media.s3.amazonaws.com/public/images/45b3c34b-433c-4d7c-a9dd-56048068b673_1280x640.jpeg"
+      assert md =~ "Ashot Grigorian"
+      refute md =~ "image-link"
+    end
+
+    test "does not use a bare alt attribute as a caption" do
+      html = """
+      <figure>
+        <img alt src="https://example.com/photo.jpg">
+      </figure>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "https://example.com/photo.jpg"
+      refute md =~ ~s("alt")
+      refute md =~ "![alt]"
+    end
+
+    test "does not promote image alt text to a visible caption" do
+      html = """
+      <figure>
+        <img src="https://example.com/photo.jpg" alt="Photo of Yerevan">
+      </figure>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "![Photo of Yerevan](https://example.com/photo.jpg)"
+      refute md =~ ~s("Photo of Yerevan")
+    end
+
     test "converts mark/highlight text" do
       html = "<p>This is <mark>highlighted</mark> text.</p>"
       md = HtmlToMarkdown.convert(html)
@@ -381,7 +432,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     end
 
     test "drops relative links" do
-      html = ~s(<p>See <a href="/local-page">this</a> and <a href="https://example.com">that</a>.</p>)
+      html =
+        ~s(<p>See <a href="/local-page">this</a> and <a href="https://example.com">that</a>.</p>)
+
       md = HtmlToMarkdown.convert(html)
 
       refute md =~ "/local-page"
@@ -394,6 +447,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
 
       assert md =~ "---"
     end
+
+    test "leaves Word footnote anchors as fragment links" do
+      html = ~s(<p>investor.<a href="#_ftn43"><sup><span>[43]</span></sup></a></p>)
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[[43]](#_ftn43)"
+      refute md =~ "[^43]"
+    end
   end
 end
-

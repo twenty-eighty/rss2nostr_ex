@@ -22,7 +22,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
     created =
       Enum.reduce(images, 0, fn image, count ->
-        if MapSet.member?(known, image.url) do
+        if known_url?(known, image.url) do
           count
         else
           attrs = %{
@@ -44,9 +44,15 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   defp known_image_urls(post) do
     (post.images || [])
-    |> Enum.flat_map(fn image -> [image.original_url, image.uploaded_url] end)
+    |> Enum.flat_map(fn image ->
+      [image.original_url, image.uploaded_url, normalize_url(image.original_url)]
+    end)
     |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
     |> MapSet.new()
+  end
+
+  defp known_url?(known, url) do
+    MapSet.member?(known, url) or MapSet.member?(known, normalize_url(url))
   end
 
   @doc """
@@ -132,6 +138,24 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   def normalize_url(nil), do: ""
 
+  @substack_cdn_prefix "https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/"
+
+  @doc """
+  URLs to try when downloading `url`. The stored URL is first; if it is a
+  Substack origin that AWS often 403s, the Substack CDN fetch wrapper is next.
+  """
+  @spec download_urls(String.t() | nil) :: [String.t()]
+  def download_urls(url) when is_binary(url) do
+    url = String.trim(url)
+    origin = normalize_url(url)
+
+    [url, origin, substack_cdn_url(origin)]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.uniq()
+  end
+
+  def download_urls(_), do: []
+
   defp repair_post_urls(%Post{} = post) do
     content = repair_content(post.content)
     image = normalize_optional_url(post.image)
@@ -163,6 +187,32 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   defp prefix_protocol_relative("//" <> rest), do: "https://" <> rest
   defp prefix_protocol_relative(url), do: url
+
+  defp substack_cdn_url(origin) when is_binary(origin) and origin != "" do
+    if substack_origin?(origin) and not substack_cdn?(origin) do
+      @substack_cdn_prefix <> URI.encode(origin, &URI.char_unreserved?/1)
+    end
+  end
+
+  defp substack_cdn_url(_), do: nil
+
+  defp substack_cdn?(url) do
+    host = url_host(url)
+    host == "substackcdn.com" or String.ends_with?(host, ".substackcdn.com")
+  end
+
+  defp substack_origin?(url) do
+    host = url_host(url)
+
+    String.contains?(host, "substack") or
+      (String.contains?(host, "amazonaws.com") and String.contains?(url, "/public/images/"))
+  end
+
+  defp url_host(url) do
+    url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
+  rescue
+    _ -> ""
+  end
 
   defp unwrap_encoded_fetch(url) do
     case Regex.run(~r/(https?%3A%2F%2F[^\s)]+)/i, url) do

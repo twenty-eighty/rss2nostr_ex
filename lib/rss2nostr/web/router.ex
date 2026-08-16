@@ -7,16 +7,16 @@ defmodule Rss2Nostr.Web.Router do
 
   alias Rss2Nostr.Web.{Auth, CodeReloader, Views, API}
 
+  @parsers Plug.Parsers.init(
+             parsers: [:urlencoded, :json],
+             pass: ["*/*"],
+             json_decoder: Jason
+           )
+
   plug(:reload_code)
   plug(Plug.Logger)
   plug(:match)
-
-  plug(Plug.Parsers,
-    parsers: [:urlencoded, :json],
-    pass: ["*/*"],
-    json_decoder: Jason
-  )
-
+  plug(:maybe_parse)
   plug(:setup_session)
   plug(:require_admin)
   plug(:dispatch)
@@ -56,6 +56,19 @@ defmodule Rss2Nostr.Web.Router do
     |> Auth.logout()
     |> redirect("/login")
   end
+
+  forward("/mcp",
+    to: ExMCP.HttpPlug,
+    init_opts: [
+      handler: Rss2Nostr.MCP.Server,
+      protocol_mode: :prefer_modern,
+      server_info: %{name: "rss2nostr", version: "0.1.0"},
+      handler_call_timeout: 60_000,
+      cors_enabled: true,
+      allowed_origins: :any,
+      allowed_hosts: :any
+    ]
+  )
 
   # ============================================================================
   # Dashboard
@@ -152,9 +165,11 @@ defmodule Rss2Nostr.Web.Router do
   post "/sources/:id/publish-selected" do
     case API.Sources.publish_selected(id, conn.body_params) do
       {:ok, result} ->
+        {message, kind} = publish_notice(result)
+
         redirect(
           conn,
-          "/sources/#{id}?tab=articles&notice=#{URI.encode_www_form(publish_notice(result))}"
+          with_flash("/sources/#{id}?tab=articles", message, kind)
         )
 
       {:error, :not_found} ->
@@ -166,7 +181,7 @@ defmodule Rss2Nostr.Web.Router do
       {:error, reason} ->
         redirect(
           conn,
-          "/sources/#{id}?tab=articles&notice=#{URI.encode_www_form(to_string(reason))}"
+          with_flash("/sources/#{id}?tab=articles", to_string(reason), "error")
         )
     end
   end
@@ -239,25 +254,33 @@ defmodule Rss2Nostr.Web.Router do
         source_id: source_id,
         q: q,
         page: page,
-        notice: conn.query_params["notice"]
+        notice: conn.query_params["notice"],
+        notice_kind: conn.query_params["notice_kind"]
       )
+
     send_html(conn, 200, html)
   end
 
   post "/posts/publish-selected" do
     case API.Posts.publish_selected(conn.body_params) do
       {:ok, result} ->
-        redirect(conn, "/posts?notice=#{URI.encode_www_form(publish_notice(result))}")
+        {message, kind} = publish_notice(result)
+        redirect(conn, with_flash("/posts", message, kind))
 
       {:error, reason} ->
-        redirect(conn, "/posts?notice=#{URI.encode_www_form(to_string(reason))}")
+        redirect(conn, with_flash("/posts", to_string(reason), "error"))
     end
   end
 
   get "/posts/:id" do
     case API.Posts.get(id) do
       {:ok, _post} ->
-        html = Views.Posts.show(id)
+        html =
+          Views.Posts.show(id,
+            notice: conn.query_params["notice"],
+            notice_kind: conn.query_params["notice_kind"]
+          )
+
         send_html(conn, 200, html)
 
       {:error, :not_found} ->
@@ -270,18 +293,60 @@ defmodule Rss2Nostr.Web.Router do
 
   post "/posts/:id/process" do
     case API.Posts.process(id) do
-      {:ok, _post} -> redirect(conn, "/posts/#{id}")
+      {:ok, _post} -> redirect(conn, return_to(conn, "/posts/#{id}"))
       {:error, :not_found} -> send_html(conn, 404, Views.Error.not_found())
       {:error, :invalid_id} -> send_html(conn, 400, Views.Error.bad_request())
     end
   end
 
   post "/posts/:id/publish" do
+    dest = return_to(conn, "/posts/#{id}")
+
     case API.Posts.publish(id, conn.body_params) do
-      {:ok, _result} -> redirect(conn, "/posts/#{id}")
-      {:error, :not_found} -> send_html(conn, 404, Views.Error.not_found())
-      {:error, :invalid_id} -> send_html(conn, 400, Views.Error.bad_request())
-      {:error, _reason} -> redirect(conn, "/posts/#{id}")
+      {:ok, result} ->
+        {message, kind} = publish_result_notice(result)
+        redirect(conn, with_flash(dest, message, kind))
+
+      {:error, :not_found} ->
+        send_html(conn, 404, Views.Error.not_found())
+
+      {:error, :invalid_id} ->
+        send_html(conn, 400, Views.Error.bad_request())
+
+      {:error, reason} ->
+        redirect(conn, with_flash(dest, format_error(reason), "error"))
+    end
+  end
+
+  post "/posts/:id/revise" do
+    case API.Posts.revise(id) do
+      {:ok, _post} ->
+        redirect(conn, "/posts/#{id}?notice=#{URI.encode_www_form("Moved to staging")}")
+
+      {:error, :not_found} ->
+        send_html(conn, 404, Views.Error.not_found())
+
+      {:error, :invalid_id} ->
+        send_html(conn, 400, Views.Error.bad_request())
+
+      {:error, reason} ->
+        redirect(conn, "/posts/#{id}?notice=#{URI.encode_www_form(to_string(reason))}")
+    end
+  end
+
+  post "/posts/:id" do
+    case API.Posts.update(id, conn.body_params) do
+      {:ok, _post} ->
+        redirect(conn, "/posts/#{id}?notice=#{URI.encode_www_form("Saved")}")
+
+      {:error, :not_found} ->
+        send_html(conn, 404, Views.Error.not_found())
+
+      {:error, :invalid_id} ->
+        send_html(conn, 400, Views.Error.bad_request())
+
+      {:error, reason} ->
+        redirect(conn, "/posts/#{id}?notice=#{URI.encode_www_form(format_update_error(reason))}")
     end
   end
 
@@ -417,19 +482,42 @@ defmodule Rss2Nostr.Web.Router do
     |> send_resp(302, "")
   end
 
+  defp return_to(conn, fallback) do
+    case conn.body_params["return_to"] do
+      "//" <> _ -> fallback
+      "/" <> _ = path -> path
+      _ -> fallback
+    end
+  end
+
+  defp maybe_parse(conn, _opts) do
+    if mcp_path?(conn), do: conn, else: Plug.Parsers.call(conn, @parsers)
+  end
+
+  defp mcp_path?(%Plug.Conn{path_info: ["mcp" | _]}), do: true
+  defp mcp_path?(_), do: false
+
   defp setup_session(conn, _opts) do
-    if conn.private[:plug_session_fetch] == :done do
-      conn
-    else
-      conn
-      |> Map.put(:secret_key_base, Auth.secret_key_base())
-      |> Plug.Session.call(Plug.Session.init(Auth.session_opts()))
-      |> fetch_session()
+    cond do
+      mcp_path?(conn) ->
+        conn
+
+      conn.private[:plug_session_fetch] == :done ->
+        conn
+
+      true ->
+        conn
+        |> Map.put(:secret_key_base, Auth.secret_key_base())
+        |> Plug.Session.call(Plug.Session.init(Auth.session_opts()))
+        |> fetch_session()
     end
   end
 
   defp require_admin(conn, _opts) do
     cond do
+      mcp_path?(conn) ->
+        Rss2Nostr.MCP.Auth.call(conn)
+
       Auth.public_path?(conn) ->
         conn
 
@@ -490,7 +578,8 @@ defmodule Rss2Nostr.Web.Router do
     [
       tab: conn.query_params["tab"] || "compose",
       saved: conn.query_params["saved"] == "1",
-      notice: conn.query_params["notice"]
+      notice: conn.query_params["notice"],
+      notice_kind: conn.query_params["notice_kind"]
     ]
   end
 
@@ -512,12 +601,57 @@ defmodule Rss2Nostr.Web.Router do
   end
 
   defp publish_notice(result) do
-    "Published #{result.published}. Failed #{result.failed}."
+    base = "Published #{result.published}. Failed #{result.failed}."
+
+    message =
+      case result[:errors] do
+        [] -> base
+        nil -> base
+        issues -> base <> " " <> Enum.join(issues, " ")
+      end
+
+    kind =
+      cond do
+        result.failed > 0 -> "error"
+        issues?(result) -> "warning"
+        true -> "success"
+      end
+
+    {message, kind}
   end
+
+  defp publish_result_notice(%{failed_relays: [_ | _], report: report}) when is_binary(report) do
+    {"Published, with issues. #{report}", "warning"}
+  end
+
+  defp publish_result_notice(%{report: report}) when is_binary(report) and report != "" do
+    {report, "success"}
+  end
+
+  defp publish_result_notice(_), do: {"Published.", "success"}
+
+  defp issues?(%{errors: [_ | _]}), do: true
+  defp issues?(_), do: false
+
+  defp with_flash(path, message, kind) do
+    sep = if String.contains?(path, "?"), do: "&", else: "?"
+    path <> sep <> URI.encode_query(%{"notice" => message, "notice_kind" => kind})
+  end
+
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason), do: Rss2Nostr.Nostr.Relay.format_error(reason)
 
   defp reprocess_notice(result) do
     "Reprocessed #{result.processed}. Failed #{result.errors}."
   end
+
+  defp format_update_error(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, _opts} -> msg end)
+    |> Enum.map_join("; ", fn {field, msgs} -> "#{field}: #{Enum.join(msgs, ", ")}" end)
+  end
+
+  defp format_update_error(reason), do: to_string(reason)
 
   defp parse_page(nil), do: 1
 

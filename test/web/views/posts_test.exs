@@ -183,7 +183,7 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
 
       refute html =~ "Images still need uploading"
       refute html =~ "Upload images"
-      assert html =~ "processed"
+      assert html =~ "staging"
     end
 
     test "offers upload images when the post is pending images" do
@@ -201,7 +201,7 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
 
       assert html =~ "pending images"
       assert html =~ "Upload images"
-      assert html =~ "NOSTR_UPLOAD_ENDPOINT"
+      assert html =~ "Last error"
       assert html =~ source.name or html =~ "Images"
     end
 
@@ -221,6 +221,54 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
 
       # Should have process/publish buttons
       assert html =~ "process" or html =~ "Process" or html =~ "publish" or html =~ "Publish"
+    end
+
+    test "shows an editor for staging posts" do
+      {_source, post} = create_test_post()
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          status: Post.status_processed(),
+          content: "Hello **world**",
+          summary: "A summary",
+          categories: ["nostr"]
+        })
+
+      html = PostsView.show(to_string(post.id))
+
+      assert html =~ "staging"
+      assert html =~ "name=\"title\""
+      assert html =~ "name=\"hashtags\""
+      assert html =~ "Hello **world**"
+      assert html =~ "data-post-tab=\"preview\""
+      assert html =~ "Publish to"
+    end
+
+    test "shows publish notes on a published post" do
+      {_source, post} = create_test_post()
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          status: Post.status_published(),
+          content: "Done",
+          last_error: "wss://client-test.pareto.town: could not resolve host"
+        })
+
+      html = PostsView.show(to_string(post.id))
+
+      assert html =~ "Publish notes"
+      assert html =~ "could not resolve host"
+    end
+
+    test "shows republish and revise for published posts" do
+      {_source, post} = create_test_post()
+      {:ok, post} = Posts.update_post(post, %{status: Post.status_published(), content: "Done"})
+
+      html = PostsView.show(to_string(post.id))
+
+      assert html =~ "Republish"
+      assert html =~ "Revise"
+      assert html =~ "/posts/#{post.id}/revise"
     end
   end
 end

@@ -52,7 +52,7 @@ defmodule Rss2Nostr.Posts.Post do
   @status_names %{
     @status_new => "new",
     @status_processing => "processing",
-    @status_processed => "processed",
+    @status_processed => "staging",
     @status_signing => "signing",
     @status_signed => "signed",
     @status_publishing => "publishing",
@@ -97,6 +97,8 @@ defmodule Rss2Nostr.Posts.Post do
     # Status
     field(:status, :integer, default: 0)
     field(:last_error, :string)
+    field(:staged_at, :utc_datetime)
+    field(:draft_cleaned_at, :utc_datetime)
 
     belongs_to(:source, Rss2Nostr.Sources.Source)
     has_many(:images, Rss2Nostr.Posts.ArticleImage)
@@ -128,6 +130,8 @@ defmodule Rss2Nostr.Posts.Post do
       :nostr_address,
       :status,
       :last_error,
+      :staged_at,
+      :draft_cleaned_at,
       :source_id
     ])
     |> validate_required([:source_url_hash])

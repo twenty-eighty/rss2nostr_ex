@@ -6,6 +6,7 @@ defmodule Rss2Nostr.Scheduler do
   - import: Fetch new articles from RSS/Atom feeds
   - process: Convert HTML to Markdown
   - export: Publish processed posts to Nostr
+  - cleanup: Delete app-signed drafts after a kind 30023 exists
 
   The scheduler runs as a GenServer and executes tasks at configurable intervals.
   """
@@ -15,10 +16,13 @@ defmodule Rss2Nostr.Scheduler do
 
   alias Rss2Nostr.Scheduler.Tasks
 
+  @tasks [:import, :process, :export, :cleanup]
+
   @default_intervals %{
     import: :timer.minutes(15),
     process: :timer.minutes(5),
-    export: :timer.minutes(10)
+    export: :timer.minutes(10),
+    cleanup: :timer.hours(24)
   }
 
   defstruct [
@@ -44,6 +48,7 @@ defmodule Rss2Nostr.Scheduler do
     - :import - Feed import interval (default: 15 minutes)
     - :process - Processing interval (default: 5 minutes)
     - :export - Export interval (default: 10 minutes)
+    - :cleanup - Draft cleanup interval (default: 24 hours)
   - :export_config - Configuration for export task
     - :private_key - Nostr private key (required for export)
     - :relays - Explicit relay URLs (optional; otherwise per-source test/public)
@@ -83,16 +88,22 @@ defmodule Rss2Nostr.Scheduler do
   @doc """
   Manually triggers a specific task.
   """
-  @spec run_task(:import | :process | :export) :: {:ok, map()} | {:error, any()}
-  def run_task(task) when task in [:import, :process, :export] do
+  @spec run_task(atom() | String.t()) :: {:ok, map()} | {:error, any()}
+  def run_task(task) when task in @tasks do
     GenServer.call(__MODULE__, {:run_task, task}, :timer.minutes(5))
   end
+
+  def run_task(task) when task in ["import", "process", "export", "cleanup"] do
+    run_task(String.to_existing_atom(task))
+  end
+
+  def run_task(_), do: {:error, :invalid_task}
 
   @doc """
   Updates the interval for a specific task.
   """
-  @spec set_interval(:import | :process | :export, pos_integer()) :: :ok
-  def set_interval(task, interval_ms) when task in [:import, :process, :export] do
+  @spec set_interval(atom(), pos_integer()) :: :ok
+  def set_interval(task, interval_ms) when task in @tasks do
     GenServer.call(__MODULE__, {:set_interval, task, interval_ms})
   end
 
@@ -118,7 +129,7 @@ defmodule Rss2Nostr.Scheduler do
       intervals: intervals,
       timers: %{},
       export_config: export_config,
-      task_status: %{import: :idle, process: :idle, export: :idle},
+      task_status: %{import: :idle, process: :idle, export: :idle, cleanup: :idle},
       last_run: %{}
     }
 
@@ -256,6 +267,7 @@ defmodule Rss2Nostr.Scheduler do
           :import -> Tasks.run_import()
           :process -> Tasks.run_process()
           :export -> Tasks.run_export(state.export_config)
+          :cleanup -> Tasks.run_cleanup()
         end
       rescue
         e ->

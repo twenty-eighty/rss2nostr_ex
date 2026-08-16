@@ -218,6 +218,10 @@ defmodule Rss2Nostr.CLI do
             name: "status",
             about: "Show status overview of all posts"
           ],
+          mcp: [
+            name: "mcp",
+            about: "Run the MCP server on stdio for AI clients"
+          ],
           upload: [
             name: "upload",
             about: "Upload an image to a Blossom server",
@@ -321,7 +325,7 @@ defmodule Rss2Nostr.CLI do
                 about: "Run a specific task manually",
                 args: [
                   task: [
-                    help: "Task to run (import, process, export)",
+                    help: "Task to run (import, process, export, cleanup)",
                     required: true
                   ]
                 ]
@@ -387,6 +391,9 @@ defmodule Rss2Nostr.CLI do
 
       {[:status], _parsed} ->
         Commands.Status.run()
+
+      {[:mcp], _parsed} ->
+        Commands.MCP.run()
 
       {[:upload], parsed} ->
         options = Map.merge(parsed.options, %{file: parsed.args.file})

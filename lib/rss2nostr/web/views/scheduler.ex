@@ -50,6 +50,7 @@ defmodule Rss2Nostr.Web.Views.Scheduler do
           #{render_task_row("import", status)}
           #{render_task_row("process", status)}
           #{render_task_row("export", status)}
+          #{render_task_row("cleanup", status)}
         </tbody>
       </table>
     </div>
@@ -66,6 +67,9 @@ defmodule Rss2Nostr.Web.Views.Scheduler do
         </form>
         <form action="/scheduler/run/export" method="POST" style="display:inline">
           <button type="submit" class="btn btn-secondary">Run Export</button>
+        </form>
+        <form action="/scheduler/run/cleanup" method="POST" style="display:inline">
+          <button type="submit" class="btn btn-secondary">Run Cleanup</button>
         </form>
       </div>
     </div>
@@ -91,8 +95,8 @@ defmodule Rss2Nostr.Web.Views.Scheduler do
       nil ->
         %{
           running: false,
-          intervals: %{import: "15m", process: "5m", export: "10m"},
-          task_status: %{import: :idle, process: :idle, export: :idle},
+          intervals: %{import: "15m", process: "5m", export: "10m", cleanup: "24h"},
+          task_status: %{import: :idle, process: :idle, export: :idle, cleanup: :idle},
           last_run: %{},
           export_configured: System.get_env("NOSTR_NSEC") != nil
         }

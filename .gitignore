@@ -43,3 +43,6 @@ node_modules/
 /priv/plts/
 *.plt
 *.plt.hash
+
+# Local Cursor MCP config (machine-specific cwd)
+.cursor/mcp.json

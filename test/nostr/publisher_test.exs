@@ -23,7 +23,7 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
         })
 
       event = preview.event
-      assert event.kind == 30023
+      assert event.kind == 30024
       assert event.content == "# Hello\n\nBody"
       assert event.pubkey == String.duplicate("0", 64)
       refute Map.has_key?(event, :id)
@@ -37,13 +37,13 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       assert ["r", "https://example.com/hello"] in event.tags
       assert preview.message == ["EVENT", event]
       assert preview.json =~ "\"EVENT\""
-      assert preview.json =~ "\"kind\": 30023"
+      assert preview.json =~ "\"kind\": 30024"
       assert preview.json =~ "\"content\":"
       refute preview.signed
       assert preview.relays == ["wss://nos.lol"]
     end
 
-    test "uses the inner article kind and test relays for a setup draft source" do
+    test "uses inner kind 30024 and draft relays for a setup draft source" do
       {:ok, source} =
         Sources.create_source(%{
           name: "Preview Source",
@@ -70,12 +70,47 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       post = Posts.get_post(post.id, preload: [:source])
       preview = Publisher.preview_event(post)
 
-      assert preview.event.kind == 30023
+      assert preview.event.kind == 30024
       assert preview.event.content == "Article body"
       refute preview.encrypted
       assert ["title", "Preview Article"] in preview.event.tags
       assert ["p", @author] in preview.event.tags
-      assert preview.relays == ["wss://nos.lol"]
+      assert preview.relays == ["wss://draft.example.com"]
+    end
+
+    test "keeps the source author on the p tag after the wrap is published" do
+      app_pubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Published Draft Source",
+          url: "https://example.com/pub-draft-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          publish_as: "draft",
+          pubkey: @author
+        })
+
+      url = "https://example.com/pub-draft-article-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Published Draft",
+          content: "Body",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          status: Post.status_published(),
+          type: 30024,
+          pubkey: app_pubkey,
+          source_id: source.id
+        })
+
+      post = Posts.get_post(post.id, preload: [:source])
+      preview = Publisher.preview_event(post)
+
+      assert ["p", @author] in preview.event.tags
+      refute ["p", app_pubkey] in preview.event.tags
+      assert preview.event.pubkey == @author
     end
 
     test "previews the inner article that will be NIP-44-encrypted" do
@@ -95,7 +130,8 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
           type: "rss",
           language: "en",
           publish_as: "draft",
-          pubkey: @author
+          pubkey: @author,
+          fixed_hashtags: ["#PatrikBaab", "bitcoin"]
         })
 
       url = "https://example.com/enc-draft-#{System.unique_integer([:positive])}"
@@ -109,7 +145,7 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
           status: Post.status_processed(),
           type: 30024,
           language: "en",
-          categories: ["Nostr", "#Bitcoin"],
+          categories: ["Nostr", "#Bitcoin", "PatrikBaab"],
           source_id: source.id
         })
 
@@ -118,15 +154,68 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
 
       assert preview.draft
       refute preview.encrypted
-      assert preview.event.kind == 30023
+      assert preview.event.kind == 30024
       assert preview.event.content == "Hidden body"
       assert ["p", @author] in preview.event.tags
       assert ["L", "ISO-639-1"] in preview.event.tags
       assert ["l", "en", "ISO-639-1"] in preview.event.tags
-      assert ["t", "nostr"] in preview.event.tags
-      assert ["t", "bitcoin"] in preview.event.tags
+      t_tags = for ["t", tag] <- preview.event.tags, do: tag
+      assert t_tags == ["patrikbaab", "bitcoin", "nostr"]
       assert ["r", url] in preview.event.tags
       assert length(preview.parts) == 1
+    end
+
+    test "splits a draft whose wrap would exceed the relay event limit" do
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Wrap Limit Source",
+          url: "https://example.com/wrap-limit-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          publish_as: "draft",
+          pubkey: @author
+        })
+
+      content =
+        Enum.map_join(1..4, "\n\n", fn n ->
+          "## Section #{n}\n\n#{String.duplicate("lorem ipsum dolor sit amet. ", 450)}"
+        end)
+
+      url = "https://example.com/wrap-limit-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Near the wrap limit",
+          content: content,
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          status: Post.status_processed(),
+          type: 30024,
+          source_id: source.id
+        })
+
+      post = Posts.get_post(post.id, preload: [:source])
+
+      whole =
+        Event.build_long_form(@author, content,
+          title: "Near the wrap limit",
+          identifier: "near-the-wrap-limit",
+          author_pubkey: @author,
+          kind: 30024
+        )
+
+      assert Event.draft_plaintext_size(whole) <= Event.max_draft_plaintext_size()
+
+      assert Event.estimate_wrap_message_size(whole, author_pubkey: @author) >
+               Event.max_event_size()
+
+      preview = Publisher.preview_event(post)
+      assert length(preview.parts) > 1
+
+      Enum.each(preview.parts, fn event ->
+        assert Event.estimate_wrap_message_size(event, author_pubkey: @author) <=
+                 Event.max_event_size()
+      end)
     end
 
     test "splits an oversized draft so each part fits NIP-44" do
@@ -153,6 +242,64 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
         Posts.create_post(%{
           title: "Huge Draft",
           content: content,
+          summary: "A shared summary",
+          image: "https://example.com/cover.jpg",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          published_at: ~U[2024-01-15 12:00:00Z],
+          status: Post.status_processed(),
+          type: 30024,
+          source_id: source.id
+        })
+
+      post = Posts.get_post(post.id, preload: [:source])
+      preview = Publisher.preview_event(post)
+      max = Event.max_event_size()
+
+      assert length(preview.parts) > 1
+      assert ["title", "Huge Draft (1/#{length(preview.parts)})"] in preview.event.tags
+
+      published_ats =
+        Enum.map(preview.parts, fn event ->
+          ["published_at", value] =
+            Enum.find(event.tags, fn [tag | _] -> tag == "published_at" end)
+
+          String.to_integer(value)
+        end)
+
+      Enum.with_index(preview.parts, 1)
+      |> Enum.each(fn {event, index} ->
+        assert event.kind == 30024
+        assert Event.draft_plaintext_size(event) <= Event.max_draft_plaintext_size()
+        assert Event.estimate_wrap_message_size(event, author_pubkey: @author) <= max
+        assert ["title", "Huge Draft (#{index}/#{length(preview.parts)})"] in event.tags
+        assert ["summary", "A shared summary"] in event.tags
+        assert ["image", "https://example.com/cover.jpg"] in event.tags
+      end)
+
+      assert hd(published_ats) == 1_705_320_000
+
+      assert published_ats ==
+               Enum.to_list(1_705_320_000..(1_705_320_000 + length(preview.parts) - 1))
+    end
+
+    test "publishes unencrypted drafts as kind 30024 with an author p tag" do
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Plain Draft Source",
+          url: "https://example.com/plain-draft-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          publish_as: "draft_plain",
+          pubkey: @author
+        })
+
+      url = "https://example.com/plain-draft-article-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Plain Draft",
+          content: "Draft body",
           source_url: url,
           source_url_hash: Post.generate_url_hash(url),
           status: Post.status_processed(),
@@ -162,16 +309,13 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
 
       post = Posts.get_post(post.id, preload: [:source])
       preview = Publisher.preview_event(post)
-      max = Event.max_draft_plaintext_size()
 
-      assert length(preview.parts) > 1
-      assert ["title", "Huge Draft (1/#{length(preview.parts)})"] in preview.event.tags
-
-      Enum.with_index(preview.parts, 1)
-      |> Enum.each(fn {event, index} ->
-        assert Event.draft_plaintext_size(event) <= max
-        assert ["title", "Huge Draft (#{index}/#{length(preview.parts)})"] in event.tags
-      end)
+      assert preview.event.kind == 30024
+      assert preview.plain_draft
+      refute preview.draft
+      refute preview.encrypted
+      assert ["p", @author] in preview.event.tags
+      assert preview.relays == ["wss://draft.example.com"]
     end
 
     test "leaves articles as plaintext kind 30023" do
@@ -206,6 +350,64 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       refute preview.encrypted
       assert is_nil(preview.inner)
       refute Enum.any?(preview.event.tags, fn [tag | _] -> tag == "p" end)
+      refute Event.pareto_client_tag() in preview.event.tags
+    end
+
+    test "adds the Pareto client tag on public automated articles" do
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Public Article Source",
+          url: "https://example.com/public-src-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          publish_as: "article",
+          public: true,
+          mode: "automated",
+          signing_nsec: @hex
+        })
+
+      url = "https://example.com/public-article-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Public Article",
+          content: "Public body",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          status: Post.status_processed(),
+          type: 30023,
+          source_id: source.id
+        })
+
+      post = Posts.get_post(post.id, preload: [:source])
+      preview = Publisher.preview_event(post)
+
+      assert preview.event.kind == 30023
+      assert Event.pareto_client_tag() in preview.event.tags
+    end
+  end
+
+  describe "format_report/2" do
+    test "lists accepted relays and per-relay failures" do
+      report =
+        Publisher.format_report(
+          ["wss://client-test.pareto.space"],
+          [
+            %{url: "wss://client-test.pareto.town", error: "could not resolve host"}
+          ]
+        )
+
+      assert report =~ "Accepted by wss://client-test.pareto.space."
+      assert report =~ "wss://client-test.pareto.town: could not resolve host"
+    end
+
+    test "reports a relay rejection without an accepted list" do
+      report =
+        Publisher.format_report([], [
+          %{url: "wss://client-test.pareto.space", error: "invalid: event too large: 87959"}
+        ])
+
+      assert report == "wss://client-test.pareto.space: invalid: event too large: 87959"
     end
   end
 end

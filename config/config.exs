@@ -12,13 +12,17 @@ config :rss2nostr, Rss2Nostr.Scheduler,
     # Process new posts every 5 minutes
     process: :timer.minutes(5),
     # Export to Nostr every 10 minutes
-    export: :timer.minutes(10)
+    export: :timer.minutes(10),
+    # Delete our drafts after the article exists as kind 30023
+    cleanup: :timer.hours(24)
   }
 
-# Test vs public Nostr relays. Overridden per env and by
-# NOSTR_RELAYS_TEST / NOSTR_RELAYS_PUBLIC (NOSTR_RELAYS still fills the test list).
+# Draft / test / public Nostr relays. Overridden per env and by
+# NOSTR_RELAYS_DRAFT / NOSTR_RELAYS_TEST / NOSTR_RELAYS_PUBLIC
+# (NOSTR_RELAYS still fills the test list).
 config :rss2nostr, :nostr,
   relays: %{
+    draft: [],
     test: [
       "wss://nos.lol",
       "wss://relay.damus.io"
@@ -33,6 +37,10 @@ config :rss2nostr, :nostr,
 
 # Admin UI: NIP-07 allowlist (overridden by ADMIN_NOSTR_PUBKEYS)
 config :rss2nostr, :admin, pubkeys: []
+
+# MCP server (stdio via `mix rss2nostr.mcp`, HTTP at /mcp)
+config :ex_mcp, protocol_mode: :prefer_modern
+config :rss2nostr, :mcp, token: nil
 
 config :tzdata, :http_client, Rss2Nostr.TzdataHTTPClient
 

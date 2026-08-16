@@ -5,11 +5,11 @@ defmodule Rss2Nostr.Sources.Source do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Rss2Nostr.Nostr.{Keys, Secret, Signer}
+  alias Rss2Nostr.Nostr.{Event, Keys, Secret, Signer}
 
   @type_values ~w(rss atom)
   @mode_values ~w(setup automated)
-  @publish_as_values ~w(draft article)
+  @publish_as_values ~w(draft draft_plain article)
 
   @type t :: %__MODULE__{}
 
@@ -33,6 +33,9 @@ defmodule Rss2Nostr.Sources.Source do
     # Filters
     field(:publish_after_date, :utc_datetime)
     field(:fetch_source_from, :string, default: "fetch_from_url")
+    field(:staging_hold_minutes, :integer, default: 0)
+    field(:notify_pubkey, :string)
+    field(:fixed_hashtags, {:array, :string}, default: [])
 
     # Additional options
     field(:options, :map, default: %{})
@@ -45,7 +48,7 @@ defmodule Rss2Nostr.Sources.Source do
   @doc false
   def changeset(source, attrs) do
     source
-    |> cast(attrs, [
+    |> cast(normalize_hashtag_attrs(attrs), [
       :name,
       :url,
       :type,
@@ -61,6 +64,9 @@ defmodule Rss2Nostr.Sources.Source do
       :signing_nsec,
       :publish_after_date,
       :fetch_source_from,
+      :staging_hold_minutes,
+      :notify_pubkey,
+      :fixed_hashtags,
       :options
     ])
     |> validate_required([:name, :url])
@@ -70,6 +76,8 @@ defmodule Rss2Nostr.Sources.Source do
     |> validate_inclusion(:default_post_kind, [30023, 30024])
     |> validate_inclusion(:fetch_source_from, ~w(content fetch_from_url))
     |> normalize_pubkey()
+    |> normalize_notify_pubkey()
+    |> validate_number(:staging_hold_minutes, greater_than_or_equal_to: 0)
     |> encrypt_signing_nsec()
     |> sync_post_kind()
     |> validate_publish_identity()
@@ -85,22 +93,45 @@ defmodule Rss2Nostr.Sources.Source do
   def automated?(%{mode: "automated"}), do: true
   def automated?(_), do: false
 
+  defp normalize_hashtag_attrs(attrs) when is_map(attrs) do
+    cond do
+      Map.has_key?(attrs, :fixed_hashtags) ->
+        Map.put(attrs, :fixed_hashtags, Event.normalize_hashtags(attrs[:fixed_hashtags]))
+
+      Map.has_key?(attrs, "fixed_hashtags") ->
+        Map.put(attrs, "fixed_hashtags", Event.normalize_hashtags(attrs["fixed_hashtags"]))
+
+      true ->
+        attrs
+    end
+  end
+
+  defp normalize_hashtag_attrs(attrs), do: attrs
+
   defp normalize_pubkey(changeset) do
-    case get_change(changeset, :pubkey) do
+    normalize_hex_pubkey(changeset, :pubkey)
+  end
+
+  defp normalize_notify_pubkey(changeset) do
+    normalize_hex_pubkey(changeset, :notify_pubkey)
+  end
+
+  defp normalize_hex_pubkey(changeset, field) do
+    case get_change(changeset, field) do
       nil ->
         changeset
 
       "" ->
-        put_change(changeset, :pubkey, nil)
+        put_change(changeset, field, nil)
 
       value when is_binary(value) ->
         case Keys.parse_public_key(value) do
-          {:ok, hex} -> put_change(changeset, :pubkey, hex)
-          {:error, _} -> add_error(changeset, :pubkey, "must be an npub or hex public key")
+          {:ok, hex} -> put_change(changeset, field, hex)
+          {:error, _} -> add_error(changeset, field, "must be an npub or hex public key")
         end
 
       _ ->
-        add_error(changeset, :pubkey, "must be an npub or hex public key")
+        add_error(changeset, field, "must be an npub or hex public key")
     end
   end
 
@@ -122,16 +153,21 @@ defmodule Rss2Nostr.Sources.Source do
 
   defp sync_post_kind(changeset) do
     case get_field(changeset, :publish_as) do
-      "article" -> put_change(changeset, :default_post_kind, 30023)
-      "draft" -> put_change(changeset, :default_post_kind, 30024)
-      _ -> changeset
+      "article" ->
+        put_change(changeset, :default_post_kind, 30023)
+
+      value when value in ["draft", "draft_plain"] ->
+        put_change(changeset, :default_post_kind, 30024)
+
+      _ ->
+        changeset
     end
   end
 
   defp validate_publish_identity(changeset) do
     if publish_as_submitted?(changeset) do
       case get_field(changeset, :publish_as) do
-        "draft" ->
+        value when value in ["draft", "draft_plain"] ->
           changeset
           |> validate_required([:pubkey], message: "is required for drafts")
 

@@ -109,7 +109,10 @@ defmodule Rss2Nostr.PostsTest do
           |> Map.put(:title, "Unrelated headline")
           |> Map.put(:content, "Body mentions climate once")
           |> Map.put(:source_url, "https://example.com/article/other")
-          |> Map.put(:source_url_hash, Post.generate_url_hash("https://example.com/article/other"))
+          |> Map.put(
+            :source_url_hash,
+            Post.generate_url_hash("https://example.com/article/other")
+          )
         )
 
       {:ok, miss} =
@@ -269,11 +272,12 @@ defmodule Rss2Nostr.PostsTest do
       assert updated.status == Post.status_processing()
     end
 
-    test "mark_processed/1 sets status to processed", %{source: source} do
+    test "mark_processed/1 sets status to staging and stamps staged_at", %{source: source} do
       {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
       {:ok, updated} = Posts.mark_processed(post)
 
       assert updated.status == Post.status_processed()
+      assert updated.staged_at
     end
 
     test "mark_pending_images/2 sets status so uploads can be finished", %{source: source} do
@@ -287,6 +291,7 @@ defmodule Rss2Nostr.PostsTest do
 
     test "mark_published/3 sets status and event info", %{source: source} do
       {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+      {:ok, post} = Posts.update_post(post, %{last_error: "old publish issue"})
       event_id = "abc123"
       pubkey = "def456"
       naddr = "naddr1..."
@@ -297,6 +302,7 @@ defmodule Rss2Nostr.PostsTest do
       assert updated.event_id == event_id
       assert updated.pubkey == pubkey
       assert updated.nostr_address == naddr
+      assert is_nil(updated.last_error)
     end
 
     test "mark_error/2 sets status and error message", %{source: source} do
@@ -371,7 +377,10 @@ defmodule Rss2Nostr.PostsTest do
           attrs
           |> Map.put(:source_id, nil)
           |> Map.put(:source_url, "https://example.com/article/orphan")
-          |> Map.put(:source_url_hash, Post.generate_url_hash("https://example.com/article/orphan"))
+          |> Map.put(
+            :source_url_hash,
+            Post.generate_url_hash("https://example.com/article/orphan")
+          )
         )
 
       refute Posts.exists_by_url_hash?(orphan.source_url_hash, source.id)
@@ -393,6 +402,129 @@ defmodule Rss2Nostr.PostsTest do
       {:ok, _} = Posts.create_post(attrs)
 
       assert :none = Posts.adopt_orphaned_by_url_hash(attrs.source_url_hash, source.id)
+    end
+  end
+
+  describe "staging" do
+    @hex "0000000000000000000000000000000000000000000000000000000000000001"
+    @pubkey "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+    test "enter_staging stamps staged_at once and keeps it on re-entry", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+      {:ok, staged} = Posts.enter_staging(post, notify: false)
+      first = staged.staged_at
+
+      assert staged.status == Post.status_processed()
+      assert first
+
+      {:ok, again} = Posts.enter_staging(staged, notify: false)
+      assert again.staged_at == first
+    end
+
+    test "revise_to_staging restarts the hold", %{source: source} do
+      earlier = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
+
+      {:ok, post} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:status, Post.status_published())
+          |> Map.put(:staged_at, earlier)
+        )
+
+      {:ok, revised} = Posts.revise_to_staging(post)
+
+      assert revised.status == Post.status_processed()
+      assert DateTime.compare(revised.staged_at, earlier) == :gt
+    end
+
+    test "revise_to_staging rejects posts that are not published", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+      assert {:error, :not_published} = Posts.revise_to_staging(post)
+    end
+
+    test "hold_elapsed?/1 is true when staged_at is nil or hold is 0", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+      assert Posts.hold_elapsed?(post)
+
+      {:ok, source} = Sources.update_source(source, %{staging_hold_minutes: 0})
+      {:ok, staged} = Posts.enter_staging(post, notify: false)
+      staged = %{staged | source: source}
+      assert Posts.hold_elapsed?(staged)
+    end
+
+    test "hold_elapsed?/1 waits until staged_at plus hold", %{source: source} do
+      {:ok, source} = Sources.update_source(source, %{staging_hold_minutes: 60})
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      staged_at = DateTime.add(now, -30, :minute)
+
+      {:ok, post} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:status, Post.status_processed())
+          |> Map.put(:staged_at, staged_at)
+        )
+
+      post = %{post | source: source}
+      refute Posts.hold_elapsed?(post, now)
+      assert Posts.hold_elapsed?(post, DateTime.add(now, 40, :minute))
+    end
+
+    test "list_exportable_posts/1 applies the hold and skips setup sources", %{source: source} do
+      nostr = Application.get_env(:rss2nostr, :nostr, [])
+
+      on_exit(fn ->
+        Application.put_env(:rss2nostr, :nostr, nostr)
+      end)
+
+      Application.put_env(:rss2nostr, :nostr, Keyword.put(nostr, :private_key, @hex))
+
+      {:ok, automated} =
+        Sources.create_source(%{
+          name: "Automated Export",
+          url: "https://example.com/auto-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          pubkey: @pubkey,
+          publish_as: "draft",
+          mode: "automated",
+          staging_hold_minutes: 60,
+          active: true
+        })
+
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      {:ok, ready} =
+        Posts.create_post(%{
+          title: "Ready",
+          source_url: "https://example.com/ready-#{System.unique_integer([:positive])}",
+          source_url_hash: Post.generate_url_hash("ready-#{System.unique_integer([:positive])}"),
+          status: Post.status_processed(),
+          staged_at: DateTime.add(now, -90, :minute),
+          source_id: automated.id
+        })
+
+      {:ok, held} =
+        Posts.create_post(%{
+          title: "Held",
+          source_url: "https://example.com/held-#{System.unique_integer([:positive])}",
+          source_url_hash: Post.generate_url_hash("held-#{System.unique_integer([:positive])}"),
+          status: Post.status_processed(),
+          staged_at: now,
+          source_id: automated.id
+        })
+
+      {:ok, setup_post} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:status, Post.status_processed())
+          |> Map.put(:staged_at, DateTime.add(now, -90, :minute))
+        )
+
+      ids = Enum.map(Posts.list_exportable_posts(limit: 50), & &1.id)
+
+      assert ready.id in ids
+      refute held.id in ids
+      refute setup_post.id in ids
     end
   end
 end

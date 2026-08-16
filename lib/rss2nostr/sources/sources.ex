@@ -95,6 +95,9 @@ defmodule Rss2Nostr.Sources do
       bunker_connection: source.bunker_connection,
       signing_nsec_ciphertext: source.signing_nsec_ciphertext,
       fetch_source_from: source.fetch_source_from,
+      staging_hold_minutes: source.staging_hold_minutes || 0,
+      notify_pubkey: source.notify_pubkey,
+      fixed_hashtags: source.fixed_hashtags || [],
       options: copy_options(source.options)
     }
     |> maybe_put_publish_as(source)
@@ -102,7 +105,7 @@ defmodule Rss2Nostr.Sources do
   end
 
   defp maybe_put_publish_as(attrs, source) do
-    if source.publish_as == "article" or present_binary?(source.pubkey) do
+    if source.publish_as in ["article", "draft_plain"] or present_binary?(source.pubkey) do
       Map.put(attrs, :publish_as, source.publish_as)
     else
       attrs

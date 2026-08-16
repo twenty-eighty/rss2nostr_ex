@@ -44,8 +44,8 @@ defmodule Rss2Nostr.Web.Views.Dashboard do
 
       <div class="stat-card">
         <div class="stat-value">#{processed_posts}</div>
-        <div class="stat-label">Processed</div>
-        <div class="stat-detail">Images uploaded, ready to export</div>
+        <div class="stat-label">Staging</div>
+        <div class="stat-detail">Images uploaded, waiting to publish</div>
       </div>
 
       <div class="stat-card">

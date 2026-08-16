@@ -13,7 +13,7 @@ defmodule Rss2Nostr do
   @doc """
   Returns the test Nostr relay list.
 
-  Pass `:test` or `:public` to select an audience explicitly.
+  Pass `:draft`, `:test`, or `:public` to select a list explicitly.
   """
   def nostr_relays, do: Rss2Nostr.Nostr.Relays.test()
   def nostr_relays(audience), do: Rss2Nostr.Nostr.Relays.for(audience)

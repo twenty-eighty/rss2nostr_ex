@@ -5,6 +5,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   - YouTube, SoundCloud, Podbean embeds
   - Responsive images (srcset handling)
   - Figures with captions
+
+  Site-specific rewrites (Substack tweet cards, footnotes) live in
+  `Rss2Nostr.Processing.Sites` and run before this converter.
   """
 
   require Logger
@@ -217,11 +220,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   # Process links
   defp process_link(attrs, children) do
     href = get_attr(attrs, "href")
-    text = process_nodes(children) |> String.trim()
 
     cond do
       is_nil(href) or href == "" ->
-        text
+        process_nodes(children) |> String.trim()
 
       relative_path?(href) ->
         ""
@@ -230,6 +232,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         ""
 
       true ->
+        text = process_nodes(children) |> String.trim()
         clean_href = remove_tracking_params(href)
 
         if text == "" do
@@ -243,7 +246,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   # Process images
   defp process_image(attrs) do
     src = get_best_image_src(attrs)
-    alt = get_attr(attrs, "alt", "")
+    alt = image_alt(attrs)
 
     if src && src != "" do
       "![#{alt}](#{src})"
@@ -364,21 +367,34 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       end
 
     src = get_best_image_src(img_attrs)
-    alt = get_attr(img_attrs, "alt", "")
-    caption = if figcaption, do: Floki.text(figcaption) |> String.trim(), else: nil
+    alt = image_alt(img_attrs)
+    caption = figcaption_text(figcaption)
 
     if src && src != "" do
       clean_src = clean_image_url(src)
-      title = caption || alt
 
-      if title != "" do
-        "\n\n![#{alt}](#{clean_src} \"#{title}\")\n\n"
+      if caption != "" do
+        "\n\n![#{alt}](#{clean_src} \"#{caption}\")\n\n"
       else
         "\n\n![#{alt}](#{clean_src})\n\n"
       end
     else
       ""
     end
+  end
+
+  # Bare `alt` (no value) is a boolean attribute; Floki yields "alt".
+  defp image_alt(attrs) do
+    case get_attr(attrs, "alt", "") do
+      value when value in [nil, "", "alt"] -> ""
+      value -> value
+    end
+  end
+
+  defp figcaption_text(nil), do: ""
+
+  defp figcaption_text(figcaption) do
+    figcaption |> Floki.text() |> String.trim()
   end
 
   # Process picture element (get best source)
@@ -612,6 +628,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     |> String.replace(~r/[ \t]+\n/, "\n")
     # Lines with only whitespace
     |> String.replace(~r/\n[ \t]+\n/, "\n\n")
+    |> String.replace(~r/\[\^([^\]]+)\]:[ \t]+/, "[^\\1]: ")
     |> String.trim()
   end
 
@@ -669,13 +686,18 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end
   end
 
-  # Helper: find first element by tag name
-  defp find_element(nodes, tag) when is_binary(tag) do
-    Enum.find(nodes, fn
-      {^tag, _, _} -> true
-      _ -> false
-    end)
+  # Helper: find first element by tag name, including nested children.
+  defp find_element(nodes, tag) when is_list(nodes) do
+    Enum.find_value(nodes, &find_element(&1, tag))
   end
+
+  defp find_element({tag, _, _} = node, tag), do: node
+
+  defp find_element({_, _, children}, tag) when is_list(children) do
+    find_element(children, tag)
+  end
+
+  defp find_element(_, _), do: nil
 
   # Helper: find all elements by tag name(s)
   defp find_all_elements(nodes, tag) when is_binary(tag) do

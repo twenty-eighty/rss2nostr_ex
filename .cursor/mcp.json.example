@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rss2nostr": {
+      "command": "mix",
+      "args": ["rss2nostr.mcp"]
+    }
+  }
+}

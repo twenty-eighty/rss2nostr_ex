@@ -91,6 +91,29 @@ defmodule Rss2Nostr.SourcesTest do
       assert changeset.errors[:pubkey]
     end
 
+    test "requires a pubkey when publish_as is draft_plain" do
+      {:error, changeset} =
+        Sources.create_source(Map.put(valid_attrs(), :publish_as, "draft_plain"))
+
+      refute changeset.valid?
+      assert changeset.errors[:pubkey]
+    end
+
+    test "creates an unencrypted draft source with a pubkey" do
+      hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+      {:ok, source} =
+        Sources.create_source(
+          valid_attrs()
+          |> Map.put(:publish_as, "draft_plain")
+          |> Map.put(:pubkey, hex)
+        )
+
+      assert source.publish_as == "draft_plain"
+      assert source.default_post_kind == 30024
+      assert source.pubkey == hex
+    end
+
     test "requires an nsec or bunker when publish_as is article" do
       {:error, changeset} =
         Sources.create_source(Map.put(valid_attrs(), :publish_as, "article"))
@@ -161,6 +184,38 @@ defmodule Rss2Nostr.SourcesTest do
       assert updated.name == "Updated Name"
       assert updated.id == source.id
     end
+
+    test "stores notify_pubkey as hex and rejects invalid keys" do
+      hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      {:ok, npub} = Rss2Nostr.Nostr.NIP19.encode_npub(hex)
+      {:ok, source} = Sources.create_source(valid_attrs())
+
+      {:ok, updated} =
+        Sources.update_source(source, %{notify_pubkey: npub, staging_hold_minutes: 90})
+
+      assert updated.notify_pubkey == hex
+      assert updated.staging_hold_minutes == 90
+
+      {:error, changeset} = Sources.update_source(updated, %{notify_pubkey: "not-a-key"})
+      refute changeset.valid?
+      assert changeset.errors[:notify_pubkey]
+    end
+
+    test "rejects a negative staging hold" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+      {:error, changeset} = Sources.update_source(source, %{staging_hold_minutes: -1})
+      refute changeset.valid?
+      assert changeset.errors[:staging_hold_minutes]
+    end
+
+    test "stores fixed hashtags without duplicates" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+
+      {:ok, updated} =
+        Sources.update_source(source, %{fixed_hashtags: "#PatrikBaab, bitcoin, PATRIKBAAB,  "})
+
+      assert updated.fixed_hashtags == ["patrikbaab", "bitcoin"]
+    end
   end
 
   describe "duplicate_source/2" do
@@ -175,6 +230,7 @@ defmodule Rss2Nostr.SourcesTest do
             pubkey: hex,
             public: true,
             fetch_source_from: "content",
+            fixed_hashtags: ["patrikbaab", "bitcoin"],
             options: %{
               "body_selector" => "div.et_pb_column_0_tb_body",
               "skip_classes" => ["OUTBRAIN"],
@@ -198,6 +254,8 @@ defmodule Rss2Nostr.SourcesTest do
       assert copy.options["skip_classes"] == ["OUTBRAIN"]
       refute Map.has_key?(copy.options, "start_guid")
       assert is_nil(copy.publish_after_date)
+      assert copy.staging_hold_minutes == 0
+      assert copy.fixed_hashtags == ["patrikbaab", "bitcoin"]
     end
 
     test "accepts a new feed URL and name" do

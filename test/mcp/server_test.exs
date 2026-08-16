@@ -1,0 +1,27 @@
+defmodule Rss2Nostr.MCP.ServerTest do
+  use ExUnit.Case, async: true
+
+  alias Rss2Nostr.MCP.Server
+
+  test "lists management tools" do
+    {:ok, tools, nil, _state} = Server.handle_list_tools(nil, %{})
+    names = Enum.map(tools, & &1.name)
+
+    assert "add_source" in names
+    assert "list_sources" in names
+    assert "import_source" in names
+    assert "list_posts" in names
+    assert "publish_post" in names
+    assert "update_post" in names
+    assert "revise_post" in names
+    assert "run_scheduler_task" in names
+  end
+
+  test "exposes status and sources resources" do
+    {:ok, resources, nil, _state} = Server.handle_list_resources(nil, %{})
+    uris = Enum.map(resources, & &1.uri)
+
+    assert "rss2nostr://status" in uris
+    assert "rss2nostr://sources" in uris
+  end
+end

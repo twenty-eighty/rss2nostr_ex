@@ -6,7 +6,16 @@ defmodule Rss2Nostr.Processing.Composer do
 
   alias Rss2Nostr.Import.{FeedFetcher, FeedParser}
   alias Rss2Nostr.Nostr.Publisher
-  alias Rss2Nostr.Processing.{BodySchema, Conversion, HtmlToMarkdown, Youtube}
+
+  alias Rss2Nostr.Processing.{
+    BodySchema,
+    Conversion,
+    HtmlToMarkdown,
+    ImageExtractor,
+    Sites,
+    Youtube
+  }
+
   alias Rss2Nostr.Sources
   alias Rss2Nostr.Sources.Source
 
@@ -29,6 +38,7 @@ defmodule Rss2Nostr.Processing.Composer do
           optional(:start_at) => String.t() | nil,
           optional(:skip_classes) => [String.t()],
           optional(:conversion_rules) => [map()],
+          optional(:url) => String.t() | nil,
           optional(:title) => String.t() | nil,
           optional(:image) => String.t() | nil,
           optional(:summary) => String.t() | nil
@@ -70,7 +80,8 @@ defmodule Rss2Nostr.Processing.Composer do
       body_selector: nil,
       start_at: nil,
       skip_classes: default_skip_classes(),
-      conversion_rules: []
+      conversion_rules: [],
+      url: nil
     }
   end
 
@@ -83,7 +94,8 @@ defmodule Rss2Nostr.Processing.Composer do
       start_at: blank_to_nil(options["start_at"] || options[:start_at]),
       skip_classes: parse_skip_classes(options["skip_classes"] || options[:skip_classes]),
       conversion_rules:
-        Conversion.parse_rules(options["conversion_rules"] || options[:conversion_rules])
+        Conversion.parse_rules(options["conversion_rules"] || options[:conversion_rules]),
+      url: blank_to_nil(source.url)
     }
   end
 
@@ -95,7 +107,8 @@ defmodule Rss2Nostr.Processing.Composer do
       start_at: blank_to_nil(params["start_at"] || params[:start_at]),
       skip_classes: parse_skip_classes(params["skip_classes"] || params[:skip_classes]),
       conversion_rules:
-        Conversion.parse_rules(params["conversion_rules"] || params[:conversion_rules])
+        Conversion.parse_rules(params["conversion_rules"] || params[:conversion_rules]),
+      url: blank_to_nil(params["url"] || params[:url])
     }
   end
 
@@ -184,6 +197,13 @@ defmodule Rss2Nostr.Processing.Composer do
     opts = normalize_opts(opts)
     {body, matched} = extract_body(html, opts.body_selector)
     body = BodySchema.apply_start_at(body, opts.start_at)
+
+    body =
+      Sites.preprocess(body,
+        url: opts.url,
+        body_selector: opts.body_selector
+      )
+
     rules = opts.conversion_rules || []
 
     markdown =
@@ -223,6 +243,27 @@ defmodule Rss2Nostr.Processing.Composer do
   end
 
   @doc """
+  Preview payload for each split Nostr part (markdown + rendered HTML).
+  """
+  @spec preview_parts([map()]) :: [map()]
+  def preview_parts(parts) when is_list(parts) do
+    total = length(parts)
+
+    parts
+    |> Enum.with_index(1)
+    |> Enum.map(fn {event, index} ->
+      content = event[:content] || event["content"] || ""
+
+      %{
+        index: index,
+        total: total,
+        markdown: content,
+        html: render_html(content)
+      }
+    end)
+  end
+
+  @doc """
   Fetches a feed article and returns a Markdown preview of the Nostr event.
   """
   @spec preview(map()) :: {:ok, map()} | {:error, String.t()}
@@ -246,6 +287,7 @@ defmodule Rss2Nostr.Processing.Composer do
               start_at: opts.start_at,
               skip_classes: opts.skip_classes,
               conversion_rules: opts.conversion_rules,
+              url: article_url,
               title: item_field(item, :title),
               image: item_field(item, :image),
               summary: truncate_summary(item_field(item, :summary))
@@ -295,10 +337,12 @@ defmodule Rss2Nostr.Processing.Composer do
                Enum.map(nostr.parts, fn event ->
                  Jason.encode!(["EVENT", event], pretty: true)
                end),
+             nostr_parts_preview: preview_parts(nostr.parts),
              nostr_inner: nil,
              nostr_inner_json: nil,
              nostr_encrypted: false,
              nostr_draft: nostr.draft,
+             nostr_plain_draft: nostr.plain_draft,
              nostr_relays: nostr.relays
            }}
 
@@ -370,6 +414,7 @@ defmodule Rss2Nostr.Processing.Composer do
       skip_classes: parse_skip_classes(opts[:skip_classes] || opts["skip_classes"]),
       conversion_rules:
         Conversion.parse_rules(opts[:conversion_rules] || opts["conversion_rules"]),
+      url: blank_to_nil(opts[:url] || opts["url"]),
       title: opts[:title] || opts["title"],
       image: opts[:image] || opts["image"],
       summary: opts[:summary] || opts["summary"]
@@ -417,7 +462,13 @@ defmodule Rss2Nostr.Processing.Composer do
   end
 
   defp maybe_promote_leading_image(markdown, image) when is_binary(image) and image != "" do
-    {image, markdown}
+    case extract_leading_image(markdown) do
+      {leading, rest} when is_binary(leading) ->
+        if same_image?(leading, image), do: {image, rest}, else: {image, markdown}
+
+      _ ->
+        {image, markdown}
+    end
   end
 
   defp maybe_promote_leading_image(markdown, _image) when is_binary(markdown) do
@@ -425,6 +476,26 @@ defmodule Rss2Nostr.Processing.Composer do
   end
 
   defp maybe_promote_leading_image(markdown, _image), do: {nil, markdown}
+
+  # og:image and the first body <img> are often the same file at different
+  # CDN sizes (Substack w_1200,c_fill vs w_1456,c_limit).
+  defp same_image?(left, right) do
+    a = ImageExtractor.normalize_url(left)
+    b = ImageExtractor.normalize_url(right)
+
+    a != "" and b != "" and (a == b or image_basename(a) == image_basename(b))
+  end
+
+  defp image_basename(url) do
+    name =
+      url
+      |> URI.parse()
+      |> Map.get(:path, "")
+      |> Path.basename()
+      |> String.downcase()
+
+    if String.contains?(name, "."), do: name, else: ""
+  end
 
   defp extract_leading_image(markdown) do
     linked = ~r/^\[!\[[^\]]*\]\(([^"\)]+)(?:\s+"[^"]*")?\s*\)\]\([^\)]+\)/

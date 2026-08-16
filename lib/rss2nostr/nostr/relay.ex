@@ -54,14 +54,49 @@ defmodule Rss2Nostr.Nostr.Relay do
   Returns a list of {relay_url, result} tuples.
   """
   def publish_to_relays(relay_urls, event, timeout \\ 10_000) do
-    relay_urls
-    |> Enum.map(fn url ->
-      Task.async(fn ->
-        {url, publish(url, event, timeout)}
+    tasks =
+      Enum.map(relay_urls, fn url ->
+        task =
+          Task.async(fn ->
+            Process.flag(:trap_exit, true)
+
+            try do
+              publish(url, event, timeout)
+            catch
+              :exit, reason -> {:error, exit_reason(reason)}
+            end
+          end)
+
+        {url, task}
       end)
+
+    Enum.map(tasks, fn {url, task} ->
+      case Task.yield(task, timeout + 1000) || Task.shutdown(task) do
+        {:ok, result} -> {url, result}
+        {:exit, reason} -> {url, {:error, exit_reason(reason)}}
+        nil -> {url, {:error, :timeout}}
+      end
     end)
-    |> Task.await_many(timeout + 1000)
   end
+
+  @doc """
+  Turns a relay or connection failure into a short message for the UI.
+  """
+  @spec format_error(term()) :: String.t()
+  def format_error(%WebSockex.ConnError{original: original}), do: format_error(original)
+  def format_error({:error, reason}), do: format_error(reason)
+  def format_error(:nxdomain), do: "could not resolve host"
+  def format_error(:econnrefused), do: "connection refused"
+  def format_error(:timeout), do: "timed out"
+  def format_error(:closed), do: "connection closed"
+  def format_error(:disconnected), do: "disconnected"
+  def format_error(:max_reconnect_attempts), do: "could not connect"
+  def format_error(reason) when is_binary(reason) and reason != "", do: reason
+
+  def format_error(reason) when is_atom(reason),
+    do: reason |> Atom.to_string() |> String.replace("_", " ")
+
+  def format_error(reason), do: inspect(reason)
 
   @doc """
   Closes the connection to a relay.
@@ -69,7 +104,11 @@ defmodule Rss2Nostr.Nostr.Relay do
   def disconnect(relay_url) do
     case Registry.lookup(Rss2Nostr.RelayRegistry, relay_url) do
       [{pid, _}] ->
-        GenServer.stop(pid, :normal)
+        try do
+          GenServer.stop(pid, :normal)
+        catch
+          :exit, _ -> :ok
+        end
 
       [] ->
         :ok
@@ -80,6 +119,8 @@ defmodule Rss2Nostr.Nostr.Relay do
 
   @impl true
   def init(relay_url) do
+    Process.flag(:trap_exit, true)
+
     state = %State{
       url: relay_url,
       status: :disconnected,
@@ -144,7 +185,16 @@ defmodule Rss2Nostr.Nostr.Relay do
   @impl true
   def handle_info({:websockex_disconnected, reason}, state) do
     Logger.info("Disconnected from relay #{state.url}: #{inspect(reason)}")
-    {:noreply, handle_disconnect(state)}
+    {:noreply, handle_connection_lost(state, reason)}
+  end
+
+  @impl true
+  def handle_info({:EXIT, pid, reason}, state) do
+    if pid == state.conn or state.status == :connecting do
+      {:noreply, handle_connection_lost(state, reason)}
+    else
+      {:noreply, state}
+    end
   end
 
   @impl true
@@ -200,14 +250,18 @@ defmodule Rss2Nostr.Nostr.Relay do
   defp get_or_start_relay(relay_url) do
     case Registry.lookup(Rss2Nostr.RelayRegistry, relay_url) do
       [{pid, _}] ->
-        {:ok, pid}
+        if Process.alive?(pid), do: {:ok, pid}, else: start_relay(relay_url)
 
       [] ->
-        case start_link(relay_url) do
-          {:ok, pid} -> {:ok, pid}
-          {:error, {:already_started, pid}} -> {:ok, pid}
-          error -> error
-        end
+        start_relay(relay_url)
+    end
+  end
+
+  defp start_relay(relay_url) do
+    case GenServer.start(__MODULE__, relay_url, name: via_name(relay_url)) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
+      error -> error
     end
   end
 
@@ -220,7 +274,12 @@ defmodule Rss2Nostr.Nostr.Relay do
 
       {:error, reason} ->
         Logger.error("Failed to connect to #{state.url}: #{inspect(reason)}")
-        schedule_reconnect(state)
+
+        if fatal_connect_error?(reason) do
+          fail_pending(state, exit_reason(reason))
+        else
+          schedule_reconnect(state)
+        end
     end
   end
 
@@ -297,6 +356,46 @@ defmodule Rss2Nostr.Nostr.Relay do
         |> schedule_idle_timeout()
     end
   end
+
+  defp handle_connection_lost(state, reason) do
+    if fatal_connect_error?(reason) do
+      Logger.warning("Relay #{state.url} connection failed: #{inspect(reason)}")
+      fail_pending(state, exit_reason(reason))
+    else
+      handle_disconnect(state)
+    end
+  end
+
+  defp fail_pending(state, reason) do
+    if state.idle_timer, do: Process.cancel_timer(state.idle_timer)
+
+    Enum.each(state.pending_confirmations, fn {_event_id, from} ->
+      GenServer.reply(from, {:error, reason})
+    end)
+
+    Enum.each(state.pending_requests, fn {:publish, _event, from} ->
+      GenServer.reply(from, {:error, reason})
+    end)
+
+    %{
+      state
+      | status: :disconnected,
+        conn: nil,
+        idle_timer: nil,
+        pending_requests: [],
+        pending_confirmations: %{},
+        reconnect_attempts: 0
+    }
+  end
+
+  defp fatal_connect_error?(%WebSockex.ConnError{}), do: true
+  defp fatal_connect_error?({:error, reason}), do: fatal_connect_error?(reason)
+  defp fatal_connect_error?(%{reason: reason}), do: fatal_connect_error?(reason)
+  defp fatal_connect_error?(:nxdomain), do: true
+  defp fatal_connect_error?(_), do: false
+
+  defp exit_reason({:error, reason}), do: exit_reason(reason)
+  defp exit_reason(reason), do: reason
 
   defp handle_disconnect(state) do
     if state.idle_timer, do: Process.cancel_timer(state.idle_timer)

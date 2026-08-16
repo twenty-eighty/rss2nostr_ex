@@ -17,6 +17,26 @@ defmodule Rss2Nostr.Nostr.EventTest do
     test "kind_draft_wrap returns 31234" do
       assert Event.kind_draft_wrap() == 31234
     end
+
+    test "kind_deletion returns 5" do
+      assert Event.kind_deletion() == 5
+    end
+  end
+
+  describe "build_deletion/2" do
+    test "adds e and a tags" do
+      event =
+        Event.build_deletion(@test_pubkey,
+          event_ids: ["abc"],
+          addresses: ["30024:#{@test_pubkey}:slug"],
+          reason: "replaced by published article"
+        )
+
+      assert event.kind == 5
+      assert ["e", "abc"] in event.tags
+      assert ["a", "30024:#{@test_pubkey}:slug"] in event.tags
+      assert event.content == "replaced by published article"
+    end
   end
 
   describe "build_long_form/3" do
@@ -55,6 +75,30 @@ defmodule Rss2Nostr.Nostr.EventTest do
       event = Event.build_long_form(@test_pubkey, "Content", title: "Article", kind: 30023)
 
       refute Enum.any?(event.tags, fn [tag | _] -> tag == "p" end)
+    end
+
+    test "adds the Pareto client tag on kind 30023 when requested" do
+      event =
+        Event.build_long_form(@test_pubkey, "Content", title: "Article", client: true)
+
+      assert Event.pareto_client_tag() in event.tags
+    end
+
+    test "does not add the client tag on drafts" do
+      event =
+        Event.build_long_form(@test_pubkey, "Content",
+          title: "Draft",
+          kind: 30024,
+          client: true
+        )
+
+      refute Event.pareto_client_tag() in event.tags
+    end
+
+    test "omits the client tag unless requested" do
+      event = Event.build_long_form(@test_pubkey, "Content", title: "Article")
+
+      refute Event.pareto_client_tag() in event.tags
     end
 
     test "builds event with title tag" do
@@ -115,6 +159,22 @@ defmodule Rss2Nostr.Nostr.EventTest do
       assert length(t_tags) == 2
       assert ["t", "nostr"] in t_tags
       assert ["t", "bitcoin"] in t_tags
+    end
+
+    test "normalizes hashtags without turning spaces into hyphens" do
+      event =
+        Event.build_long_form(@test_pubkey, "Content",
+          title: "Test",
+          hashtags: ["#Bitcoin News", "  Nostr  "]
+        )
+
+      t_tags = Enum.filter(event.tags, fn [tag | _] -> tag == "t" end)
+      assert ["t", "bitcoin news"] in t_tags
+      assert ["t", "nostr"] in t_tags
+    end
+
+    test "drops duplicate hashtags after normalization" do
+      assert Event.normalize_hashtags("#Bitcoin, bitcoin, BITCOIN, ") == ["bitcoin"]
     end
 
     test "adds NIP-32 language labels" do
@@ -240,7 +300,7 @@ defmodule Rss2Nostr.Nostr.EventTest do
           identifier: "complete-article",
           published_at: 1_704_067_200,
           hashtags: ["test", "elixir"],
-          client: "rss2nostr"
+          client: true
         )
 
       # Verify all tags
@@ -253,6 +313,7 @@ defmodule Rss2Nostr.Nostr.EventTest do
       # Check hashtags
       t_tags = Enum.filter(event.tags, fn [t | _] -> t == "t" end)
       assert length(t_tags) == 2
+      assert Event.pareto_client_tag() in event.tags
     end
   end
 
@@ -291,6 +352,34 @@ defmodule Rss2Nostr.Nostr.EventTest do
       assert decrypted["content"] == "# Draft\n\nBody"
       assert decrypted["pubkey"] == @test_pubkey
       assert ["title", "Draft Title"] in decrypted["tags"]
+    end
+
+    test "estimate_wrap_message_size/2 tracks a real signed wrap" do
+      inner =
+        Event.build_long_form(@test_pubkey, "# Draft\n\nBody",
+          title: "Draft Title",
+          identifier: "draft-title",
+          author_pubkey: @author
+        )
+
+      {:ok, wrap} =
+        Event.wrap_draft(inner, @private_key,
+          identifier: "draft-title",
+          author_pubkey: @author,
+          expiration: 1_000_000_000
+        )
+
+      {:ok, signed} = Event.sign_event(wrap, @private_key)
+      {:ok, message} = Jason.encode(["EVENT", signed])
+      estimate = Event.estimate_wrap_message_size(inner, author_pubkey: @author)
+
+      assert estimate == byte_size(message)
+    end
+
+    test "nip44_padded_len/1 follows the NIP-44 buckets" do
+      assert Event.nip44_padded_len(32) == 32
+      assert Event.nip44_padded_len(33) == 64
+      assert Event.nip44_padded_len(65_535) == 65_536
     end
 
     test "draft_plaintext_size/1 matches the wrapped JSON payload" do
