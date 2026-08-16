@@ -6,7 +6,7 @@ defmodule Rss2Nostr.Web.API.Sources do
   alias Rss2Nostr.Sources
   alias Rss2Nostr.Sources.Source
   alias Rss2Nostr.Import.{FeedDiscovery, Importer}
-  alias Rss2Nostr.Processing.{Composer, Conversion, Processor}
+  alias Rss2Nostr.Processing.{BodySchema, Composer, Conversion, Processor}
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Web.API.Posts, as: PostsAPI
@@ -241,7 +241,31 @@ defmodule Rss2Nostr.Web.API.Sources do
     existing
     |> maybe_put("start_guid", blank_to_nil(params["start_guid"]))
     |> maybe_merge_compose(params)
+    |> maybe_infer_body_selector(params)
   end
+
+  defp maybe_infer_body_selector(options, params) do
+    explicit_blank? =
+      Map.has_key?(params, "body_selector") and
+        is_nil(blank_to_nil(params["body_selector"]))
+
+    cond do
+      present_selector?(options["body_selector"]) ->
+        options
+
+      explicit_blank? ->
+        options
+
+      inferred = BodySchema.selector_for_url(params["url"]) ->
+        Map.put(options, "body_selector", inferred)
+
+      true ->
+        options
+    end
+  end
+
+  defp present_selector?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_selector?(_), do: false
 
   defp maybe_merge_compose(options, params) do
     if Map.has_key?(params, "body_selector") or Map.has_key?(params, "skip_classes") or
@@ -250,7 +274,7 @@ defmodule Rss2Nostr.Web.API.Sources do
       |> Map.put("body_selector", blank_to_nil(params["body_selector"]))
       |> Map.put("start_at", blank_to_nil(params["start_at"]))
       |> Map.put("skip_classes", Composer.parse_skip_classes(params["skip_classes"]))
-      |> Map.put("conversion_rules", Conversion.parse_rules(params["conversion_rules"]))
+      |> maybe_put_conversion_rules(params)
     else
       options
     end
@@ -258,6 +282,14 @@ defmodule Rss2Nostr.Web.API.Sources do
 
   defp selected_ids(params) do
     List.wrap(params["post_ids"] || params["post_ids[]"] || [])
+  end
+
+  defp maybe_put_conversion_rules(options, params) do
+    if Map.has_key?(params, "conversion_rules") do
+      Map.put(options, "conversion_rules", Conversion.parse_rules(params["conversion_rules"]))
+    else
+      options
+    end
   end
 
   defp maybe_put(map, _key, nil), do: map

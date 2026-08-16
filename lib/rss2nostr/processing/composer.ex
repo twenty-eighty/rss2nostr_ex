@@ -39,6 +39,7 @@ defmodule Rss2Nostr.Processing.Composer do
           optional(:skip_classes) => [String.t()],
           optional(:conversion_rules) => [map()],
           optional(:url) => String.t() | nil,
+          optional(:body_selector_auto) => boolean(),
           optional(:title) => String.t() | nil,
           optional(:image) => String.t() | nil,
           optional(:summary) => String.t() | nil
@@ -195,13 +196,14 @@ defmodule Rss2Nostr.Processing.Composer do
   @spec compose(String.t() | nil, compose_opts() | keyword() | map()) :: map()
   def compose(html, opts \\ %{}) do
     opts = normalize_opts(opts)
-    {body, matched} = extract_body(html, opts.body_selector)
+    selector = resolve_body_selector(opts)
+    {body, matched} = extract_body(html, selector)
     body = BodySchema.apply_start_at(body, opts.start_at)
 
     body =
       Sites.preprocess(body,
         url: opts.url,
-        body_selector: opts.body_selector
+        body_selector: selector
       )
 
     rules = opts.conversion_rules || []
@@ -270,7 +272,9 @@ defmodule Rss2Nostr.Processing.Composer do
   def preview(params) when is_map(params) do
     url = params["url"] || params[:url]
     guid = params["guid"] || params[:guid]
+    source = load_source(params)
     opts = opts_from_params(params)
+    rules = preview_conversion_rules(params, source, opts)
 
     with {:ok, body} <- fetch_feed(url),
          type <- FeedParser.detect_feed_type(body) || params["type"] || params[:type],
@@ -284,9 +288,10 @@ defmodule Rss2Nostr.Processing.Composer do
           composed =
             compose(html, %{
               body_selector: selector,
+              body_selector_auto: auto_body_selector?(params),
               start_at: opts.start_at,
               skip_classes: opts.skip_classes,
-              conversion_rules: opts.conversion_rules,
+              conversion_rules: rules,
               url: article_url,
               title: item_field(item, :title),
               image: item_field(item, :image),
@@ -294,7 +299,6 @@ defmodule Rss2Nostr.Processing.Composer do
             })
 
           {extracted, _} = extract_body(html, selector)
-          source = load_source(params)
 
           nostr =
             Publisher.preview_event(
@@ -349,6 +353,16 @@ defmodule Rss2Nostr.Processing.Composer do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  defp preview_conversion_rules(params, source, opts) do
+    if Map.has_key?(params, "conversion_rules") or Map.has_key?(params, :conversion_rules) do
+      opts.conversion_rules
+    else
+      source
+      |> opts_from_source()
+      |> Map.get(:conversion_rules, [])
     end
   end
 
@@ -415,6 +429,7 @@ defmodule Rss2Nostr.Processing.Composer do
       conversion_rules:
         Conversion.parse_rules(opts[:conversion_rules] || opts["conversion_rules"]),
       url: blank_to_nil(opts[:url] || opts["url"]),
+      body_selector_auto: body_selector_auto?(opts),
       title: opts[:title] || opts["title"],
       image: opts[:image] || opts["image"],
       summary: opts[:summary] || opts["summary"]
@@ -429,6 +444,23 @@ defmodule Rss2Nostr.Processing.Composer do
 
   defp fetch_mode("content"), do: "content"
   defp fetch_mode(_), do: "fetch_from_url"
+
+  defp resolve_body_selector(opts) do
+    cond do
+      is_binary(opts.body_selector) and opts.body_selector != "" ->
+        opts.body_selector
+
+      opts.body_selector_auto == false ->
+        nil
+
+      true ->
+        BodySchema.selector_for_url(opts.url)
+    end
+  end
+
+  defp body_selector_auto?(opts) when is_map(opts) do
+    auto_body_selector?(opts)
+  end
 
   defp preview_selector(opts, params, article_url) do
     cond do
@@ -493,6 +525,8 @@ defmodule Rss2Nostr.Processing.Composer do
       |> Map.get(:path, "")
       |> Path.basename()
       |> String.downcase()
+      |> String.replace(~r/-\d+x\d+(?=\.[a-z0-9]+$)/, "")
+      |> String.replace(~r/-scaled(?=\.[a-z0-9]+$)/, "")
 
     if String.contains?(name, "."), do: name, else: ""
   end

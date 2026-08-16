@@ -34,7 +34,7 @@ defmodule Rss2Nostr.Web.Views.Settings do
 
     <div class="settings-section">
       <h2>Relays</h2>
-      <p>Draft sources always use the draft list. Article sources use the test list in setup, then the public list once automated and marked public.</p>
+      <p>Draft sources always use the draft list. Article sources use the public list when marked public, otherwise the test list. Setup vs automated only controls the scheduler.</p>
 
       <h3>Draft relays</h3>
       <p class="help-text">Used for NIP-37 drafts (Pareto client). Set with <code>NOSTR_RELAYS_DRAFT</code>. Falls back to the test list if empty.</p>

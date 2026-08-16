@@ -33,6 +33,11 @@ defmodule Rss2Nostr.Web.Views.Posts do
       )
 
     sources = Enum.sort_by(Sources.list_sources(), & &1.name)
+    return_to = posts_path(status: status_filter, source_id: source_id, q: q, page: page)
+    selectable_ids = selectable_post_ids(status_filter, source_id, q)
+    page_ids = MapSet.new(Enum.map(posts, & &1.id))
+    extra_ids = Enum.reject(selectable_ids, &MapSet.member?(page_ids, &1))
+    selectable? = selectable_ids != []
 
     rows =
       if Enum.empty?(posts) do
@@ -44,7 +49,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
 
           """
           <tr>
-            <td>
+            <td class="article-select">
               #{if post.status == Post.status_processed() do
             ~s(<input type="checkbox" name="post_ids[]" value="#{post.id}">)
           else
@@ -89,12 +94,24 @@ defmodule Rss2Nostr.Web.Views.Posts do
       </form>
     </div>
 
-    #{post_action_forms(posts, status_filter, source_id, q, page)}
-    <form action="/posts/publish-selected" method="POST">
+    #{post_action_forms(posts, return_to)}
+    <div class="article-toolbar">
+      <button type="submit" class="btn btn-primary" form="posts-bulk-form"
+              #{unless selectable?, do: "disabled"}>Publish selected</button>
+    </div>
+    <p class="help-text">Select all includes every matching staging article, not only this page. Relays come from each source: drafts use the draft list, articles use public or test from the source flag.</p>
+    <form id="posts-bulk-form" action="/posts/publish-selected" method="POST">
+      <input type="hidden" name="return_to" value="#{escape_attr(return_to)}">
+      #{Enum.map_join(extra_ids, "", fn id ->
+        ~s(<input type="checkbox" name="post_ids[]" value="#{id}" hidden>)
+      end)}
     <table class="table">
       <thead>
         <tr>
-          <th></th>
+          <th class="article-select">
+            <input type="checkbox" id="select-all-posts" aria-label="Select all filtered staging posts"
+                   #{unless selectable?, do: "disabled"}>
+          </th>
           <th>Title</th>
           <th>Status</th>
           <th>Source</th>
@@ -106,11 +123,8 @@ defmodule Rss2Nostr.Web.Views.Posts do
         #{rows}
       </tbody>
     </table>
-    <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Publish selected</button>
-      <p class="help-text">Relays come from each source. Setup sources always publish to the test list.</p>
-    </div>
     </form>
+    #{posts_select_all_script()}
 
     <div class="pagination">
       #{if page > 1, do: ~s(<a href="#{posts_path(status: status_filter, source_id: source_id, q: q, page: page - 1)}" class="btn btn-small">&larr; Previous</a>)}
@@ -218,6 +232,9 @@ defmodule Rss2Nostr.Web.Views.Posts do
         """
         <form action="/posts/#{post.id}/publish" method="POST" style="display:inline">
           <button type="submit" class="btn btn-primary">Publish to #{audience} relays</button>
+        </form>
+        <form action="/posts/#{post.id}/process" method="POST" style="display:inline">
+          <button type="submit" class="btn btn-secondary">Reprocess</button>
         </form>
         """
 
@@ -528,9 +545,56 @@ defmodule Rss2Nostr.Web.Views.Posts do
     """
   end
 
-  defp post_action_forms(posts, status_filter, source_id, q, page) do
-    return_to = posts_path(status: status_filter, source_id: source_id, q: q, page: page)
+  defp selectable_post_ids(status_filter, source_id, q) do
+    if status_filter in [nil, "", "2"] do
+      Posts.list_posts(
+        status: Post.status_processed(),
+        source_id: source_id,
+        q: q,
+        limit: 5_000
+      )
+      |> Enum.map(& &1.id)
+    else
+      []
+    end
+  end
 
+  defp posts_select_all_script do
+    """
+    <script>
+    (function () {
+      const selectAll = document.getElementById("select-all-posts");
+
+      function selectableBoxes() {
+        return document.querySelectorAll("#posts-bulk-form input[name='post_ids[]']");
+      }
+
+      function syncSelectAll() {
+        if (!selectAll) return;
+        const boxes = Array.from(selectableBoxes());
+        selectAll.disabled = boxes.length === 0;
+        const checked = boxes.filter(function (box) { return box.checked; }).length;
+        selectAll.checked = boxes.length > 0 && checked === boxes.length;
+        selectAll.indeterminate = checked > 0 && checked < boxes.length;
+      }
+
+      if (selectAll) {
+        selectAll.addEventListener("change", function () {
+          selectableBoxes().forEach(function (box) {
+            box.checked = selectAll.checked;
+          });
+          selectAll.indeterminate = false;
+        });
+        document.addEventListener("change", function (event) {
+          if (event.target && event.target.name === "post_ids[]") syncSelectAll();
+        });
+      }
+    })();
+    </script>
+    """
+  end
+
+  defp post_action_forms(posts, return_to) do
     Enum.map_join(posts, "", fn post ->
       case post.status do
         status when status in [0, 9] ->

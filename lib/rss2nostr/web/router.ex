@@ -262,13 +262,15 @@ defmodule Rss2Nostr.Web.Router do
   end
 
   post "/posts/publish-selected" do
+    dest = return_to(conn, "/posts")
+
     case API.Posts.publish_selected(conn.body_params) do
       {:ok, result} ->
         {message, kind} = publish_notice(result)
-        redirect(conn, with_flash("/posts", message, kind))
+        redirect(conn, with_flash(dest, message, kind))
 
       {:error, reason} ->
-        redirect(conn, with_flash("/posts", to_string(reason), "error"))
+        redirect(conn, with_flash(dest, to_string(reason), "error"))
     end
   end
 
@@ -338,7 +340,10 @@ defmodule Rss2Nostr.Web.Router do
   post "/posts/:id/revise" do
     case API.Posts.revise(id) do
       {:ok, _post} ->
-        redirect(conn, "/posts/#{id}?notice=#{URI.encode_www_form("Moved to staging")}")
+        redirect(
+          conn,
+          "/posts/#{id}?notice=#{URI.encode_www_form("Reconverted from HTML and moved to staging")}"
+        )
 
       {:error, :not_found} ->
         send_html(conn, 404, Views.Error.not_found())

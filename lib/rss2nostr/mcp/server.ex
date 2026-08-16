@@ -61,7 +61,7 @@ defmodule Rss2Nostr.MCP.Server do
 
     param(:public, :boolean,
       description:
-        "Publish articles to public relays when automated. Drafts always use the draft list."
+        "Publish articles to the public relay list. Drafts always use the draft list."
     )
 
     param(:pubkey, :string,
@@ -192,7 +192,8 @@ defmodule Rss2Nostr.MCP.Server do
     run(fn args, state -> reply(Actions.update_post(args), state) end)
   end
 
-  tool "revise_post", "Move a published article back to staging and restart the hold" do
+  tool "revise_post",
+       "Reconvert a published article from stored HTML, move it back to staging, and restart the hold" do
     param(:post_id, :integer, required: true)
     run(fn args, state -> reply(Actions.revise_post(args), state) end)
   end

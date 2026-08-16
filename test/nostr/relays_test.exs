@@ -103,7 +103,7 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
       assert Relays.for_post(post) == ["wss://test.example"]
     end
 
-    test "uses the public list when the source is automated and public" do
+    test "uses the public list when the source is public" do
       put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
       {:ok, source} = Sources.create_source(source_attrs(public: true, mode: "automated"))
       post = create_post(source)
@@ -112,12 +112,26 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
       assert Relays.for_post(post) == ["wss://public.example"]
     end
 
-    test "uses the test list while a public source is still in setup" do
+    test "uses the public list for a public article source even in setup" do
       put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
       {:ok, source} = Sources.create_source(source_attrs(public: true, mode: "setup"))
       post = create_post(source)
 
-      assert Relays.audience_for_source(source) == :test
+      assert Relays.audience_for_source(source) == :public
+      assert Relays.target_for(post) == :public
+      assert Relays.for_post(post) == ["wss://public.example"]
+
+      assert Relays.publish_relays(post, relays: ["wss://public.example"]) == [
+               "wss://public.example"
+             ]
+    end
+
+    test "uses the test list for an article source that is not public" do
+      put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
+      {:ok, source} = Sources.create_source(source_attrs(public: false, mode: "automated"))
+      post = create_post(source)
+
+      assert Relays.target_for(post) == :test
       assert Relays.for_post(post) == ["wss://test.example"]
 
       assert Relays.publish_relays(post, relays: ["wss://public.example"]) == [
@@ -180,6 +194,26 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
 
       assert Relays.target_for(post) == :draft
       assert Relays.for_post(post) == ["wss://draft.example"]
+    end
+
+    test "keeps draft relays that also appear on the public list" do
+      put_relays(%{
+        draft: ["wss://shared.example", "wss://draft-only.example"],
+        test: ["wss://test.example"],
+        public: ["wss://shared.example", "wss://public.example"]
+      })
+
+      {:ok, source} =
+        Sources.create_source(
+          source_attrs([])
+          |> Map.merge(%{publish_as: "draft", pubkey: @author, signing_nsec: nil})
+        )
+
+      post = create_post(source)
+      chosen = Relays.publish_relays(post)
+
+      assert chosen == ["wss://shared.example", "wss://draft-only.example"]
+      assert Relays.publish_relays(post, relays: chosen) == chosen
     end
 
     test "falls back to test relays when a draft source has no draft list" do

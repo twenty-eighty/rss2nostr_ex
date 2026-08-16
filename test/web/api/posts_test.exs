@@ -237,6 +237,27 @@ defmodule Rss2Nostr.Web.API.PostsTest do
       assert revised.staged_at
     end
 
+    test "reconverts markdown from stored HTML", %{source: source} do
+      url = "https://example.com/article/revise-reconvert"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Published",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          source_html: "<p>This is <em>italic</em> next to <strong>Subscriber</strong>.</p>",
+          content: "*italic* next to **Subscriber**.",
+          status: Post.status_published(),
+          source_id: source.id
+        })
+
+      {:ok, revised} = API.revise(to_string(post.id))
+
+      assert revised.status == Post.status_processed()
+      assert revised.content =~ "_italic_"
+      refute revised.content =~ "*italic*"
+    end
+
     test "rejects a post that is not published", %{source: source} do
       {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
       assert {:error, "Only published articles can be revised"} = API.revise(to_string(post.id))

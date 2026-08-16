@@ -8,7 +8,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
   alias Rss2Nostr.Sources.Source
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
-  alias Rss2Nostr.Processing.{Composer, Conversion}
+  alias Rss2Nostr.Processing.{BodySchema, Composer}
   alias Rss2Nostr.Nostr.{Relays, Signer}
 
   def index do
@@ -34,8 +34,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
               </span>
             </td>
             <td>
-              <span class="badge #{if Relays.audience_for_source(source) == :public, do: "badge-public", else: "badge-test"}">
-                #{if Relays.audience_for_source(source) == :public, do: "Public", else: "Test"}
+              <span class="badge #{relay_badge_class(Relays.target_for(source))}">
+                #{relay_target_label(Relays.target_for(source))}
               </span>
             </td>
             <td>
@@ -175,9 +175,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
     <div class="page-header">
       <h1>#{escape_html(source.name)}</h1>
       <div>
-        <span class="badge #{if source.mode == "automated", do: "badge-processed", else: "badge-test"}">
-          #{if source.mode == "automated", do: "Automated", else: "Setup"}
-        </span>
+        #{mode_badge(source, tab)}
         <span class="badge #{if target == :public, do: "badge-public", else: "badge-test"}">
           #{relay_target_label(target)}
         </span>
@@ -266,9 +264,9 @@ defmodule Rss2Nostr.Web.Views.Sources do
           Intended for public relays
         </label>
         <p class="help-text">
-          Used only after this source is automated, and only for articles.
-          Drafts always use the draft relay list. While in setup, article
-          publishes always go to the test relays.
+          Articles use the public relay list when this is checked, otherwise
+          the test list. Drafts always use the draft list. Setup vs automated
+          only controls whether the scheduler publishes on its own.
         </p>
       </div>
       <div class="form-actions">
@@ -310,6 +308,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
   defp articles_tab(source) do
     posts = Posts.list_posts_for_source(source.id, limit: 100)
     relay_label = relay_target_name(Relays.target_for(source))
+    selectable? = Enum.any?(posts, &(&1.status == Post.status_processed()))
 
     rows =
       if Enum.empty?(posts) do
@@ -340,18 +339,24 @@ defmodule Rss2Nostr.Web.Views.Sources do
       end
 
     """
-    <div class="form-actions">
+    <div class="article-toolbar">
       <form action="/sources/#{source.id}/import" method="POST">
         <button type="submit" class="btn btn-secondary">Import now</button>
       </form>
+      <button type="submit" class="btn btn-primary" form="articles-bulk-form">Publish selected</button>
+      <button type="submit" class="btn btn-secondary" form="articles-bulk-form"
+              formaction="/sources/#{source.id}/reprocess-selected">Reprocess selected</button>
     </div>
     <p class="help-text">Selected staging articles publish to the #{relay_label}. Setup never uses the public list. Articles stay in pending images until featured and inline images are uploaded. Manual publish ignores the staging hold.</p>
     #{upload_forms(source, posts)}
-    <form action="/sources/#{source.id}/publish-selected" method="POST">
+    <form id="articles-bulk-form" action="/sources/#{source.id}/publish-selected" method="POST">
       <table class="table">
         <thead>
           <tr>
-            <th></th>
+            <th class="article-select">
+              <input type="checkbox" id="select-all-articles" aria-label="Select all staging articles"
+                     #{unless selectable?, do: "disabled"}>
+            </th>
             <th>Title</th>
             <th>Status</th>
             <th>Published</th>
@@ -360,10 +365,6 @@ defmodule Rss2Nostr.Web.Views.Sources do
         </thead>
         <tbody>#{rows}</tbody>
       </table>
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Publish selected</button>
-        <button type="submit" class="btn btn-secondary" formaction="/sources/#{source.id}/reprocess-selected">Reprocess selected</button>
-      </div>
     </form>
     #{articles_upload_script()}
     """
@@ -387,6 +388,33 @@ defmodule Rss2Nostr.Web.Views.Sources do
     """
     <script>
     (function () {
+      const selectAll = document.getElementById("select-all-articles");
+
+      function selectableBoxes() {
+        return document.querySelectorAll("#articles-bulk-form input[name='post_ids[]']");
+      }
+
+      function syncSelectAll() {
+        if (!selectAll) return;
+        const boxes = Array.from(selectableBoxes());
+        selectAll.disabled = boxes.length === 0;
+        const checked = boxes.filter(function (box) { return box.checked; }).length;
+        selectAll.checked = boxes.length > 0 && checked === boxes.length;
+        selectAll.indeterminate = checked > 0 && checked < boxes.length;
+      }
+
+      if (selectAll) {
+        selectAll.addEventListener("change", function () {
+          selectableBoxes().forEach(function (box) {
+            box.checked = selectAll.checked;
+          });
+          selectAll.indeterminate = false;
+        });
+        document.addEventListener("change", function (event) {
+          if (event.target && event.target.name === "post_ids[]") syncSelectAll();
+        });
+      }
+
       function statusClass(status) {
         switch (status) {
           case 0: return "badge-new";
@@ -420,6 +448,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
             select.replaceChildren(box);
           }
           if (upload) upload.remove();
+          syncSelectAll();
         } else if (upload) {
           upload.disabled = false;
           upload.textContent = "Upload images";
@@ -469,29 +498,43 @@ defmodule Rss2Nostr.Web.Views.Sources do
       #{fixed_hashtag_fields(params, source, errors)}
       #{staging_fields(params, source, errors)}
       #{error_message(errors, :mode)}
+      #{unless signer_ok? do
+        "<p class=\"help-text\">Configure a signing key before switching to automated publishing. Use the Setup badge at the top once a key is set.</p>"
+      else
+        "<p class=\"help-text\">Use the Setup / Automated badge at the top of the page to change mode.</p>"
+      end}
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Save publishing settings</button>
-        #{mode_button(source, signer_ok?)}
       </div>
     </form>
     """
   end
 
-  defp mode_button(%Source{mode: "automated"}, _) do
-    """
-    <button type="submit" class="btn btn-secondary" name="mode" value="setup">Back to setup</button>
-    """
+  defp mode_badge(%Source{mode: "automated"} = source, tab) do
+    mode_badge_form(source, tab, "setup", "Automated", "badge-processed", "Switch back to setup")
   end
 
-  defp mode_button(_source, true) do
-    """
-    <button type="submit" class="btn btn-secondary" name="mode" value="automated">Switch to automated</button>
-    """
+  defp mode_badge(source, tab) do
+    if Signer.configured?(source) do
+      mode_badge_form(
+        source,
+        tab,
+        "automated",
+        "Setup",
+        "badge-test",
+        "Switch to automated publishing"
+      )
+    else
+      ~s(<a href="/sources/#{source.id}?tab=publishing" class="badge badge-test" title="Configure a signing key on the Publishing tab, then switch to automated">Setup</a>)
+    end
   end
 
-  defp mode_button(_source, false) do
+  defp mode_badge_form(source, tab, next_mode, label, class, title) do
     """
-    <p class="help-text">Configure a signing key before switching to automated publishing.</p>
+    <form action="/sources/#{source.id}" method="POST" class="inline-mode-form">
+      <input type="hidden" name="tab" value="#{escape_attr(tab)}">
+      <button type="submit" name="mode" value="#{escape_attr(next_mode)}" class="badge #{class}" title="#{escape_attr(title)}">#{label}</button>
+    </form>
     """
   end
 
@@ -859,6 +902,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
       const startSelect = document.getElementById("start_article");
       const startGuid = document.getElementById("start_guid");
       const startPublished = document.getElementById("start_published_at");
+      const languageSelect = document.getElementById("language");
       const submit = document.getElementById("submit-source");
 
       function present(value) {
@@ -870,22 +914,42 @@ defmodule Rss2Nostr.Web.Views.Sources do
         return selected ? selected.value : "draft";
       }
 
-      function syncSubmit() {
-        if (!submit) return;
-        const nameOk = present(nameInput && nameInput.value);
-        const urlOk = present(urlInput && urlInput.value);
-        let identityOk = false;
+      function identityOk() {
         if (selectedPublishAs() === "article") {
           const nsec = document.getElementById("signing_nsec");
           const bunker = document.getElementById("bunker_connection");
-          identityOk = present(nsec && nsec.value) || present(bunker && bunker.value);
-        } else if (selectedPublishAs() === "draft" || selectedPublishAs() === "draft_plain") {
-          const pubkey = document.getElementById("pubkey");
-          identityOk = present(pubkey && pubkey.value);
-        } else {
-          identityOk = true;
+          return present(nsec && nsec.value) || present(bunker && bunker.value);
         }
-        submit.disabled = !(nameOk && urlOk && identityOk);
+        if (selectedPublishAs() === "draft" || selectedPublishAs() === "draft_plain") {
+          const pubkey = document.getElementById("pubkey");
+          return present(pubkey && pubkey.value);
+        }
+        return false;
+      }
+
+      function startOk() {
+        if (!startSelect) return false;
+        const option = startSelect.selectedOptions[0];
+        if (!option) return false;
+        const label = option.textContent || "";
+        if (label.indexOf("Loading articles") !== -1) return false;
+        if (label.indexOf("No articles found") !== -1) return true;
+        return present(option.value);
+      }
+
+      function formComplete() {
+        const detailsReady = details && !details.hidden;
+        return detailsReady &&
+          present(nameInput && nameInput.value) &&
+          present(urlInput && urlInput.value) &&
+          present(languageSelect && languageSelect.value) &&
+          startOk() &&
+          identityOk();
+      }
+
+      function syncSubmit() {
+        if (!submit) return;
+        submit.disabled = !formComplete();
       }
 
       window.rss2nostrSyncAddSourceSubmit = syncSubmit;
@@ -902,6 +966,30 @@ defmodule Rss2Nostr.Web.Views.Sources do
 
       function setStatus(message) {
         statusEl.textContent = message || "";
+      }
+
+      function applyLanguage(code) {
+        if (!languageSelect || !code) return;
+        const value = String(code).trim().toLowerCase();
+        if (!value) return;
+        let option = Array.from(languageSelect.options).find(function (opt) {
+          return opt.value === value;
+        });
+        if (!option) {
+          option = document.createElement("option");
+          option.value = value;
+          option.textContent = value;
+          languageSelect.appendChild(option);
+        }
+        languageSelect.value = value;
+      }
+
+      function languageFrom(body) {
+        if (body && body.language) return body.language;
+        if (body && body.feeds && body.feeds[0] && body.feeds[0].language) {
+          return body.feeds[0].language;
+        }
+        return "";
       }
 
       function fillArticles(items) {
@@ -940,6 +1028,13 @@ defmodule Rss2Nostr.Web.Views.Sources do
       async function previewFeed(url, type) {
         urlInput.value = url;
         if (type) typeInput.value = type;
+        startSelect.innerHTML = "";
+        const loading = document.createElement("option");
+        loading.value = "";
+        loading.textContent = "Loading articles…";
+        startSelect.appendChild(loading);
+        startGuid.value = "";
+        startPublished.value = "";
         syncSubmit();
         setStatus("Loading articles…");
         const res = await fetch("/api/sources/preview", {
@@ -955,8 +1050,10 @@ defmodule Rss2Nostr.Web.Views.Sources do
         if (body.feeds && body.feeds[0] && body.feeds[0].type) {
           typeInput.value = body.feeds[0].type;
         }
+        applyLanguage(languageFrom(body));
         fillArticles(body.items || []);
         setStatus("");
+        syncSubmit();
         if (window.rss2nostrScheduleComposePreview) window.rss2nostrScheduleComposePreview();
       }
 
@@ -1022,6 +1119,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
           if (body.items && body.items.length) {
             urlInput.value = selected;
             if (feeds[0].type) typeInput.value = feeds[0].type;
+            applyLanguage(languageFrom(body));
             fillArticles(body.items);
             syncSubmit();
             if (!body.direct_feed) setStatus("");
@@ -1039,8 +1137,17 @@ defmodule Rss2Nostr.Web.Views.Sources do
 
       startSelect.addEventListener("change", function () {
         syncStartArticle();
+        syncSubmit();
         if (window.rss2nostrScheduleComposePreview) window.rss2nostrScheduleComposePreview();
       });
+
+      const addForm = document.getElementById("add-source-form");
+      if (addForm) {
+        addForm.addEventListener("submit", function (event) {
+          syncSubmit();
+          if (submit && submit.disabled) event.preventDefault();
+        });
+      }
 
       website.addEventListener("keydown", function (event) {
         if (event.key === "Enter") {
@@ -1079,7 +1186,11 @@ defmodule Rss2Nostr.Web.Views.Sources do
     fetch =
       params["fetch_source_from"] || (source && source.fetch_source_from) || "fetch_from_url"
 
-    selector = params["body_selector"] || option(source, "body_selector") || ""
+    selector =
+      params["body_selector"] ||
+        option(source, "body_selector") ||
+        BodySchema.selector_for_url(source && source.url) ||
+        ""
     start_at = params["start_at"] || option(source, "start_at") || ""
     skip = params["skip_classes"] || skip_classes_text(source)
     content_checked = if fetch == "content", do: "checked", else: ""
@@ -1112,8 +1223,11 @@ defmodule Rss2Nostr.Web.Views.Sources do
       </div>
     </fieldset>
 
-    <fieldset class="compose-fieldset">
-      <legend>Which block is the article?</legend>
+    <details id="body-regions-details" class="compose-advanced"
+             data-known-selectors="#{escape_attr(Enum.join(BodySchema.known_selectors(), ","))}"
+             data-url-schema="#{escape_attr(to_string(BodySchema.selector_for_url(source && source.url) || ""))}"
+             #{if known_body_schema?(selector, source), do: "", else: "open"}>
+      <summary>Which block is the article?</summary>
       <p class="help-text">
         Click the region that looks like the article body. Known sites such as
         Substack are preselected from the article URL.
@@ -1122,16 +1236,16 @@ defmodule Rss2Nostr.Web.Views.Sources do
       <div id="body-regions" class="body-regions">
         <p class="help-text">Load an article to see candidate regions.</p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="compose-fieldset">
-      <legend>Start here</legend>
+    <details class="compose-advanced">
+      <summary>Start here</summary>
       <p class="help-text">Click the first line that should appear in the body. Everything before it is dropped.</p>
       <input type="hidden" id="start_at" name="start_at" value="#{escape_attr(to_string(start_at))}">
       <div id="start-blocks" class="start-blocks">
         <p class="help-text">Load an article to see opening lines.</p>
       </div>
-    </fieldset>
+    </details>
 
     <details class="compose-advanced">
       <summary>Technical settings</summary>
@@ -1158,44 +1272,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
         <p class="help-text">Comma-separated class names to drop (ads, comments, teasers).</p>
       </div>
     </details>
-
-    #{conversion_rules_fields(params, source)}
     """
-  end
-
-  defp conversion_rules_fields(params, source) do
-    rules_json = conversion_rules_json(params, source)
-
-    """
-    <fieldset class="compose-fieldset">
-      <legend>Link rows</legend>
-      <p class="help-text">
-        When a paragraph is only a row of platform links (for example “WATCH ON:”),
-        check it here to write each link on its own Markdown line. Pareto then
-        embeds video, audio, or PDF. Other links stay inline.
-      </p>
-      <input type="hidden" id="conversion_rules" name="conversion_rules" value="#{escape_attr(rules_json)}">
-      <div id="link-groups" class="link-groups">
-        <p class="help-text">Load an article to see link rows you can convert.</p>
-      </div>
-    </fieldset>
-    """
-  end
-
-  defp conversion_rules_json(params, source) do
-    cond do
-      is_binary(params["conversion_rules"]) and params["conversion_rules"] != "" ->
-        params["conversion_rules"]
-
-      is_list(params["conversion_rules"]) ->
-        Jason.encode!(params["conversion_rules"])
-
-      true ->
-        source
-        |> option("conversion_rules")
-        |> Conversion.parse_rules()
-        |> Jason.encode!()
-    end
   end
 
   defp compose_preview_panel do
@@ -1216,11 +1293,9 @@ defmodule Rss2Nostr.Web.Views.Sources do
           <button type="button" class="btn btn-small btn-secondary" id="refresh-preview">Refresh</button>
         </div>
       </div>
-      <p class="compose-original-article" data-original-article hidden>
-        <a target="_blank" rel="noopener noreferrer">Open original article</a>
-      </p>
       <p id="compose-preview-status" class="help-text">Pick an article to preview the Markdown.</p>
       <div id="compose-preview-meta" class="compose-preview-meta" hidden></div>
+      <div id="compose-preview-hero" class="compose-hero" hidden></div>
       <article id="compose-preview-rendered" class="compose-preview-rendered" hidden></article>
       <div id="compose-preview" class="compose-preview" hidden></div>
       <pre id="compose-preview-event" class="compose-preview" hidden></pre>
@@ -1242,6 +1317,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
       const articleSelect = document.getElementById("start_article") || document.getElementById("preview_article");
       const statusEl = document.getElementById("compose-preview-status");
       const metaEl = document.getElementById("compose-preview-meta");
+      const heroEl = document.getElementById("compose-preview-hero");
       const refresh = document.getElementById("refresh-preview");
       const preset = document.getElementById("body_preset");
       const selector = document.getElementById("body_selector");
@@ -1249,8 +1325,6 @@ defmodule Rss2Nostr.Web.Views.Sources do
       const startAt = document.getElementById("start_at");
       const startAtText = document.getElementById("start_at_text");
       const skip = document.getElementById("skip_classes");
-      const rulesInput = document.getElementById("conversion_rules");
-      const linkGroupsEl = document.getElementById("link-groups");
       const regionsEl = document.getElementById("body-regions");
       const startBlocksEl = document.getElementById("start-blocks");
       const fetchRadios = document.querySelectorAll("input[name='fetch_source_from']");
@@ -1277,7 +1351,6 @@ defmodule Rss2Nostr.Web.Views.Sources do
           body_selector_auto: bodyChosen ? "false" : "true",
           start_at: startAt ? startAt.value : "",
           skip_classes: skip ? skip.value : "",
-          conversion_rules: rulesInput ? rulesInput.value : "[]",
           source_id: sourceId ? sourceId.value : ""
         };
       }
@@ -1286,6 +1359,28 @@ defmodule Rss2Nostr.Web.Views.Sources do
         if (selector) selector.value = value || "";
         if (selectorText) selectorText.value = value || "";
         syncPreset();
+        syncBodyRegionsOpen();
+      }
+
+      function knownSelectors() {
+        const details = document.getElementById("body-regions-details");
+        const raw = (details && details.getAttribute("data-known-selectors")) || "";
+        return new Set(raw.split(",").map(function (s) { return s.trim(); }).filter(Boolean));
+      }
+
+      function schemaApplied() {
+        const details = document.getElementById("body-regions-details");
+        const value = selector ? selector.value.trim() : "";
+        const urlSchema = (details && details.getAttribute("data-url-schema")) || "";
+        if (value && knownSelectors().has(value)) return true;
+        if (!value && !bodyChosen && urlSchema) return true;
+        return false;
+      }
+
+      function syncBodyRegionsOpen() {
+        const details = document.getElementById("body-regions-details");
+        if (!details) return;
+        details.open = !schemaApplied();
       }
 
       function setStartAt(value) {
@@ -1338,6 +1433,10 @@ defmodule Rss2Nostr.Web.Views.Sources do
         renderedEl.hidden = true;
         if (eventEl) eventEl.hidden = true;
         if (metaEl) metaEl.hidden = true;
+        if (heroEl) {
+          heroEl.hidden = true;
+          heroEl.replaceChildren();
+        }
         try {
           const res = await fetch("/api/sources/compose-preview", {
             method: "POST",
@@ -1357,15 +1456,18 @@ defmodule Rss2Nostr.Web.Views.Sources do
         return body.nostr_parts_preview || [];
       }
 
-      function appendHero(parent, body) {
-        if (!body.image) return;
-        const hero = document.createElement("p");
-        hero.className = "compose-hero";
+      function renderHero(body) {
+        if (!heroEl) return;
+        heroEl.replaceChildren();
+        if (!body.image) {
+          heroEl.hidden = true;
+          return;
+        }
         const img = document.createElement("img");
         img.src = body.image;
         img.alt = body.title || "";
-        hero.appendChild(img);
-        parent.appendChild(hero);
+        heroEl.appendChild(img);
+        heroEl.hidden = false;
       }
 
       function appendHtml(parent, html, markdown) {
@@ -1393,7 +1495,6 @@ defmodule Rss2Nostr.Web.Views.Sources do
         const split = showSplitParts && parts.length > 1;
 
         renderedEl.replaceChildren();
-        appendHero(renderedEl, body);
         if (split) {
           parts.forEach(function (part) {
             const section = document.createElement("section");
@@ -1439,6 +1540,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
         }
 
         setOriginalArticle(body.link || selectedArticleLink());
+        renderHero(body);
 
         if (metaEl) {
           metaEl.hidden = false;
@@ -1480,7 +1582,6 @@ defmodule Rss2Nostr.Web.Views.Sources do
         if (!bodyChosen && body.body_selector != null) setSelector(body.body_selector);
         renderRegions(body.body_regions || [], body.body_selector);
         renderStartBlocks(body.start_blocks || []);
-        renderLinkGroups(body.link_groups || []);
         showActiveTab();
       }
 
@@ -1558,71 +1659,6 @@ defmodule Rss2Nostr.Web.Views.Sources do
             schedulePreview();
           });
           startBlocksEl.appendChild(button);
-        });
-      }
-
-      function currentRules() {
-        try {
-          const parsed = JSON.parse(rulesInput ? rulesInput.value : "[]");
-          return Array.isArray(parsed) ? parsed : [];
-        } catch (err) {
-          return [];
-        }
-      }
-
-      function setRules(rules) {
-        if (rulesInput) rulesInput.value = JSON.stringify(rules);
-      }
-
-      function renderLinkGroups(groups) {
-        if (!linkGroupsEl) return;
-        linkGroupsEl.replaceChildren();
-        if (!groups.length) {
-          const empty = document.createElement("p");
-          empty.className = "help-text";
-          empty.textContent = "No link rows found in this article.";
-          linkGroupsEl.appendChild(empty);
-          return;
-        }
-
-        groups.forEach(function (group) {
-          const label = document.createElement("label");
-          label.className = "choice link-group";
-          const input = document.createElement("input");
-          input.type = "checkbox";
-          input.checked = !!group.enabled;
-          input.addEventListener("change", function () {
-            const rules = currentRules().filter(function (rule) {
-              return rule.xpath !== group.xpath;
-            });
-            if (input.checked) {
-              rules.push({ action: "links_as_paragraphs", xpath: group.xpath, label: "alt" });
-            }
-            setRules(rules);
-            schedulePreview();
-          });
-
-          const text = document.createElement("span");
-          const title = document.createElement("strong");
-          title.textContent = group.description || "Link row";
-          const snippet = document.createElement("span");
-          snippet.className = "help-text";
-          snippet.textContent = group.snippet || "";
-          const xpath = document.createElement("code");
-          xpath.className = "url";
-          xpath.textContent = group.xpath || "";
-          const links = document.createElement("span");
-          links.className = "help-text";
-          links.textContent = (group.links || []).map(function (link) {
-            return link.text;
-          }).join(" · ");
-          text.appendChild(title);
-          text.appendChild(snippet);
-          text.appendChild(links);
-          text.appendChild(xpath);
-          label.appendChild(input);
-          label.appendChild(text);
-          linkGroupsEl.appendChild(label);
         });
       }
 
@@ -1762,6 +1798,14 @@ defmodule Rss2Nostr.Web.Views.Sources do
     """
   end
 
+  defp known_body_schema?(selector, source) do
+    sel = selector |> to_string() |> String.trim()
+    url = source && Map.get(source, :url)
+
+    BodySchema.known_selector?(sel) or
+      (sel == "" and is_binary(BodySchema.selector_for_url(url)))
+  end
+
   defp option(nil, _key), do: nil
 
   defp option(source, key) do
@@ -1821,6 +1865,9 @@ defmodule Rss2Nostr.Web.Views.Sources do
   defp relay_target_label(:draft), do: "Draft relays"
   defp relay_target_label(:public), do: "Public relays"
   defp relay_target_label(_), do: "Test relays"
+
+  defp relay_badge_class(:public), do: "badge-public"
+  defp relay_badge_class(_), do: "badge-test"
 
   defp relay_target_name(:draft), do: "draft relays"
   defp relay_target_name(:public), do: "public relays"

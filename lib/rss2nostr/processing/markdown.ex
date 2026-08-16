@@ -180,11 +180,18 @@ defmodule Rss2Nostr.Processing.Markdown do
   defp inline(text) do
     text
     |> escape()
+    |> replace_hard_breaks()
     |> replace_images()
     |> replace_links()
     |> replace_footnotes()
     |> replace_code()
     |> replace_emphasis()
+  end
+
+  defp replace_hard_breaks(text) do
+    text
+    |> String.replace("\\\n", "<br>\n")
+    |> String.replace(~r/ {2,}\n/, "<br>\n")
   end
 
   defp replace_footnotes(text) do

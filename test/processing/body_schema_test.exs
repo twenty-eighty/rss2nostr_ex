@@ -23,6 +23,15 @@ defmodule Rss2Nostr.Processing.BodySchemaTest do
     end
   end
 
+  describe "known_selector?/1" do
+    test "recognizes site presets" do
+      assert BodySchema.known_selector?(".body.markup")
+      assert BodySchema.known_selector?("div.et_pb_column_0_tb_body")
+      refute BodySchema.known_selector?("div.custom-body")
+      refute BodySchema.known_selector?("")
+    end
+  end
+
   describe "candidates/2" do
     test "recommends the URL schema when that region exists" do
       html = """

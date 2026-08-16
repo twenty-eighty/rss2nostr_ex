@@ -337,6 +337,39 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
     end
   end
 
+  describe "POST /posts/publish-selected" do
+    test "returns to the filtered posts list when return_to is set" do
+      conn =
+        conn(:post, "/posts/publish-selected", %{
+          "return_to" => "/posts?source_id=32",
+          "post_ids" => []
+        })
+
+      conn = call(conn)
+
+      assert conn.status == 302
+      [location] = get_resp_header(conn, "location")
+      assert location =~ "/posts?source_id=32"
+      assert location =~ "notice="
+      assert location =~ "notice_kind=error"
+    end
+
+    test "ignores an external return_to" do
+      conn =
+        conn(:post, "/posts/publish-selected", %{
+          "return_to" => "https://evil.example/",
+          "post_ids" => []
+        })
+
+      conn = call(conn)
+
+      assert conn.status == 302
+      [location] = get_resp_header(conn, "location")
+      assert location =~ ~r"^/posts\?"
+      refute location =~ "evil.example"
+    end
+  end
+
   describe "GET /posts with pagination" do
     test "handles invalid page parameter" do
       conn = conn(:get, "/posts?page=invalid")

@@ -34,7 +34,9 @@ config :rss2nostr, :nostr,
     ],
     inbox: []
   },
-  relay_audience: :test
+  relay_audience: :test,
+  # Pause between articles (and before retrying a rate-limited relay).
+  publish_gap_ms: 3_000
 
 # Admin UI: NIP-07 allowlist (overridden by ADMIN_NOSTR_PUBKEYS)
 config :rss2nostr, :admin, pubkeys: []

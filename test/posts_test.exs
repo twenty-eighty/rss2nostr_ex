@@ -305,6 +305,15 @@ defmodule Rss2Nostr.PostsTest do
       assert is_nil(updated.last_error)
     end
 
+    test "mark_published/3 stores an naddr longer than 255 characters", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+      naddr = "naddr1" <> String.duplicate("a", 300)
+
+      {:ok, updated} = Posts.mark_published(post, "abc123", "def456", naddr)
+
+      assert updated.nostr_address == naddr
+    end
+
     test "mark_error/2 sets status and error message", %{source: source} do
       {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
       {:ok, updated} = Posts.mark_error(post, "Something went wrong")

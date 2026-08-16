@@ -1,7 +1,7 @@
 defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
   use ExUnit.Case, async: true
 
-  alias Rss2Nostr.Processing.HtmlToMarkdown
+  alias Rss2Nostr.Processing.{HtmlToMarkdown, Markdown}
 
   describe "convert/1" do
     test "converts headings" do
@@ -33,8 +33,8 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       html = "<p>This is <em>italic</em> and <i>also italic</i>.</p>"
       md = HtmlToMarkdown.convert(html)
 
-      assert md =~ "*italic*"
-      assert md =~ "*also italic*"
+      assert md =~ "_italic_"
+      assert md =~ "_also italic_"
     end
 
     test "converts links" do
@@ -111,9 +111,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     end
 
     test "moves spaces outside italic markers" do
-      assert HtmlToMarkdown.convert("<p><em>Patrik Baab: </em></p>") == "*Patrik Baab:*"
-      assert HtmlToMarkdown.convert("<p><em> foo</em>bar</p>") == "*foo*bar"
-      assert HtmlToMarkdown.convert("<p>before<em> foo </em>after</p>") == "before *foo* after"
+      assert HtmlToMarkdown.convert("<p><em>Patrik Baab: </em></p>") == "_Patrik Baab:_"
+      assert HtmlToMarkdown.convert("<p><em> foo</em>bar</p>") == "_foo_bar"
+      assert HtmlToMarkdown.convert("<p>before<em> foo </em>after</p>") == "before _foo_ after"
     end
 
     test "moves spaces outside bold markers" do
@@ -137,22 +137,63 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       </p>
       """
 
-      assert HtmlToMarkdown.convert(html) == "*Patrik Baab:*"
+      assert HtmlToMarkdown.convert(html) == "_Patrik Baab:_"
     end
 
     test "peels a nested whitespace span out of italic" do
       html = "<p><em><span>Patrik Baab: </span></em></p>"
-      assert HtmlToMarkdown.convert(html) == "*Patrik Baab:*"
+      assert HtmlToMarkdown.convert(html) == "_Patrik Baab:_"
+    end
+
+    test "merges adjacent italic tags so markers do not glue together" do
+      html = """
+      <p><em>read the full newsletter or<span> </span></em><em><strong><a href="https://corbettreport.substack.com/">ACCESS THE EDITORIAL FOR FREE</a> on my Substack</strong>.</em></p>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md ==
+               "_read the full newsletter or **[ACCESS THE EDITORIAL FOR FREE](https://corbettreport.substack.com/) on my Substack**._"
+
+      refute md =~ "****"
+    end
+
+    test "merges adjacent italic tags separated only by whitespace" do
+      assert HtmlToMarkdown.convert("<p><em>foo</em> <em>bar</em></p>") == "_foo bar_"
+    end
+
+    test "does not invent a space when adjacent tags have none" do
+      assert HtmlToMarkdown.convert("<p><em>foo</em><em>bar</em></p>") == "_foobar_"
+    end
+
+    test "does not insert a space when a word is split across adjacent tags" do
+      html =
+        ~s(<p><strong><em>V</em></strong><strong><em>ideo player not working? Use these links to watch it somewhere else!</em></strong></p>)
+
+      assert HtmlToMarkdown.convert(html) ==
+               "**_Video player not working? Use these links to watch it somewhere else!_**"
     end
 
     test "keeps italic around inner bold" do
       html = "<p><em>foo <strong>bar</strong></em></p>"
-      assert HtmlToMarkdown.convert(html) == "*foo **bar***"
+      assert HtmlToMarkdown.convert(html) == "_foo **bar**_"
     end
 
     test "keeps bold around inner italic" do
       html = "<p><strong>foo <em>bar</em></strong></p>"
-      assert HtmlToMarkdown.convert(html) == "**foo *bar***"
+      assert HtmlToMarkdown.convert(html) == "**foo _bar_**"
+    end
+
+    test "does not glue italic to a neighboring bold as ***" do
+      html =
+        "<p><em>To access this week’s edition of<span>&nbsp;</span><strong>The Corbett Report&nbsp;</strong></em><strong>Subscriber</strong><em>, please<span>&nbsp;</span><a href=\"https://corbettreport.com/login/\">sign in</a><span>&nbsp;</span>and continue reading below.</em></p>"
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md ==
+               "_To access this week’s edition of **The Corbett Report**_ **Subscriber**_, please [sign in](https://corbettreport.com/login/) and continue reading below._"
+
+      refute md =~ "***"
     end
 
     test "strips script and style tags" do
@@ -261,8 +302,26 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       html = "<p>Line one<br>Line two</p>"
       md = HtmlToMarkdown.convert(html)
 
-      assert md =~ "Line one"
-      assert md =~ "Line two"
+      assert md =~ "Line one  \nLine two"
+      refute md =~ "Line one\n\nLine two"
+    end
+
+    test "keeps a title and URL on separate lines when a br separates them" do
+      html = """
+      <p>Video: 404 Media – Wiped Your Phone? Maybe You’ll Go to Prison<br>
+      <a href="https://www.youtube.com/watch?v=lmikqHw1lX8">https://www.youtube.com/watch?v=lmikqHw1lX8</a></p>
+      """
+
+      md = HtmlToMarkdown.convert(html, skip_classes: [])
+
+      assert md =~
+               "Video: 404 Media – Wiped Your Phone? Maybe You’ll Go to Prison  \n[https://www.youtube.com/watch?v=lmikqHw1lX8](https://www.youtube.com/watch?v=lmikqHw1lX8)"
+
+      refute md =~ "\\"
+
+      html_preview = Markdown.to_html(md)
+      assert html_preview =~ "Prison<br>\n<a href=\"https://www.youtube.com/watch?v=lmikqHw1lX8\">"
+      refute html_preview =~ "</p>\n<p>"
     end
 
     test "skips navigation elements" do
@@ -381,6 +440,46 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       md = HtmlToMarkdown.convert(html)
 
       assert md =~ "[Watch on YouTube](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
+    end
+
+    test "extracts an Odysee watch URL from an embed iframe" do
+      html =
+        ~s(<p><iframe id="odysee-iframe" src="https://odysee.com/%24/embed/%40corbettreport%3A0%2Fnwnw639%3A9?r=9AWxE8ctoPysNh6rne4ACuTaD8BJiPuH" allowfullscreen="allowfullscreen"></iframe></p>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Watch on Odysee](https://odysee.com/@corbettreport:0/nwnw639:9)"
+      refute md =~ "$/embed"
+      refute md =~ "%24"
+    end
+
+    test "extracts Bitchute, Rumble, and Archive.org watch URLs from embed iframes" do
+      html = """
+      <iframe src="https://www.bitchute.com/embed/2QbsxZOkIYjA/"></iframe>
+      <iframe src="https://rumble.com/embed/v123abc/?pub=7a1"></iframe>
+      <iframe src="https://archive.org/embed/nwnw639"></iframe>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Watch on Bitchute](https://www.bitchute.com/video/2QbsxZOkIYjA/)"
+      assert md =~ "[Watch on Rumble](https://rumble.com/embed/v123abc)"
+      assert md =~ "[Watch on Archive.org](https://archive.org/details/nwnw639)"
+    end
+
+    test "treats an Odysee embed and a watch-page URL as the same video" do
+      embed = "https://odysee.com/%24/embed/%40corbettreport%3A0%2Fnwnw639%3A9?r=abc"
+      watch = "https://odysee.com/@corbettreport/nwnw639"
+
+      assert HtmlToMarkdown.same_video?(
+               HtmlToMarkdown.iframe_watch_url(embed),
+               watch
+             )
+
+      refute HtmlToMarkdown.same_video?(
+               "https://odysee.com/@corbettreport/nwnw639",
+               "https://archive.org/details/nwnw639"
+             )
     end
 
     test "handles picture elements with srcset" do

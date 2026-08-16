@@ -21,6 +21,15 @@ defmodule Rss2Nostr.Nostr.RelayTest do
              "invalid: event too large: 87959"
 
     assert Relay.format_error(:timeout) == "timed out"
+
+    assert Relay.format_error({:timeout, {:gen_server, :call, [:pid, {:publish, %{}}]}}) ==
+             "timed out"
+  end
+
+  test "rate_limited?/1 detects Damus-style rejections" do
+    assert Relay.rate_limited?("rate-limited: you are noting too much")
+    assert Relay.rate_limited?("slow down")
+    refute Relay.rate_limited?("connection refused")
   end
 
   test "publish_to_relays returns an error instead of crashing on nxdomain" do

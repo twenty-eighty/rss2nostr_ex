@@ -99,6 +99,32 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
       refute processed.content =~ "Advertisement"
       refute processed.content =~ "Menu"
     end
+
+    test "applies the Corbett body selector from the article URL when none is stored", %{
+      source: source
+    } do
+      post =
+        create_post(source, %{
+          source_url: "https://www.corbettreport.com/nwnw632/",
+          source_url_hash: Post.generate_url_hash("https://www.corbettreport.com/nwnw632/"),
+          source_html: """
+          <div class="et_pb_column_0_tb_body">
+            <p>Welcome to New World Next Week</p>
+          </div>
+          <aside>
+            <h2>FREEDOM</h2>
+            <h2>RECENT POSTS</h2>
+            <h2>ARCHIVES</h2>
+          </aside>
+          """
+        })
+
+      {:ok, processed} = Processor.process_post(post)
+
+      assert processed.content =~ "Welcome to New World Next Week"
+      refute processed.content =~ "FREEDOM"
+      refute processed.content =~ "ARCHIVES"
+    end
   end
 
   describe "process_posts/1" do

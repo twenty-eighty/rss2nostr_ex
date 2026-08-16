@@ -23,7 +23,8 @@ config :rss2nostr, :nostr,
   private_key: nil,
   public_key: nil,
   upload_endpoint: nil,
-  bunker_connection: nil
+  bunker_connection: nil,
+  publish_gap_ms: 0
 
 # secp256k1 generator (private key = 1). Used as the NIP-07 admin allowlist in tests.
 config :rss2nostr, :admin,

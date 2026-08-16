@@ -86,7 +86,7 @@ defmodule Rss2Nostr.Web.API.Posts do
 
   def publish_posts(posts) when is_list(posts) do
     results =
-      Enum.map(posts, fn post ->
+      Publisher.each_with_gap(posts, fn post ->
         case publish_one(post) do
           {:ok, result} -> {:ok, result}
           {:error, reason} -> {:error, reason}
@@ -171,10 +171,15 @@ defmodule Rss2Nostr.Web.API.Posts do
   def revise(id) do
     with {:ok, post_id} <- parse_id(id),
          %Post{} = post <- Posts.get_post(post_id, preload: [:source]) do
-      case Posts.revise_to_staging(post) do
-        {:ok, post} -> {:ok, post}
-        {:error, :not_published} -> {:error, "Only published articles can be revised"}
-        {:error, reason} -> {:error, reason}
+      cond do
+        post.status != Post.status_published() ->
+          {:error, "Only published articles can be revised"}
+
+        true ->
+          case Processor.reprocess_post(post) do
+            {:ok, post} -> {:ok, post}
+            {:error, reason} -> {:error, format_error(reason)}
+          end
       end
     else
       nil -> {:error, :not_found}

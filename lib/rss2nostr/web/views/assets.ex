@@ -338,6 +338,27 @@ defmodule Rss2Nostr.Web.Views.Assets do
       text-transform: uppercase;
     }
 
+    button.badge,
+    a.badge {
+      border: 0;
+      font: inherit;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      text-decoration: none;
+      cursor: pointer;
+      line-height: inherit;
+    }
+
+    button.badge:hover,
+    a.badge:hover {
+      filter: brightness(1.08);
+    }
+
+    .inline-mode-form {
+      display: inline;
+    }
+
     .badge-new { background: #dbeafe; color: #1d4ed8; }
     .badge-processing, .badge-pending-images { background: #fef3c7; color: #92400e; }
     .badge-processed { background: #d1fae5; color: #065f46; }
@@ -362,6 +383,14 @@ defmodule Rss2Nostr.Web.Views.Assets do
       border: none;
       cursor: pointer;
       transition: all 0.2s;
+    }
+
+    .btn:disabled,
+    .btn[disabled] {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+      box-shadow: none;
     }
 
     .btn-primary {
@@ -534,10 +563,6 @@ defmodule Rss2Nostr.Web.Views.Assets do
     .compose-original-article {
       margin: 0.35rem 0 0;
       font-size: 0.875rem;
-    }
-
-    .compose-preview-panel .compose-original-article {
-      margin: 0 0 0.75rem;
     }
 
     .compose-preview-actions {
@@ -736,28 +761,25 @@ defmodule Rss2Nostr.Web.Views.Assets do
       font-size: 0.9em;
     }
 
-    .link-groups {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      margin-top: 0.75rem;
-    }
-
-    .link-group code {
-      display: block;
-      margin-top: 0.25rem;
-    }
-
     .compose-hero {
-      margin: 0 0 1.25rem;
-      padding-bottom: 1.25rem;
+      margin: 0 0 0.75rem;
+      padding-bottom: 0.75rem;
       border-bottom: 1px solid var(--gray-200);
+      text-align: center;
+    }
+
+    .compose-hero[hidden] {
+      display: none;
     }
 
     .compose-hero img {
-      max-height: 16rem;
-      object-fit: cover;
-      width: 100%;
+      display: block;
+      margin: 0 auto;
+      max-width: 100%;
+      max-height: 20rem;
+      width: auto;
+      height: auto;
+      object-fit: contain;
     }
 
     .form-group textarea:focus {
@@ -858,6 +880,30 @@ defmodule Rss2Nostr.Web.Views.Assets do
       display: flex;
       gap: 1rem;
       margin-top: 2rem;
+    }
+
+    .article-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 0 0 1rem;
+    }
+
+    .article-toolbar form {
+      display: inline;
+      margin: 0;
+    }
+
+    .article-select {
+      width: 2rem;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .article-select input {
+      width: auto;
+      margin: 0;
     }
 
     .error {

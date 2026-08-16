@@ -138,6 +138,10 @@ if bunker_connection = System.get_env("NOSTR_BUNKER_CONNECTION") do
   config :rss2nostr, :nostr, bunker_connection: bunker_connection
 end
 
+if gap = System.get_env("NOSTR_PUBLISH_GAP_MS") do
+  config :rss2nostr, :nostr, publish_gap_ms: String.to_integer(gap)
+end
+
 # Import settings
 if import_interval = System.get_env("IMPORT_INTERVAL_MINUTES") do
   config :rss2nostr, :import, interval_minutes: String.to_integer(import_interval)

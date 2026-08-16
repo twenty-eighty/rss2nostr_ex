@@ -2,12 +2,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   @moduledoc """
   Converts HTML to Markdown with special handling for:
   - Tracking parameter removal from URLs
-  - YouTube, SoundCloud, Podbean embeds
+  - YouTube, Odysee, Bitchute, Rumble, Archive.org, SoundCloud, Podbean embeds
   - Responsive images (srcset handling)
   - Figures with captions
 
-  Site-specific rewrites (Substack tweet cards, footnotes) live in
-  `Rss2Nostr.Processing.Sites` and run before this converter.
+  Site-specific rewrites (Substack tweet cards, Corbett WATCH ON rows)
+  live in `Rss2Nostr.Processing.Sites` and run before this converter.
   """
 
   require Logger
@@ -78,18 +78,39 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     |> String.replace(~r/<script[^>]*>.*?<\/script>/is, "")
     |> String.replace(~r/<style[^>]*>.*?<\/style>/is, "")
     |> String.replace(~r/<!--.*?-->/s, "")
+    |> protect_inline_spaces()
+  end
+
+  # Floki drops ordinary spaces between inline tags and inside
+  # `<span> </span>`. Keep them as `&nbsp;` so a real word space is
+  # not lost, while a split word like `<em>V</em><em>ideo</em>` stays
+  # glued.
+  @inline_tags "em|i|strong|b|span|a|code|mark"
+
+  defp protect_inline_spaces(html) do
+    html
+    |> String.replace(
+      ~r/(<\/(?:#{@inline_tags})>)(\s+)(<(?:#{@inline_tags})\b)/i,
+      "\\1&nbsp;\\3"
+    )
+    |> String.replace(
+      ~r/(<span(?:\s[^>]*)?>)(\s+)(<\/span>)/i,
+      "\\1&nbsp;\\3"
+    )
   end
 
   # Process DOM nodes to Markdown
   defp process_nodes(nodes) when is_list(nodes) do
-    Enum.map_join(nodes, &process_node/1)
+    nodes
+    |> merge_adjacent_inline()
+    |> Enum.map_join(&process_node/1)
   end
 
   defp process_nodes(node), do: process_node(node)
 
   defp process_node(text) when is_binary(text) do
     text
-    |> String.replace(~r/\s+/, " ")
+    |> String.replace(~r/\s+/u, " ")
   end
 
   defp process_node({tag, attrs, children}) do
@@ -118,7 +139,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       "div" -> process_block("div", attrs, children)
       "li" -> process_block("li", attrs, children)
       "section" -> process_block("section", attrs, children)
-      "br" -> "\n"
+      # CommonMark hard break (two trailing spaces). A lone newline is
+      # a space; `\` and `\n\n` show a backslash or a blank line.
+      "br" -> "  \n"
       "hr" -> "\n\n---\n\n"
       # Headings
       "h1" -> "\n\n# #{process_nodes(children)}\n\n"
@@ -130,8 +153,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       # Inline formatting
       "strong" -> wrap_inline(process_nodes(children), "**")
       "b" -> wrap_inline(process_nodes(children), "**")
-      "em" -> wrap_inline(process_nodes(children), "*")
-      "i" -> wrap_inline(process_nodes(children), "*")
+      # Underscores so italic next to `**bold**` does not emit `***`,
+      # which CommonMark treats as one delimiter run.
+      "em" -> wrap_inline(process_nodes(children), "_")
+      "i" -> wrap_inline(process_nodes(children), "_")
       "code" -> "`#{process_nodes(children)}`"
       "pre" -> "\n\n```\n#{Floki.text(children)}\n```\n\n"
       "mark" -> wrap_inline(process_nodes(children), "==")
@@ -187,6 +212,51 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp conversion_rules do
     Process.get({__MODULE__, :conversion_rules}, [])
   end
+
+  # Adjacent <em>…</em><em>…</em> (or strong/b) would emit `*foo**bar*` /
+  # `*foo****bar**`, which CommonMark does not treat as nested emphasis.
+  defp merge_adjacent_inline(nodes) do
+    Enum.reduce(nodes, [], &merge_next/2)
+  end
+
+  defp merge_next(node, acc) do
+    last = List.last(acc)
+
+    cond do
+      same_inline_role?(last, node) ->
+        List.replace_at(acc, -1, concat_inline(last, node))
+
+      whitespace_only?(last) and length(acc) >= 2 and
+          same_inline_role?(Enum.at(acc, -2), node) ->
+        prev = Enum.at(acc, -2)
+        Enum.drop(acc, -2) ++ [concat_inline(prev, last, node)]
+
+      true ->
+        acc ++ [node]
+    end
+  end
+
+  defp concat_inline({tag, attrs, left}, {_, _, right}) do
+    {tag, attrs, left ++ right}
+  end
+
+  defp concat_inline({tag, attrs, left}, ws, {_, _, right}) when is_binary(ws) do
+    {tag, attrs, left ++ [ws] ++ right}
+  end
+
+  defp same_inline_role?({left, _, _}, {right, _, _}) do
+    role = inline_role(left)
+    role != nil and role == inline_role(right)
+  end
+
+  defp same_inline_role?(_, _), do: false
+
+  defp inline_role(tag) when tag in ~w(em i), do: :em
+  defp inline_role(tag) when tag in ~w(strong b), do: :strong
+  defp inline_role(_), do: nil
+
+  defp whitespace_only?(text) when is_binary(text), do: String.match?(text, ~r/\A\s*\z/u)
+  defp whitespace_only?(_), do: false
 
   # CommonMark emphasis is invalid when a marker is next to whitespace
   # (`*foo *` is literal). Nested spans and pretty-printed HTML often leave
@@ -497,6 +567,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     src = get_attr(attrs, "src", "")
 
     cond do
+      src == "" ->
+        ""
+
       String.contains?(src, "youtube.com") || String.contains?(src, "youtu.be") ->
         youtube_markdown(src, get_attr(attrs, "title"))
 
@@ -506,9 +579,199 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       String.contains?(src, "soundcloud.com") ->
         "\n\n[Listen on SoundCloud](#{src})\n\n"
 
+      watch = embed_watch_url(src) ->
+        "\n\n[Watch on #{platform_label(watch)}](#{watch})\n\n"
+
       true ->
         ""
     end
+  end
+
+  @doc """
+  Turns an embed iframe `src` into a watch-page URL when the host is known.
+  YouTube is handled separately via `iframe_watch_url/1`.
+  """
+  @spec embed_watch_url(String.t() | nil) :: String.t() | nil
+  def embed_watch_url(src) when is_binary(src) and src != "" do
+    decoded = safe_decode_uri(src)
+    uri = URI.parse(decoded)
+    host = uri.host |> to_string() |> String.downcase()
+    path = uri.path || ""
+
+    cond do
+      String.contains?(host, "odysee.com") ->
+        odysee_watch_url(uri, path)
+
+      String.contains?(host, "bitchute.com") ->
+        bitchute_watch_url(uri, path)
+
+      String.contains?(host, "rumble.com") ->
+        rumble_watch_url(uri, path)
+
+      String.contains?(host, "archive.org") ->
+        archive_watch_url(uri, path)
+
+      String.contains?(host, "rokfin.com") ->
+        rokfin_watch_url(uri, path)
+
+      true ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  def embed_watch_url(_), do: nil
+
+  @doc """
+  Watch-page URL for an iframe `src`, including YouTube.
+  """
+  @spec iframe_watch_url(String.t() | nil) :: String.t() | nil
+  def iframe_watch_url(src) when is_binary(src) do
+    cond do
+      id = Youtube.video_id(src) -> "https://www.youtube.com/watch?v=#{id}"
+      watch = embed_watch_url(src) -> watch
+      true -> nil
+    end
+  end
+
+  def iframe_watch_url(_), do: nil
+
+  @doc """
+  True when two URLs likely point at the same video (same host and
+  video id / last path token). Used to drop WATCH ON links that
+  duplicate an iframe already converted to a watch URL.
+  """
+  @spec same_video?(String.t() | nil, String.t() | nil) :: boolean()
+  def same_video?(a, b) when is_binary(a) and is_binary(b) do
+    case {video_key(a), video_key(b)} do
+      {{host, id}, {host, id}} when is_binary(id) and id != "" -> true
+      _ -> false
+    end
+  end
+
+  def same_video?(_, _), do: false
+
+  defp video_key(url) do
+    watch = iframe_watch_url(url) || url
+    uri = URI.parse(watch)
+    host = normalize_video_host(uri.host)
+    id = video_id_token(uri, watch)
+
+    if host != "" and is_binary(id) and id != "", do: {host, id}, else: nil
+  rescue
+    _ -> nil
+  end
+
+  defp video_id_token(uri, url) do
+    case Youtube.video_id(url) do
+      id when is_binary(id) -> String.downcase(id)
+      _ -> last_significant_token(uri)
+    end
+  end
+
+  defp last_significant_token(uri) do
+    (uri.path || "")
+    |> String.split("/", trim: true)
+    |> Enum.reject(&(String.downcase(&1) in ~w($ embed video details watch post v)))
+    |> List.last()
+    |> case do
+      nil ->
+        nil
+
+      seg ->
+        seg
+        |> URI.decode()
+        |> String.trim_leading("@")
+        |> String.split(":")
+        |> hd()
+        |> String.downcase()
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp normalize_video_host(host) do
+    host
+    |> to_string()
+    |> String.downcase()
+    |> String.replace_prefix("www.", "")
+    |> String.replace_prefix("old.", "")
+    |> String.replace_prefix("m.", "")
+  end
+
+  defp odysee_watch_url(uri, path) do
+    rest =
+      cond do
+        String.starts_with?(path, "/$/embed/") -> String.replace_prefix(path, "/$/embed/", "")
+        String.starts_with?(path, "/embed/") -> String.replace_prefix(path, "/embed/", "")
+        true -> nil
+      end
+
+    cond do
+      is_binary(rest) and rest != "" ->
+        uri_watch(uri, "/" <> rest)
+
+      path not in [nil, "", "/"] ->
+        uri_watch(uri, path)
+
+      true ->
+        nil
+    end
+  end
+
+  defp bitchute_watch_url(uri, path) do
+    case Regex.run(~r{/embed/([^/]+)/?}, path) do
+      [_, id] -> uri_watch(uri, "/video/#{id}/")
+      _ -> uri_watch(uri, path)
+    end
+  end
+
+  defp rumble_watch_url(uri, path) do
+    case Regex.run(~r{/embed/([^/]+)/?}, path) do
+      [_, id] -> uri_watch(uri, "/embed/#{id}")
+      _ -> uri_watch(uri, path)
+    end
+  end
+
+  defp archive_watch_url(uri, path) do
+    case Regex.run(~r{/embed/([^/]+)/?}, path) do
+      [_, id] -> uri_watch(uri, "/details/#{id}")
+      _ -> uri_watch(uri, path)
+    end
+  end
+
+  defp rokfin_watch_url(uri, path) do
+    case Regex.run(~r{/embed/(?:post/)?([^/]+)/?}, path) do
+      [_, id] -> uri_watch(uri, "/post/#{id}")
+      _ -> uri_watch(uri, path)
+    end
+  end
+
+  defp uri_watch(uri, path) do
+    URI.to_string(%{uri | path: path, query: nil, fragment: nil})
+  end
+
+  defp safe_decode_uri(url) do
+    decoded = URI.decode(url)
+    if decoded == url, do: url, else: safe_decode_uri(decoded)
+  rescue
+    _ -> url
+  end
+
+  defp platform_label(url) do
+    host = url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
+
+    cond do
+      String.contains?(host, "odysee.com") -> "Odysee"
+      String.contains?(host, "bitchute.com") -> "Bitchute"
+      String.contains?(host, "rumble.com") -> "Rumble"
+      String.contains?(host, "archive.org") -> "Archive.org"
+      String.contains?(host, "rokfin.com") -> "Rokfin"
+      true -> "video"
+    end
+  rescue
+    _ -> "video"
   end
 
   defp youtube_markdown(url, title) do
@@ -640,8 +903,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     markdown
     # Max 2 newlines
     |> String.replace(~r/\n{3,}/, "\n\n")
-    # Trailing whitespace
-    |> String.replace(~r/[ \t]+\n/, "\n")
+    # Trailing tab or a single space. Keep two spaces — that is a
+    # CommonMark hard break from <br>.
+    |> String.replace(~r/\t+\n/, "\n")
+    |> String.replace(~r/(?<! ) \n/, "\n")
     # Lines with only whitespace
     |> String.replace(~r/\n[ \t]+\n/, "\n\n")
     |> String.replace(~r/\[\^([^\]]+)\]:[ \t]+/, "[^\\1]: ")

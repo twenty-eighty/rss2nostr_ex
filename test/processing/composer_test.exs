@@ -77,6 +77,18 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert result.markdown =~ "hero.jpg"
     end
 
+    test "drops a leading WordPress sized variant of the featured image" do
+      featured = "https://corbettreport.com/wp-content/uploads/2026/05/japanese_qa-featured.jpg"
+      body = "https://corbettreport.com/wp-content/uploads/2026/05/japanese_qa-featured-1024x576.jpg"
+      html = ~s(<p><img src="#{body}" alt=""></p><p>At long last, the Japanese edition</p>)
+
+      result = Composer.compose(html, %{image: featured, skip_classes: []})
+
+      assert result.image == featured
+      assert result.markdown =~ "At long last"
+      refute result.markdown =~ "japanese_qa-featured"
+    end
+
     test "drops a leading body image that is the same asset as the featured image" do
       featured =
         "https://substackcdn.com/image/fetch/$s_!A5Ic!,w_1200,h_675,c_fill,f_jpg,q_auto:good/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F73510e44-7195-418e-aa14-9e863d228777_1280x512.jpeg"
@@ -162,6 +174,47 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert String.starts_with?(String.trim(result.markdown), "Lecture before the New Society")
       refute result.markdown =~ "Subscribe now"
       assert result.markdown =~ "hotel in Donetsk"
+    end
+
+    test "uses the site body selector from the article URL when none is stored" do
+      html = """
+      <div class="et_pb_column_0_tb_body">
+        <p>Welcome to New World Next Week</p>
+      </div>
+      <aside>
+        <h2>FREEDOM</h2>
+        <h2>RECENT POSTS</h2>
+        <h2>ARCHIVES</h2>
+      </aside>
+      """
+
+      result =
+        Composer.compose(html, %{
+          url: "https://www.corbettreport.com/nwnw632/",
+          skip_classes: []
+        })
+
+      assert result.markdown =~ "Welcome to New World Next Week"
+      refute result.markdown =~ "FREEDOM"
+      refute result.markdown =~ "RECENT POSTS"
+      refute result.markdown =~ "ARCHIVES"
+    end
+
+    test "keeps the whole page when auto body selection is off" do
+      html = """
+      <div class="et_pb_column_0_tb_body"><p>Article</p></div>
+      <aside><h2>ARCHIVES</h2></aside>
+      """
+
+      result =
+        Composer.compose(html, %{
+          url: "https://www.corbettreport.com/nwnw632/",
+          body_selector_auto: false,
+          skip_classes: []
+        })
+
+      assert result.markdown =~ "Article"
+      assert result.markdown =~ "ARCHIVES"
     end
   end
 

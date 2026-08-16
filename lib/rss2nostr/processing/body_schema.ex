@@ -62,6 +62,20 @@ defmodule Rss2Nostr.Processing.BodySchema do
     end
   end
 
+  @doc """
+  True when `selector` is a known site preset (Substack, Corbett, WordPress, …).
+  """
+  @spec known_selector?(String.t() | nil) :: boolean()
+  def known_selector?(selector) when is_binary(selector) do
+    selector = String.trim(selector)
+    selector != "" and Map.has_key?(@preset_labels, selector)
+  end
+
+  def known_selector?(_), do: false
+
+  @spec known_selectors() :: [String.t()]
+  def known_selectors, do: Map.keys(@preset_labels)
+
   @spec matches?(String.t(), String.t()) :: boolean()
   def matches?(html, selector) when is_binary(html) and is_binary(selector) and selector != "" do
     case Floki.parse_document(html) do

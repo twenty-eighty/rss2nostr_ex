@@ -29,6 +29,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
   @type result :: %{
           page_title: String.t() | nil,
           url: String.t(),
+          language: String.t() | nil,
           feeds: [feed()],
           items: [item()],
           direct_feed: boolean()
@@ -157,18 +158,41 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
              %{
                page_title: page_title || preview.page_title,
                url: url,
-               feeds: [%{url: feed.url, title: feed.title || preview.page_title, type: type}],
+               language: preview.language,
+               feeds: [
+                 %{
+                   url: feed.url,
+                   title: feed.title || preview.page_title,
+                   type: type,
+                   language: preview.language
+                 }
+               ],
                items: preview.items,
                direct_feed: false
              }}
 
           {:error, _} ->
             {:ok,
-             %{page_title: page_title, url: url, feeds: feeds, items: [], direct_feed: false}}
+             %{
+               page_title: page_title,
+               url: url,
+               language: nil,
+               feeds: feeds,
+               items: [],
+               direct_feed: false
+             }}
         end
 
       feeds ->
-        {:ok, %{page_title: page_title, url: url, feeds: feeds, items: [], direct_feed: false}}
+        {:ok,
+         %{
+           page_title: page_title,
+           url: url,
+           language: nil,
+           feeds: feeds,
+           items: [],
+           direct_feed: false
+         }}
     end
   end
 
@@ -179,10 +203,13 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
         {:error, _} -> []
       end
 
+    language = FeedParser.feed_language(body)
+
     %{
       page_title: title,
       url: url,
-      feeds: [%{url: url, title: title, type: type}],
+      language: language,
+      feeds: [%{url: url, title: title, type: type, language: language}],
       items: items,
       direct_feed: true
     }

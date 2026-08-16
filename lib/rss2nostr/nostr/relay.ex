@@ -88,6 +88,7 @@ defmodule Rss2Nostr.Nostr.Relay do
   def format_error(:nxdomain), do: "could not resolve host"
   def format_error(:econnrefused), do: "connection refused"
   def format_error(:timeout), do: "timed out"
+  def format_error({:timeout, _}), do: "timed out"
   def format_error(:closed), do: "connection closed"
   def format_error(:disconnected), do: "disconnected"
   def format_error(:max_reconnect_attempts), do: "could not connect"
@@ -96,7 +97,21 @@ defmodule Rss2Nostr.Nostr.Relay do
   def format_error(reason) when is_atom(reason),
     do: reason |> Atom.to_string() |> String.replace("_", " ")
 
+  def format_error({reason, _detail}) when is_atom(reason), do: format_error(reason)
   def format_error(reason), do: inspect(reason)
+
+  @doc """
+  True when a relay rejected the event for posting too quickly.
+  """
+  @spec rate_limited?(term()) :: boolean()
+  def rate_limited?(reason) do
+    text = reason |> format_error() |> String.downcase()
+
+    String.contains?(text, "rate-limited") or
+      String.contains?(text, "rate limited") or
+      String.contains?(text, "too much") or
+      String.contains?(text, "slow down")
+  end
 
   @doc """
   Closes the connection to a relay.

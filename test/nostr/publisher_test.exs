@@ -387,6 +387,47 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
     end
   end
 
+  describe "identifier/1" do
+    test "uses the last non-empty path segment when the URL has a trailing slash" do
+      assert Publisher.identifier(%{
+               title: "August Open Thread 2026",
+               source_url: "https://corbettreport.com/august-open-thread-2026/"
+             }) == "august-open-thread-2026"
+    end
+
+    test "gives each trailing-slash URL its own d tag" do
+      first =
+        Publisher.identifier(%{
+          title: "One",
+          source_url: "https://corbettreport.com/under-the-bus-how-bill-gates-fell-from-globalist-grace/"
+        })
+
+      second =
+        Publisher.identifier(%{
+          title: "Two",
+          source_url: "https://corbettreport.com/august-open-thread-2026/"
+        })
+
+      assert first == "under-the-bus-how-bill-gates-fell-from-globalist-grace"
+      assert second == "august-open-thread-2026"
+      refute first == second
+    end
+
+    test "falls back to the title when the path is only a slash" do
+      assert Publisher.identifier(%{
+               title: "Home Page",
+               source_url: "https://example.com/"
+             }) == "home-page"
+    end
+  end
+
+  describe "each_with_gap/2" do
+    test "maps items without sleeping when the gap is zero" do
+      assert Publisher.publish_gap_ms() == 0
+      assert Publisher.each_with_gap([1, 2, 3], &(&1 * 2)) == [2, 4, 6]
+    end
+  end
+
   describe "format_report/2" do
     test "lists accepted relays and per-relay failures" do
       report =
@@ -397,8 +438,8 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
           ]
         )
 
-      assert report =~ "Accepted by wss://client-test.pareto.space."
-      assert report =~ "wss://client-test.pareto.town: could not resolve host"
+      assert report ==
+               "Reached 1 relay: client-test.pareto.space. Missed 1: client-test.pareto.town (could not resolve host)."
     end
 
     test "reports a relay rejection without an accepted list" do
@@ -407,7 +448,7 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
           %{url: "wss://client-test.pareto.space", error: "invalid: event too large: 87959"}
         ])
 
-      assert report == "wss://client-test.pareto.space: invalid: event too large: 87959"
+      assert report == "Missed 1: client-test.pareto.space (invalid: event too large: 87959)."
     end
   end
 end

@@ -3,6 +3,28 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
 
   alias Rss2Nostr.Processing.Markdown
 
+  test "renders a two-space hard break as br in one paragraph" do
+    html =
+      Markdown.to_html(
+        "Story #3: US Man Accused Of Destroying Evidence By Wiping Phone At Airport  \nhttps://www.msn.com/en-us/news/other/us-man-accused-of-destroying-evidence-by-wiping-phone-at-airport/ar-AA28ZvnE"
+      )
+
+    assert html =~ "Airport<br>\nhttps://www.msn.com/"
+    refute html =~ "</p>\n<p>"
+    refute html =~ "\\"
+  end
+
+  test "renders a backslash hard break as br" do
+    html =
+      Markdown.to_html(
+        "Video: 404 Media – Wiped Your Phone? Maybe You’ll Go to Prison\\\n[https://www.youtube.com/watch?v=lmikqHw1lX8](https://www.youtube.com/watch?v=lmikqHw1lX8)"
+      )
+
+    assert html =~ "Prison<br>\n<a href=\"https://www.youtube.com/watch?v=lmikqHw1lX8\">"
+    refute html =~ "Prison\n<a"
+    refute html =~ "\\"
+  end
+
   test "renders headings, emphasis, and links" do
     html = Markdown.to_html("# Title\n\nHello **world** and [here](https://example.com).")
 
@@ -31,6 +53,32 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
 
     assert html =~ "<strong><em>bold italic</em></strong>"
     refute html =~ "***"
+  end
+
+  test "renders underscore italic next to bold without leftover markers" do
+    md =
+      "_To access this week’s edition of **The Corbett Report**_ **Subscriber**_, please [sign in](https://corbettreport.com/login/) and continue reading below._"
+
+    html = Markdown.to_html(md)
+
+    assert html =~ "<em>To access this week’s edition of <strong>The Corbett Report</strong></em>"
+    assert html =~ "<strong>Subscriber</strong>"
+    assert html =~ "<em>, please <a href=\"https://corbettreport.com/login/\">sign in</a> and continue reading below.</em>"
+    refute html =~ "*"
+    refute html =~ "_"
+  end
+
+  test "renders italic wrapping a bold link" do
+    md =
+      "*read the full newsletter or **[ACCESS THE EDITORIAL FOR FREE](https://corbettreport.substack.com/) on my Substack**.*"
+
+    html = Markdown.to_html(md)
+
+    assert html =~ "<em>"
+    assert html =~ "<strong>"
+    assert html =~ ~s(href="https://corbettreport.substack.com/")
+    assert html =~ "ACCESS THE EDITORIAL FOR FREE"
+    refute html =~ "*"
   end
 
   test "renders images and lists" do

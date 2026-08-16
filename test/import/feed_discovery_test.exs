@@ -79,8 +79,34 @@ defmodule Rss2Nostr.Import.FeedDiscoveryTest do
 
       assert result.direct_feed
       assert result.page_title == "Direct Feed"
+      assert result.language == nil
       assert [%{url: "https://example.com/feed.xml", type: "rss"}] = result.feeds
       assert Enum.any?(result.items, &(&1.title == "Hello"))
+    end
+
+    test "includes the feed language for a pasted RSS URL" do
+      body = """
+      <?xml version="1.0"?>
+      <rss version="2.0">
+        <channel>
+          <title>The Corbett Report - Feature Interviews</title>
+          <language>en-us</language>
+          <item>
+            <title>Interview</title>
+            <guid>https://example.com/interview</guid>
+          </item>
+        </channel>
+      </rss>
+      """
+
+      assert {:ok, result} =
+               FeedDiscovery.discover_from_body(
+                 "https://www.corbettreport.com/newinterviewrss.xml",
+                 body
+               )
+
+      assert result.language == "en"
+      assert [%{language: "en"}] = result.feeds
     end
 
     test "still finds alternate links on a website" do

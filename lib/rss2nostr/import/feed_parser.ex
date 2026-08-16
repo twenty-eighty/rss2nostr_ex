@@ -74,6 +74,25 @@ defmodule Rss2Nostr.Import.FeedParser do
 
   def feed_title(_), do: nil
 
+  @doc """
+  Channel/feed language as a lowercase ISO 639 code, or nil.
+
+  RSS `<language>en-us</language>` and Atom `xml:lang` become `"en"`.
+  """
+  @spec feed_language(String.t()) :: String.t() | nil
+  def feed_language(xml_body) when is_binary(xml_body) do
+    raw =
+      case detect_feed_type(xml_body) do
+        "rss" -> xpath_text(xml_body, ~x"//channel/language/text()"s)
+        "atom" -> atom_feed_language(xml_body)
+        _ -> nil
+      end
+
+    normalize_feed_language(raw)
+  end
+
+  def feed_language(_), do: nil
+
   # RSS Parsing
   defp parse_rss(xml_body) do
     try do
@@ -227,6 +246,37 @@ defmodule Rss2Nostr.Import.FeedParser do
   end
 
   # Helper functions
+
+  defp atom_feed_language(xml_body) do
+    with_ns =
+      xpath_text(
+        xml_body,
+        ~x"//atom:feed/@xml:lang"s
+        |> add_namespace("atom", "http://www.w3.org/2005/Atom")
+      )
+
+    if with_ns == "" do
+      xpath_text(xml_body, ~x"//feed/@xml:lang"s)
+    else
+      with_ns
+    end
+  end
+
+  defp normalize_feed_language(nil), do: nil
+  defp normalize_feed_language(""), do: nil
+
+  defp normalize_feed_language(value) when is_binary(value) do
+    code =
+      value
+      |> String.trim()
+      |> String.downcase()
+      |> String.replace("_", "-")
+
+    case Regex.run(~r/\A([a-z]{2,3})\b/, code) do
+      [_, lang] -> lang
+      _ -> nil
+    end
+  end
 
   defp atom_feed_title(xml_body) do
     titled =

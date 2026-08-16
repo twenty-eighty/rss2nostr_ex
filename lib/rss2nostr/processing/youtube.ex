@@ -1,7 +1,8 @@
 defmodule Rss2Nostr.Processing.Youtube do
   @moduledoc """
-  Resolves YouTube video IDs and replaces generic link labels with the
-  video title (from the embed, or YouTube oEmbed).
+  Resolves YouTube video IDs and replaces generic link labels such as
+  “Watch on YouTube” with the video title (from the embed, or YouTube
+  oEmbed). Platform-name labels like YOUTUBE are left as-is.
   """
 
   require Logger
@@ -12,7 +13,6 @@ defmodule Rss2Nostr.Processing.Youtube do
                     "",
                     "watch on youtube",
                     "watch youtube",
-                    "youtube",
                     "youtube video",
                     "youtube video player",
                     "watch",

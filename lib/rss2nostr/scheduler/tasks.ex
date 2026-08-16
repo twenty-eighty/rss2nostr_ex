@@ -139,7 +139,7 @@ defmodule Rss2Nostr.Scheduler.Tasks do
       Logger.info("[Scheduler] No staging posts ready to export")
       {:ok, %{published: 0, errors: 0}}
     else
-      results = Enum.map(posts, &export_post(&1, config, relays, audience))
+      results = Publisher.each_with_gap(posts, &export_post(&1, config, relays, audience))
 
       published = Enum.count(results, fn {_id, r} -> r.success end)
       errors = Enum.count(results, fn {_id, r} -> not r.success end)

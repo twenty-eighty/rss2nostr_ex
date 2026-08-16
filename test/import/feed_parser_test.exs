@@ -76,6 +76,37 @@ defmodule Rss2Nostr.Import.FeedParserTest do
     end
   end
 
+  describe "feed_language/1" do
+    test "reads an RSS language tag and keeps the ISO 639-1 code" do
+      xml = """
+      <?xml version="1.0"?>
+      <rss version="2.0">
+        <channel>
+          <title>Interviews</title>
+          <language>en-us</language>
+        </channel>
+      </rss>
+      """
+
+      assert FeedParser.feed_language(xml) == "en"
+    end
+
+    test "reads Atom xml:lang" do
+      xml = """
+      <?xml version="1.0"?>
+      <feed xmlns="http://www.w3.org/2005/Atom" xml:lang="de-DE">
+        <title>Nachrichten</title>
+      </feed>
+      """
+
+      assert FeedParser.feed_language(xml) == "de"
+    end
+
+    test "returns nil when the feed has no language" do
+      assert FeedParser.feed_language(@rss_feed) == nil
+    end
+  end
+
   describe "parse/2 with RSS" do
     test "parses RSS feed items" do
       {:ok, items} = FeedParser.parse(@rss_feed, "rss")

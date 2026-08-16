@@ -193,6 +193,17 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
       assert source.public == false
     end
 
+    test "stores the Corbett body selector from the feed URL" do
+      params = %{
+        "name" => "Corbett Interviews",
+        "url" => "https://www.corbettreport.com/feed-#{System.unique_integer([:positive])}.xml"
+      }
+
+      {:ok, source} = API.create(params)
+
+      assert source.options["body_selector"] == "div.et_pb_column_0_tb_body"
+    end
+
     test "returns error for invalid params" do
       params = %{"name" => nil, "url" => nil}
 
@@ -222,6 +233,43 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
       assert updated.options["start_guid"] == "keep-me"
       assert updated.options["body_selector"] == "article"
       assert updated.options["skip_classes"] == ["shariff"]
+    end
+
+    test "fills a missing Corbett body selector when feed settings are saved" do
+      url = "https://www.corbettreport.com/feed-#{System.unique_integer([:positive])}.xml"
+
+      {:ok, source} =
+        Sources.create_source(Map.merge(valid_attrs(), %{url: url, options: %{}}))
+
+      {:ok, updated} = API.update(source, %{"name" => source.name, "url" => url})
+
+      assert updated.options["body_selector"] == "div.et_pb_column_0_tb_body"
+    end
+
+    test "keeps stored conversion rules when compose is saved without them" do
+      {:ok, source} =
+        Sources.create_source(
+          Map.merge(valid_attrs(), %{
+            options: %{
+              "conversion_rules" => [
+                %{
+                  "action" => "links_as_paragraphs",
+                  "xpath" => "//p[contains(., 'WATCH ON:')]"
+                }
+              ]
+            }
+          })
+        )
+
+      {:ok, updated} =
+        API.update(source, %{
+          "body_selector" => "div.et_pb_column_0_tb_body",
+          "start_at" => "",
+          "skip_classes" => ""
+        })
+
+      [rule] = updated.options["conversion_rules"]
+      assert (rule[:xpath] || rule["xpath"]) == "//p[contains(., 'WATCH ON:')]"
     end
 
     test "stores fixed hashtags from publishing settings" do

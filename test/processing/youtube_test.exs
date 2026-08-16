@@ -27,6 +27,18 @@ defmodule Rss2Nostr.Processing.YoutubeTest do
       assert enriched == "[The Real Video Title](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
     end
 
+    test "leaves a YOUTUBE platform label unchanged" do
+      markdown = "[YOUTUBE](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
+
+      enriched =
+        Youtube.enrich_markdown(markdown,
+          enabled: true,
+          fetch: fn _ -> "Should not be used" end
+        )
+
+      assert enriched == markdown
+    end
+
     test "leaves a specific title unchanged" do
       markdown = "[My interview](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
 

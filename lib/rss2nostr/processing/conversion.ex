@@ -2,10 +2,10 @@ defmodule Rss2Nostr.Processing.Conversion do
   @moduledoc """
   Visual HTML-to-Markdown conversion rules.
 
-  A rule is an XPath match plus an action. The compose page lists
-  candidate link rows; enabling one stores an XPath such as
-  `//p[contains(., 'WATCH ON:')]` and applies `links_as_paragraphs`
-  only to matching elements.
+  A rule is an XPath match plus an action. Stored rules such as
+  `//p[contains(., 'WATCH ON:')]` still apply `links_as_paragraphs`
+  to matching elements. Corbett “WATCH ON:” rows are rewritten in
+  `Rss2Nostr.Processing.Sites.Corbett` instead of a compose-page toggle.
   """
 
   @type rule :: %{
@@ -80,6 +80,9 @@ defmodule Rss2Nostr.Processing.Conversion do
   end
 
   def matches?(_, _), do: false
+
+  @spec links(Floki.html_tree() | Floki.html_node()) :: [{String.t(), String.t()}]
+  def links(nodes), do: extract_links(nodes)
 
   @spec links_as_paragraphs(Floki.html_tree() | [Floki.html_node()], keyword()) :: String.t()
   def links_as_paragraphs(children, opts \\ []) do

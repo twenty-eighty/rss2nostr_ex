@@ -93,6 +93,55 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       assert html =~ ~s(name="status" value="9")
     end
 
+    test "keeps the current filter on publish selected" do
+      {source, _post} = create_test_post()
+
+      html = PostsView.index(source_id: source.id, q: "berlin", status: "2", page: 2)
+
+      assert html =~ ~s(name="return_to" value="/posts?status=2&amp;source_id=#{source.id}&amp;q=berlin&amp;page=2")
+    end
+
+    test "puts publish selected and select-all above the table" do
+      {_source, post} = create_test_post()
+      {:ok, _} = Posts.update_post(post, %{status: Post.status_processed(), title: "Ready To Publish"})
+
+      html = PostsView.index([])
+      publish_at = :binary.match(html, "Publish selected")
+      table_at = :binary.match(html, "<table")
+      select_all_at = :binary.match(html, "select-all-posts")
+
+      assert publish_at != :nomatch
+      assert table_at != :nomatch
+      assert select_all_at != :nomatch
+      assert elem(publish_at, 0) < elem(table_at, 0)
+      assert html =~ ~s(id="select-all-posts")
+      assert html =~ ~s(name="post_ids[]" value="#{post.id}")
+    end
+
+    test "select-all includes every filtered staging post id" do
+      {source, first} = create_test_post()
+
+      {:ok, first} =
+        Posts.update_post(first, %{status: Post.status_processed(), title: "Filtered Staging One"})
+
+      url = "https://example.com/view-article-#{System.unique_integer([:positive])}"
+
+      {:ok, second} =
+        Posts.create_post(%{
+          title: "Filtered Staging Two",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          source_html: "<p>Content</p>",
+          status: Post.status_processed(),
+          source_id: source.id
+        })
+
+      html = PostsView.index(source_id: source.id, status: "2", page: 1)
+
+      assert html =~ ~s(name="post_ids[]" value="#{first.id}")
+      assert html =~ ~s(name="post_ids[]" value="#{second.id}")
+    end
+
     test "filters posts by search term" do
       {_source, post} = create_test_post()
       {_other, other_post} = create_test_post()
@@ -242,6 +291,8 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       assert html =~ "Hello **world**"
       assert html =~ "data-post-tab=\"preview\""
       assert html =~ "Publish to"
+      assert html =~ "Reprocess"
+      assert html =~ "/posts/#{post.id}/process"
     end
 
     test "shows publish notes on a published post" do

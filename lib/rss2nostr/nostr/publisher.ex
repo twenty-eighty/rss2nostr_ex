@@ -79,7 +79,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   end
 
   defp publish_signed_event(signed_event, kind, pubkey_hex, relays, min_success) do
-    results = Relay.publish_to_relays(relays, signed_event)
+    results = publish_with_rate_limit_retry(relays, signed_event)
 
     {successful, failed} =
       Enum.reduce(results, {[], []}, fn {url, result}, {success, fail} ->
@@ -122,7 +122,14 @@ defmodule Rss2Nostr.Nostr.Publisher do
 
     {:ok, post} =
       if success do
-        Posts.mark_published(post, first.event_id, pubkey_hex, first.naddr)
+        case Posts.mark_published(post, first.event_id, pubkey_hex, first.naddr) do
+          {:ok, published} ->
+            {:ok, published}
+
+          {:error, reason} ->
+            Logger.error("Failed to store publish result for post #{post.id}: #{inspect(reason)}")
+            {:ok, post}
+        end
       else
         {:ok, post}
       end
@@ -146,21 +153,37 @@ defmodule Rss2Nostr.Nostr.Publisher do
 
   @spec format_report([String.t()], [relay_failure()]) :: String.t()
   def format_report(successful, failed) do
-    accepted =
-      case successful do
-        [] -> nil
-        urls -> "Accepted by #{Enum.join(urls, ", ")}."
-      end
-
-    issues =
-      Enum.map(failed, fn
-        %{url: url, error: error} -> "#{url}: #{error}"
-        {url, error} -> "#{url}: #{error}"
-      end)
-
-    [accepted | issues]
+    [format_reached(successful), format_missed(failed)]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" ")
+  end
+
+  defp format_reached([]), do: nil
+
+  defp format_reached(urls) do
+    "Reached #{length(urls)} #{relay_word(length(urls))}: #{Enum.map_join(urls, ", ", &relay_label/1)}."
+  end
+
+  defp format_missed([]), do: nil
+
+  defp format_missed(failed) do
+    items =
+      Enum.map_join(failed, "; ", fn
+        %{url: url, error: error} -> "#{relay_label(url)} (#{error})"
+        {url, error} -> "#{relay_label(url)} (#{error})"
+      end)
+
+    "Missed #{length(failed)}: #{items}."
+  end
+
+  defp relay_word(1), do: "relay"
+  defp relay_word(_), do: "relays"
+
+  defp relay_label(url) do
+    case URI.parse(to_string(url)) do
+      %URI{host: host} when is_binary(host) and host != "" -> host
+      _ -> to_string(url)
+    end
   end
 
   defp report_or_failure(""), do: "Publish failed"
@@ -220,7 +243,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
 
       publish_results =
         if relays != [] do
-          Enum.flat_map(signed_events, &Relay.publish_to_relays(relays, &1))
+          Enum.flat_map(signed_events, &publish_with_rate_limit_retry(relays, &1))
         else
           []
         end
@@ -243,7 +266,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   Batch publishes multiple posts.
   """
   def publish_posts(posts, opts) do
-    Enum.map(posts, fn post ->
+    each_with_gap(posts, fn post ->
       case publish_post(post, opts) do
         {:ok, result} -> {post.id, result}
         {:error, reason} -> {post.id, %{success: false, error: reason}}
@@ -252,40 +275,119 @@ defmodule Rss2Nostr.Nostr.Publisher do
   end
 
   @doc """
+  Milliseconds to wait between articles and before retrying a rate-limited relay.
+  """
+  @spec publish_gap_ms() :: non_neg_integer()
+  def publish_gap_ms do
+    Application.get_env(:rss2nostr, :nostr, [])
+    |> Keyword.get(:publish_gap_ms, 3_000)
+    |> max(0)
+  end
+
+  @doc """
+  Maps `fun` over `items`, sleeping `publish_gap_ms/0` between calls.
+  """
+  @spec each_with_gap(list(), (term() -> term())) :: list()
+  def each_with_gap(items, fun) when is_list(items) and is_function(fun, 1) do
+    gap = publish_gap_ms()
+
+    items
+    |> Enum.with_index()
+    |> Enum.map(fn {item, index} ->
+      if index > 0 and gap > 0, do: Process.sleep(gap)
+      fun.(item)
+    end)
+  end
+
+  defp publish_with_rate_limit_retry(relays, signed_event) do
+    results = Relay.publish_to_relays(relays, signed_event)
+
+    {ok, limited} =
+      Enum.split_with(results, fn {_url, result} -> not rate_limited_result?(result) end)
+
+    case limited do
+      [] ->
+        results
+
+      limited ->
+        gap = publish_gap_ms()
+        if gap > 0, do: Process.sleep(gap)
+
+        retried =
+          limited
+          |> Enum.map(&elem(&1, 0))
+          |> Relay.publish_to_relays(signed_event)
+
+        ok ++ retried
+    end
+  end
+
+  defp rate_limited_result?(:ok), do: false
+  defp rate_limited_result?({:error, reason}), do: Relay.rate_limited?(reason)
+  defp rate_limited_result?(reason), do: Relay.rate_limited?(reason)
+
+  @doc """
   `d` tag used when publishing this post.
   """
   @spec identifier(Post.t() | map()) :: String.t()
   def identifier(post), do: generate_identifier(post)
 
-  # Generate a unique identifier for the post (d tag)
+  # Generate a unique identifier for the post (d tag).
+  # Trailing slashes must not produce an empty slug — every article would
+  # then share one replaceable address and relays reject later publishes
+  # with "replaced: have newer event".
   defp generate_identifier(post) do
-    source_url = field(post, :source_url)
-    title = field(post, :title)
+    slug_from_url(field(post, :source_url)) ||
+      slugify(field(post, :title)) ||
+      fallback_identifier(post)
+  end
 
-    base =
-      if source_url do
-        source_url
-        |> URI.parse()
-        |> Map.get(:path, "")
-        |> String.split("/")
-        |> List.last()
+  defp slug_from_url(url) when is_binary(url) and url != "" do
+    path = url |> URI.parse() |> Map.get(:path) || ""
+
+    path
+    |> String.split("/", trim: true)
+    |> List.last()
+    |> case do
+      nil ->
+        nil
+
+      segment ->
+        segment
         |> String.replace(~r/\.[^.]+$/, "")
-      else
-        title
-      end
+        |> slugify()
+    end
+  end
 
-    base
-    |> to_string()
-    |> String.downcase()
-    |> String.replace(~r/[äöüß]/, fn
-      "ä" -> "ae"
-      "ö" -> "oe"
-      "ü" -> "ue"
-      "ß" -> "ss"
-    end)
-    |> String.replace(~r/[^a-z0-9]+/, "-")
-    |> String.trim("-")
-    |> String.slice(0, 64)
+  defp slug_from_url(_), do: nil
+
+  defp slugify(nil), do: nil
+  defp slugify(""), do: nil
+
+  defp slugify(text) do
+    slug =
+      text
+      |> to_string()
+      |> String.downcase()
+      |> String.replace(~r/[äöüß]/, fn
+        "ä" -> "ae"
+        "ö" -> "oe"
+        "ü" -> "ue"
+        "ß" -> "ss"
+      end)
+      |> String.replace(~r/[^a-z0-9]+/, "-")
+      |> String.trim("-")
+      |> String.slice(0, 64)
+
+    if slug == "", do: nil, else: slug
+  end
+
+  defp fallback_identifier(post) do
+    field(post, :source_url_hash) ||
+      case field(post, :id) do
+        nil -> "post"
+        id -> "post-#{id}"
+      end
   end
 
   # Extract identifier from signed event tags
