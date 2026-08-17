@@ -5,6 +5,7 @@ defmodule Rss2Nostr.Sources do
 
   import Ecto.Query
   alias Rss2Nostr.Repo
+  alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources.Source
 
   @doc """
@@ -60,10 +61,31 @@ defmodule Rss2Nostr.Sources do
   """
   @spec update_source(Source.t(), map()) :: {:ok, Source.t()} | {:error, Ecto.Changeset.t()}
   def update_source(%Source{} = source, attrs) do
-    source
-    |> Source.changeset(attrs)
-    |> Repo.update()
+    result =
+      source
+      |> Source.changeset(attrs)
+      |> Repo.update()
+
+    case result do
+      {:ok, updated} ->
+        sync_post_kinds(updated)
+        {:ok, updated}
+
+      error ->
+        error
+    end
   end
+
+  defp sync_post_kinds(%Source{id: id, default_post_kind: kind})
+       when kind in [30023, 30024] do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Post
+    |> where([p], p.source_id == ^id and p.type != ^kind)
+    |> Repo.update_all(set: [type: kind, updated_at: now])
+  end
+
+  defp sync_post_kinds(_), do: {0, nil}
 
   @doc """
   Deletes a source and all of its articles.

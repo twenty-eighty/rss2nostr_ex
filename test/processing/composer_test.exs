@@ -89,6 +89,37 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       refute result.markdown =~ "japanese_qa-featured"
     end
 
+    test "drops a featured-image duplicate after an audio link" do
+      featured = "https://corbettreport.com/wp-content/uploads/2014/12/scroogesquare.jpg"
+      body = "https://www.corbettreport.com/images/scroogesquare.jpg"
+
+      html = """
+      <p><a href="http://www.corbettreport.com/mp3/flnwo22.mp3">Audio</a></p>
+      <p><img src="#{body}" alt="">On this edition of Film, Literature and the New World Order</p>
+      """
+
+      result = Composer.compose(html, %{image: featured, skip_classes: []})
+
+      assert result.image == featured
+      assert result.markdown =~ "On this edition of Film"
+      refute result.markdown =~ "scroogesquare"
+      refute result.markdown =~ "!["
+    end
+
+    test "keeps a same-named image that appears after the opening" do
+      featured = "https://corbettreport.com/wp-content/uploads/2014/12/scroogesquare.jpg"
+      body = "https://www.corbettreport.com/images/scroogesquare.jpg"
+
+      html = """
+      <p>On this edition of Film, Literature and the New World Order we discuss Dickens.</p>
+      <p><img src="#{body}" alt="Scrooge"></p>
+      """
+
+      result = Composer.compose(html, %{image: featured, skip_classes: []})
+
+      assert result.markdown =~ "scroogesquare"
+    end
+
     test "drops a leading body image that is the same asset as the featured image" do
       featured =
         "https://substackcdn.com/image/fetch/$s_!A5Ic!,w_1200,h_675,c_fill,f_jpg,q_auto:good/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F73510e44-7195-418e-aa14-9e863d228777_1280x512.jpeg"
@@ -174,6 +205,23 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert String.starts_with?(String.trim(result.markdown), "Lecture before the New Society")
       refute result.markdown =~ "Subscribe now"
       assert result.markdown =~ "hotel in Donetsk"
+    end
+
+    test "keeps a space after nested italic around a link through body extract" do
+      html = """
+      <div class="et_pb_column_0_tb_body">
+        <p>When you read <em><i><a href="https://example.com/book">Foucault’s Pendulum</a></i> </em>and saw</p>
+      </div>
+      """
+
+      result =
+        Composer.compose(html, %{
+          url: "https://www.corbettreport.com/umberto-ecos-foucaults-pendulum/",
+          skip_classes: []
+        })
+
+      assert result.markdown =~
+               "_[Foucault’s Pendulum](https://example.com/book)_ and saw"
     end
 
     test "uses the site body selector from the article URL when none is stored" do

@@ -6,6 +6,8 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
   * Word-style `#_ftnN` / `#_ednN` (and `*ref`) anchors become Markdown footnotes
   """
 
+  alias Rss2Nostr.Processing.HtmlToMarkdown
+
   @selector ".body.markup"
 
   @spec applies?(map()) :: boolean()
@@ -20,6 +22,8 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
   def preprocess(html) when html in [nil, ""], do: html
 
   def preprocess(html) when is_binary(html) do
+    html = HtmlToMarkdown.preserve_inline_spaces(html)
+
     case Floki.parse_document(html) do
       {:ok, doc} -> doc |> rewrite_nodes() |> Floki.raw_html()
       _ -> html

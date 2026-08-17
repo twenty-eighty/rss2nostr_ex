@@ -129,6 +129,8 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert articles =~ "Publish selected"
       assert articles =~ "Import now"
       assert articles =~ "Reprocess selected"
+      assert articles =~ "js-articles-bulk"
+      assert articles =~ ~s(js-articles-bulk" form="articles-bulk-form" disabled)
       assert articles =~ "select-all-articles"
       assert articles =~ "article-toolbar"
       assert articles =~ "js-upload-images"

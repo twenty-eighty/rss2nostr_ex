@@ -374,6 +374,37 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       assert preview.relays == ["wss://draft.example.com"]
     end
 
+    test "publishes kind 30023 when the source is an article even if the post type is 30024" do
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Switched Article Source",
+          url: "https://example.com/switched-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          publish_as: "article",
+          signing_nsec: @hex
+        })
+
+      url = "https://example.com/switched-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Was a draft",
+          content: "Body",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          status: Post.status_processed(),
+          type: 30024,
+          source_id: source.id
+        })
+
+      post = Posts.get_post(post.id, preload: [:source])
+      preview = Publisher.preview_event(post)
+
+      assert preview.event.kind == 30023
+      refute preview.draft
+    end
+
     test "leaves articles as plaintext kind 30023" do
       {:ok, source} =
         Sources.create_source(%{

@@ -402,10 +402,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
     if draft_kind?(post) do
       Event.kind_long_form_draft()
     else
-      case field(post, :type) do
-        kind when kind in [30023, 30024] -> kind
-        _ -> Event.kind_long_form()
-      end
+      Event.kind_long_form()
     end
   end
 

@@ -154,6 +154,8 @@ defmodule Rss2Nostr.Processing.Composer do
   def extract_body(html, selector) when selector in [nil, ""], do: {html, false}
 
   def extract_body(html, selector) when is_binary(html) and is_binary(selector) do
+    html = HtmlToMarkdown.preserve_inline_spaces(html)
+
     case Floki.parse_document(html) do
       {:ok, doc} ->
         case Floki.find(doc, selector) do
@@ -494,7 +496,7 @@ defmodule Rss2Nostr.Processing.Composer do
   end
 
   defp maybe_promote_leading_image(markdown, image) when is_binary(image) and image != "" do
-    case extract_leading_image(markdown) do
+    case extract_opening_image(markdown) do
       {leading, rest} when is_binary(leading) ->
         if same_image?(leading, image), do: {image, rest}, else: {image, markdown}
 
@@ -504,13 +506,14 @@ defmodule Rss2Nostr.Processing.Composer do
   end
 
   defp maybe_promote_leading_image(markdown, _image) when is_binary(markdown) do
-    extract_leading_image(markdown)
+    extract_opening_image(markdown)
   end
 
   defp maybe_promote_leading_image(markdown, _image), do: {nil, markdown}
 
   # og:image and the first body <img> are often the same file at different
-  # CDN sizes (Substack w_1200,c_fill vs w_1456,c_limit).
+  # CDN sizes (Substack w_1200,c_fill vs w_1456,c_limit) or paths
+  # (`/wp-content/uploads/…/scroogesquare.jpg` vs `/images/scroogesquare.jpg`).
   defp same_image?(left, right) do
     a = ImageExtractor.normalize_url(left)
     b = ImageExtractor.normalize_url(right)
@@ -531,29 +534,82 @@ defmodule Rss2Nostr.Processing.Composer do
     if String.contains?(name, "."), do: name, else: ""
   end
 
-  defp extract_leading_image(markdown) do
-    linked = ~r/^\[!\[[^\]]*\]\(([^"\)]+)(?:\s+"[^"]*")?\s*\)\]\([^\)]+\)/
-    bare = ~r/^!\[[^\]]*\]\(\s*([^"\)]+)(?:\s+"[^"]*")?\s*\)/
+  @linked_image ~r/\[!\[[^\]]*\]\(([^"\)]+)(?:\s+"[^"]*")?\s*\)\]\([^\)]+\)/
+  @bare_image ~r/!\[[^\]]*\]\(\s*([^"\)]+)(?:\s+"[^"]*")?\s*\)/
 
-    cond do
-      match = Regex.run(linked, markdown) ->
-        [full, url] = match
-        {url, strip_leading_image(markdown, full)}
+  # First body image if it is still in the opening: at the top, after
+  # only player/watch links, or at the start of the first prose paragraph.
+  defp extract_opening_image(markdown) when not is_binary(markdown), do: {nil, markdown}
 
-      match = Regex.run(bare, markdown) ->
-        [full, url] = match
-        {url, strip_leading_image(markdown, full)}
+  defp extract_opening_image(markdown) do
+    case first_image_match(markdown) do
+      {url, start, len} ->
+        prefix = binary_part(markdown, 0, start)
 
-      true ->
+        if opening_prefix?(prefix) do
+          {url, remove_image_at(markdown, start, len)}
+        else
+          {nil, markdown}
+        end
+
+      nil ->
         {nil, markdown}
     end
   end
 
-  defp strip_leading_image(markdown, matched) do
-    markdown
-    |> String.replace_prefix(matched, "")
-    |> then(&Regex.replace(~r/\A---+\s*/, &1, ""))
-    |> String.trim_leading()
+  defp first_image_match(markdown) do
+    linked = image_match(markdown, @linked_image)
+    bare = image_match(markdown, @bare_image)
+
+    cond do
+      linked && bare && elem(linked, 1) <= elem(bare, 1) -> linked
+      linked -> linked
+      bare -> bare
+      true -> nil
+    end
+  end
+
+  defp image_match(markdown, regex) do
+    case Regex.run(regex, markdown, return: :index) do
+      [{start, len} | captures] ->
+        url =
+          captures
+          |> Enum.find_value(fn
+            {pos, n} when n > 0 -> binary_part(markdown, pos, n)
+            _ -> nil
+          end)
+
+        if is_binary(url), do: {url, start, len}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp opening_prefix?(prefix) do
+    prefix
+    |> String.split(~r/\n{2,}/)
+    |> Enum.all?(&thin_opening_block?/1)
+  end
+
+  defp thin_opening_block?(block) do
+    trimmed = String.trim(block)
+    trimmed == "" or String.match?(trimmed, ~r/\A---+\z/) or lone_markdown_link?(trimmed)
+  end
+
+  defp lone_markdown_link?(text) do
+    String.match?(text, ~r/\A\[[^\]]+\]\([^)]+\)\s*\z/)
+  end
+
+  defp remove_image_at(markdown, start, len) do
+    {pre, rest} = String.split_at(markdown, start)
+    {_gone, post} = String.split_at(rest, len)
+
+    (pre <> post)
+    |> String.replace(~r/\n{3,}/, "\n\n")
+    |> then(fn joined ->
+      if String.trim(pre) == "", do: String.trim_leading(joined), else: joined
+    end)
   end
 
   defp meta_content(doc, selector) do

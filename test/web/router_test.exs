@@ -181,7 +181,9 @@ defmodule Rss2Nostr.Web.RouterTest do
       conn = call(conn(:get, "/api/status"), auth: false)
 
       assert conn.status == 401
-      assert Jason.decode!(conn.resp_body) == %{"error" => "unauthorized"}
+      assert Jason.decode!(conn.resp_body) == %{
+               "error" => "Session expired. Reload the page and sign in."
+             }
     end
   end
 

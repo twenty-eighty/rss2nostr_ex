@@ -6,7 +6,7 @@ defmodule Rss2Nostr.Processing.BodySchema do
   shows candidate regions and a "start here" list of opening lines.
   """
 
-  alias Rss2Nostr.Processing.Conversion
+  alias Rss2Nostr.Processing.{Conversion, HtmlToMarkdown}
 
   @url_schemas [
     {~r/(^|\.)substack\.com$/i, ".body.markup", "Substack article"},
@@ -139,6 +139,8 @@ defmodule Rss2Nostr.Processing.BodySchema do
   def apply_start_at(html, start_at) when html in [nil, ""] or start_at in [nil, ""], do: html
 
   def apply_start_at(html, start_at) when is_binary(html) and is_binary(start_at) do
+    html = HtmlToMarkdown.preserve_inline_spaces(html)
+
     case Floki.parse_document(html) do
       {:ok, doc} ->
         case drop_before(content_children(doc), start_at) do

@@ -78,19 +78,25 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     |> String.replace(~r/<script[^>]*>.*?<\/script>/is, "")
     |> String.replace(~r/<style[^>]*>.*?<\/style>/is, "")
     |> String.replace(~r/<!--.*?-->/s, "")
-    |> protect_inline_spaces()
+    |> preserve_inline_spaces()
   end
 
   # Floki drops ordinary spaces between inline tags and inside
   # `<span> </span>`. Keep them as `&nbsp;` so a real word space is
   # not lost, while a split word like `<em>V</em><em>ideo</em>` stays
-  # glued.
+  # glued. That includes a space before a closing parent
+  # (`</i> </em>and`), which would otherwise glue the next word.
+  #
+  # Call this before any Floki.parse + raw_html round-trip (body
+  # extract, site preprocess). Those run before convert/2 and would
+  # otherwise drop the space first.
   @inline_tags "em|i|strong|b|span|a|code|mark"
 
-  defp protect_inline_spaces(html) do
+  @spec preserve_inline_spaces(String.t()) :: String.t()
+  def preserve_inline_spaces(html) when is_binary(html) do
     html
     |> String.replace(
-      ~r/(<\/(?:#{@inline_tags})>)(\s+)(<(?:#{@inline_tags})\b)/i,
+      ~r/(<\/(?:#{@inline_tags})>)(\s+)(<\/?(?:#{@inline_tags})(?:\s[^>]*)?>)/i,
       "\\1&nbsp;\\3"
     )
     |> String.replace(
@@ -98,6 +104,8 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       "\\1&nbsp;\\3"
     )
   end
+
+  def preserve_inline_spaces(html), do: html
 
   # Process DOM nodes to Markdown
   defp process_nodes(nodes) when is_list(nodes) do
@@ -151,12 +159,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       "h5" -> "\n\n##### #{process_nodes(children)}\n\n"
       "h6" -> "\n\n###### #{process_nodes(children)}\n\n"
       # Inline formatting
-      "strong" -> wrap_inline(process_nodes(children), "**")
-      "b" -> wrap_inline(process_nodes(children), "**")
+      "strong" -> wrap_inline(process_nodes(unwrap_same_role(children, :strong)), "**")
+      "b" -> wrap_inline(process_nodes(unwrap_same_role(children, :strong)), "**")
       # Underscores so italic next to `**bold**` does not emit `***`,
-      # which CommonMark treats as one delimiter run.
-      "em" -> wrap_inline(process_nodes(children), "_")
-      "i" -> wrap_inline(process_nodes(children), "_")
+      # which CommonMark treats as one delimiter run. Nested <em><i>
+      # is the same role; wrapping twice emits `__text__` (bold).
+      "em" -> wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
+      "i" -> wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
       "code" -> "`#{process_nodes(children)}`"
       "pre" -> "\n\n```\n#{Floki.text(children)}\n```\n\n"
       "mark" -> wrap_inline(process_nodes(children), "==")
@@ -254,6 +263,23 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp inline_role(tag) when tag in ~w(em i), do: :em
   defp inline_role(tag) when tag in ~w(strong b), do: :strong
   defp inline_role(_), do: nil
+
+  # WordPress often wraps a link as <em><i>…</i> </em>. Both tags are
+  # italic; keep one marker pair so the space after the inner tag can
+  # sit outside `_…_` instead of becoming `__…__and`.
+  defp unwrap_same_role(children, role) do
+    Enum.flat_map(children, fn
+      {tag, attrs, inner} ->
+        if inline_role(tag) == role do
+          unwrap_same_role(inner, role)
+        else
+          [{tag, attrs, unwrap_same_role(inner, role)}]
+        end
+
+      other ->
+        [other]
+    end)
+  end
 
   defp whitespace_only?(text) when is_binary(text), do: String.match?(text, ~r/\A\s*\z/u)
   defp whitespace_only?(_), do: false

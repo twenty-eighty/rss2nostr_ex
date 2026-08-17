@@ -12,6 +12,11 @@ defmodule Rss2Nostr.Web.AuthTest do
     :ok
   end
 
+  test "session cookie lasts one day" do
+    assert Auth.session_max_age() == 86_400
+    assert Auth.session_opts()[:max_age] == 86_400
+  end
+
   test "pubkeys/0 reads the configured admin allowlist" do
     assert @admin_hex in Auth.pubkeys()
     assert Auth.allowed?(@admin_hex)

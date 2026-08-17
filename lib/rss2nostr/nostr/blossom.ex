@@ -1,8 +1,11 @@
 defmodule Rss2Nostr.Nostr.Blossom do
   @moduledoc """
-  Blossom blob storage (BUD-01 / BUD-02 / BUD-11).
+  Blossom blob storage (BUD-01 / BUD-02 / BUD-04 / BUD-11).
 
   Uploads images and audio with `PUT /upload` and a kind 24242 authorization event.
+  Blobs larger than 5MB that still have a public HTTPS origin are sent with
+  BUD-04 `PUT /mirror` so the server fetches the file itself. That avoids
+  inbound PUTs dying at a 60s proxy body timeout (HTTP 499 / EOF).
   This replaces NIP-96.
   """
 
@@ -14,11 +17,14 @@ defmodule Rss2Nostr.Nostr.Blossom do
   alias Rss2Nostr.Processing.ImageExtractor
 
   @kind_auth 24242
-  @auth_ttl_seconds 300
+  @auth_ttl_seconds 600
   @image_download_ms 30_000
   @audio_download_ms 180_000
   @image_upload_ms 60_000
   @audio_upload_ms 180_000
+  # Inbound PUTs through route96's proxy die at 60s. Larger blobs are
+  # mirrored (BUD-04) so the server fetches the origin URL itself.
+  @mirror_min_bytes 5_000_000
 
   @type upload_result :: %{
           url: String.t(),
@@ -91,6 +97,20 @@ defmodule Rss2Nostr.Nostr.Blossom do
       base
     else
       base <> "/upload"
+    end
+  end
+
+  @doc """
+  BUD-04 mirror URL for a server base.
+  """
+  @spec mirror_url(String.t()) :: String.t()
+  def mirror_url(server_url) do
+    base = server_url |> String.trim() |> String.trim_trailing("/")
+
+    cond do
+      String.ends_with?(base, "/mirror") -> base
+      String.ends_with?(base, "/upload") -> String.replace_suffix(base, "/upload", "/mirror")
+      true -> base <> "/mirror"
     end
   end
 
@@ -170,7 +190,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
     if is_nil(server) do
       {:error, :no_upload_endpoint}
     else
-      put_blob(server, data, sha256, content_type, signer)
+      store_blob(server, data, sha256, content_type, signer, opts)
     end
   end
 
@@ -425,8 +445,21 @@ defmodule Rss2Nostr.Nostr.Blossom do
       case HTTP.get(url, receive_timeout: download_timeout(url), retry: false) do
         {:ok, %{status: 200, body: data, headers: headers}} ->
           content_type = content_type_for(url, headers)
+
+          content_type =
+            if ImageExtractor.audio_url?(url) and not audio_content?(content_type) do
+              "audio/mpeg"
+            else
+              content_type
+            end
+
           filename = extract_filename(url, content_type)
-          opts = Keyword.put_new(opts, :content_type, content_type)
+
+          opts =
+            opts
+            |> Keyword.put_new(:content_type, content_type)
+            |> Keyword.put_new(:source_url, public_http_url(url))
+
           {:halt, upload_data(data, filename, opts)}
 
         {:ok, %{status: code}} ->
@@ -450,6 +483,8 @@ defmodule Rss2Nostr.Nostr.Blossom do
   end
 
   def parse_descriptor(%{"url" => url} = json) when is_binary(url) and url != "" do
+    url = familiar_blob_url(url)
+
     size =
       case json["size"] do
         n when is_integer(n) -> n
@@ -463,26 +498,95 @@ defmodule Rss2Nostr.Nostr.Blossom do
        sha256: json["sha256"],
        size: size,
        type: json["type"],
-       nip94: json["nip94"] || [],
+       nip94: rewrite_nip94_urls(json["nip94"] || []),
        dimensions: nil
      }}
   end
 
   def parse_descriptor(_), do: {:error, :unexpected_response}
 
+  defp store_blob(server, data, sha256, content_type, signer, opts) do
+    source_url = opts[:source_url] || opts["source_url"]
+
+    if mirrorable?(source_url, data) do
+      case mirror_blob(server, source_url, sha256, byte_size(data), signer) do
+        {:ok, _} = ok ->
+          ok
+
+        {:error, {:upload_failed, code, _}} when code in [404, 405] ->
+          Logger.warning("Blossom /mirror is unavailable (HTTP #{code}); falling back to PUT /upload")
+          put_blob(server, data, sha256, content_type, signer)
+
+        {:error, reason} ->
+          Logger.error("Blossom mirror failed: #{format_error(reason)}")
+          {:error, reason}
+      end
+    else
+      put_blob(server, data, sha256, content_type, signer)
+    end
+  end
+
+  defp mirrorable?(url, data) when is_binary(url) and url != "" do
+    byte_size(data) >= @mirror_min_bytes and String.starts_with?(url, "https://")
+  end
+
+  defp mirrorable?(_, _), do: false
+
+  defp public_http_url(url) when is_binary(url) do
+    String.replace_prefix(String.trim(url), "http://", "https://")
+  end
+
+  defp mirror_blob(server, source_url, sha256, byte_size, signer) do
+    with {:ok, auth_header} <- create_auth(signer, sha256, server) do
+      url = mirror_url(server)
+      timeout = upload_timeout("audio/mpeg", byte_size)
+      body = Jason.encode!(%{url: source_url})
+
+      Logger.info(
+        "Mirroring blob #{String.slice(sha256, 0, 12)}… #{format_bytes(byte_size)} " <>
+          "from #{source_url} timeout=#{timeout}ms to #{url}"
+      )
+
+      case HTTP.put(url,
+             headers: [
+               {"authorization", auth_header},
+               {"content-type", "application/json"}
+             ],
+             body: body,
+             receive_timeout: timeout,
+             retry: false
+           ) do
+        {:ok, %{status: code, body: resp}} when code in [200, 201] ->
+          parse_descriptor(resp)
+
+        {:ok, %{status: code, body: resp}} ->
+          Logger.error("Blossom mirror failed with status #{code}: #{resp}")
+          {:error, {:upload_failed, code, resp}}
+
+        {:error, exception} ->
+          {:error, {:upload_failed, exception}}
+      end
+    end
+  end
+
   defp put_blob(server, data, sha256, content_type, signer) do
     with {:ok, auth_header} <- create_auth(signer, sha256, server) do
       url = upload_url(server)
-      Logger.info("Uploading blob #{String.slice(sha256, 0, 12)}… to #{url}")
+      timeout = upload_timeout(content_type, byte_size(data))
+      Logger.info(
+        "Uploading blob #{String.slice(sha256, 0, 12)}… #{format_bytes(byte_size(data))} " <>
+          "#{normalize_content_type(content_type)} timeout=#{timeout}ms to #{url}"
+      )
 
       case HTTP.put(url,
              headers: [
                {"authorization", auth_header},
                {"content-type", normalize_content_type(content_type)},
+               {"content-length", Integer.to_string(byte_size(data))},
                {"x-sha-256", sha256}
              ],
              body: data,
-             receive_timeout: upload_timeout(content_type),
+             receive_timeout: timeout,
              retry: false
            ) do
         {:ok, %{status: code, body: body}} when code in [200, 201] ->
@@ -596,11 +700,55 @@ defmodule Rss2Nostr.Nostr.Blossom do
     if ImageExtractor.audio_url?(url), do: @audio_download_ms, else: @image_download_ms
   end
 
-  defp upload_timeout(content_type) when is_binary(content_type) do
-    if String.starts_with?(content_type, "audio/"), do: @audio_upload_ms, else: @image_upload_ms
+  # Finch's receive_timeout covers sending the body too. A fixed 60s
+  # abort is what route96 logged as "EOF before message length reached".
+  defp upload_timeout(content_type, byte_size) when is_integer(byte_size) and byte_size > 0 do
+    base =
+      if audio_content?(content_type) do
+        @audio_upload_ms
+      else
+        @image_upload_ms
+      end
+
+    # 60s slack + 2s per MB so a ~75MB MP3 is not cut off at 60s.
+    sized = @image_upload_ms + div(byte_size, 500_000) * 1_000
+    max(base, sized)
   end
 
-  defp upload_timeout(_), do: @image_upload_ms
+  defp upload_timeout(content_type, _byte_size), do: upload_timeout(content_type, 1)
+
+  defp audio_content?(type) when is_binary(type) do
+    String.starts_with?(normalize_content_type(type), "audio/")
+  end
+
+  defp audio_content?(_), do: false
+
+  # mime_guess maps audio/mpeg → .mpga. Blossom URLs are hash-addressed;
+  # the extension is only a hint, and .mp3 is what players and users expect.
+  defp familiar_blob_url(url) when is_binary(url) do
+    uri = URI.parse(url)
+    path = uri.path || ""
+    ext = Path.extname(path)
+
+    if String.downcase(ext) == ".mpga" do
+      URI.to_string(%{uri | path: String.replace_suffix(path, ext, ".mp3")})
+    else
+      url
+    end
+  end
+
+  defp rewrite_nip94_urls(tags) when is_list(tags) do
+    Enum.map(tags, fn
+      ["url", url] when is_binary(url) -> ["url", familiar_blob_url(url)]
+      other -> other
+    end)
+  end
+
+  defp rewrite_nip94_urls(_), do: []
+
+  defp format_bytes(n) when n >= 1_000_000, do: "#{Float.round(n / 1_000_000, 1)}MB"
+  defp format_bytes(n) when n >= 1_000, do: "#{div(n, 1_000)}KB"
+  defp format_bytes(n), do: "#{n}B"
 
   defp guess_content_type(file_path) do
     path =

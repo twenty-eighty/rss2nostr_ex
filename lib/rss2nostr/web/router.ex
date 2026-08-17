@@ -567,7 +567,10 @@ defmodule Rss2Nostr.Web.Router do
       api_path?(conn) ->
         conn
         |> put_resp_content_type("application/json")
-        |> send_resp(401, Jason.encode!(%{error: "unauthorized"}))
+        |> send_resp(
+          401,
+          Jason.encode!(%{error: "Session expired. Reload the page and sign in."})
+        )
         |> halt()
 
       true ->

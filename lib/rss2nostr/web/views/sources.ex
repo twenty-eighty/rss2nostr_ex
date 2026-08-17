@@ -343,9 +343,9 @@ defmodule Rss2Nostr.Web.Views.Sources do
       <form action="/sources/#{source.id}/import" method="POST">
         <button type="submit" class="btn btn-secondary">Import now</button>
       </form>
-      <button type="submit" class="btn btn-primary" form="articles-bulk-form">Publish selected</button>
-      <button type="submit" class="btn btn-secondary" form="articles-bulk-form"
-              formaction="/sources/#{source.id}/reprocess-selected">Reprocess selected</button>
+      <button type="submit" class="btn btn-primary js-articles-bulk" form="articles-bulk-form" disabled>Publish selected</button>
+      <button type="submit" class="btn btn-secondary js-articles-bulk" form="articles-bulk-form"
+              formaction="/sources/#{source.id}/reprocess-selected" disabled>Reprocess selected</button>
     </div>
     <p class="help-text">Selected staging articles publish to the #{relay_label}. Setup never uses the public list. Articles stay in pending images until featured and inline images are uploaded. Manual publish ignores the staging hold.</p>
     #{upload_forms(source, posts)}
@@ -395,12 +395,16 @@ defmodule Rss2Nostr.Web.Views.Sources do
       }
 
       function syncSelectAll() {
-        if (!selectAll) return;
         const boxes = Array.from(selectableBoxes());
-        selectAll.disabled = boxes.length === 0;
         const checked = boxes.filter(function (box) { return box.checked; }).length;
-        selectAll.checked = boxes.length > 0 && checked === boxes.length;
-        selectAll.indeterminate = checked > 0 && checked < boxes.length;
+        if (selectAll) {
+          selectAll.disabled = boxes.length === 0;
+          selectAll.checked = boxes.length > 0 && checked === boxes.length;
+          selectAll.indeterminate = checked > 0 && checked < boxes.length;
+        }
+        document.querySelectorAll(".js-articles-bulk").forEach(function (button) {
+          button.disabled = checked === 0;
+        });
       }
 
       if (selectAll) {
@@ -409,11 +413,14 @@ defmodule Rss2Nostr.Web.Views.Sources do
             box.checked = selectAll.checked;
           });
           selectAll.indeterminate = false;
+          syncSelectAll();
         });
         document.addEventListener("change", function (event) {
           if (event.target && event.target.name === "post_ids[]") syncSelectAll();
         });
       }
+
+      syncSelectAll();
 
       function statusClass(status) {
         switch (status) {

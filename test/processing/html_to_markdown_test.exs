@@ -116,6 +116,17 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert HtmlToMarkdown.convert("<p>before<em> foo </em>after</p>") == "before _foo_ after"
     end
 
+    test "keeps a space after nested italic around a link" do
+      html =
+        ~s(<p>When you read <em><i><a href="https://example.com/book">Foucault’s Pendulum</a></i> </em>and saw</p>)
+
+      assert HtmlToMarkdown.convert(html) ==
+               "When you read _[Foucault’s Pendulum](https://example.com/book)_ and saw"
+
+      html_preview = Markdown.to_html(HtmlToMarkdown.convert(html))
+      assert html_preview =~ ~r/Pendulum<\/a><\/em> and saw/
+    end
+
     test "moves spaces outside bold markers" do
       assert HtmlToMarkdown.convert("<p><strong>bold </strong>text</p>") == "**bold** text"
     end

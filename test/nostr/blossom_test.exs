@@ -53,6 +53,132 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
     end
   end
 
+  describe "mirror_url/1" do
+    test "appends /mirror" do
+      assert Blossom.mirror_url("https://cdn.example") == "https://cdn.example/mirror"
+      assert Blossom.mirror_url("https://cdn.example/") == "https://cdn.example/mirror"
+      assert Blossom.mirror_url("https://cdn.example/upload") == "https://cdn.example/mirror"
+      assert Blossom.mirror_url("https://cdn.example/mirror") == "https://cdn.example/mirror"
+    end
+  end
+
+  describe "upload_data/3 large-blob mirroring" do
+    @large_blob :crypto.strong_rand_bytes(5_000_000)
+    @small_blob :crypto.strong_rand_bytes(1024)
+
+    setup do
+      agent = start_supervised!({Agent, fn -> %{mode: :mirror_ok, requests: []} end})
+
+      bandit =
+        start_supervised!({Bandit, plug: {__MODULE__.MirrorStub, agent}, port: 0, ip: {127, 0, 0, 1}})
+
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+      %{agent: agent, server: "http://127.0.0.1:#{port}"}
+    end
+
+    test "mirrors blobs at or above 5MB instead of PUTting the body", %{agent: agent, server: server} do
+      assert {:ok, result} =
+               Blossom.upload_data(@large_blob, "episode.mp3",
+                 private_key: :crypto.strong_rand_bytes(32),
+                 server: server,
+                 content_type: "audio/mpeg",
+                 source_url: "https://www.corbettreport.com/mp3/flnwo02-hq.mp3"
+               )
+
+      assert result.url == "https://cdn.example/mirrored.mp3"
+      assert requests(agent) == [{"PUT", "/mirror"}]
+    end
+
+    test "PUTs small blobs even when a source URL is present", %{agent: agent, server: server} do
+      assert {:ok, _} =
+               Blossom.upload_data(@small_blob, "photo.jpg",
+                 private_key: :crypto.strong_rand_bytes(32),
+                 server: server,
+                 content_type: "image/jpeg",
+                 source_url: "https://example.com/photo.jpg"
+               )
+
+      assert requests(agent) == [{"PUT", "/upload"}]
+    end
+
+    test "falls back to PUT /upload only when /mirror is missing", %{agent: agent, server: server} do
+      Agent.update(agent, &Map.put(&1, :mode, :mirror_missing))
+
+      assert {:ok, _} =
+               Blossom.upload_data(@large_blob, "episode.mp3",
+                 private_key: :crypto.strong_rand_bytes(32),
+                 server: server,
+                 content_type: "audio/mpeg",
+                 source_url: "https://www.corbettreport.com/mp3/flnwo02-hq.mp3"
+               )
+
+      assert requests(agent) == [{"PUT", "/mirror"}, {"PUT", "/upload"}]
+    end
+
+    test "does not retry a 75MB PUT when /mirror fails for another reason", %{
+      agent: agent,
+      server: server
+    } do
+      Agent.update(agent, &Map.put(&1, :mode, :mirror_rejected))
+
+      assert {:error, {:upload_failed, 403, _}} =
+               Blossom.upload_data(@large_blob, "episode.mp3",
+                 private_key: :crypto.strong_rand_bytes(32),
+                 server: server,
+                 content_type: "audio/mpeg",
+                 source_url: "https://www.corbettreport.com/mp3/flnwo02-hq.mp3"
+               )
+
+      assert requests(agent) == [{"PUT", "/mirror"}]
+    end
+
+    defp requests(agent), do: Agent.get(agent, & &1.requests)
+  end
+
+  defmodule MirrorStub do
+    @moduledoc false
+    @behaviour Plug
+
+    def init(agent), do: agent
+
+    def call(conn, agent) do
+      {:ok, _body, conn} = Plug.Conn.read_body(conn)
+      mode = Agent.get(agent, & &1.mode)
+      Agent.update(agent, fn state -> %{state | requests: state.requests ++ [{conn.method, conn.request_path}]} end)
+
+      {status, body} =
+        case {conn.method, conn.request_path, mode} do
+          {"PUT", "/mirror", :mirror_ok} ->
+            {201, descriptor(conn)}
+
+          {"PUT", "/mirror", :mirror_missing} ->
+            {404, "not found"}
+
+          {"PUT", "/mirror", :mirror_rejected} ->
+            {403, "ssrf denied"}
+
+          {"PUT", "/upload", _} ->
+            {201, descriptor(conn)}
+
+          _ ->
+            {404, "no"}
+        end
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(status, body)
+    end
+
+    defp descriptor(_conn) do
+      Jason.encode!(%{
+        "url" => "https://cdn.example/mirrored.mp3",
+        "sha256" => "aa",
+        "size" => 1,
+        "type" => "audio/mpeg"
+      })
+    end
+  end
+
   describe "authorization_header/1" do
     test "uses Nostr scheme and standard Base64" do
       event = %{
@@ -103,6 +229,28 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
 
     test "rejects a payload without url" do
       assert {:error, :unexpected_response} = Blossom.parse_descriptor(%{"sha256" => "abc"})
+    end
+
+    test "rewrites audio/mpeg .mpga to .mp3" do
+      json = """
+      {
+        "url": "https://route96.example/0eb42dad883310df7bdea79b0e07a722c249740ce5d91e7cd09ec1bf29ee283d.mpga",
+        "sha256": "0eb42dad883310df7bdea79b0e07a722c249740ce5d91e7cd09ec1bf29ee283d",
+        "size": 49612024,
+        "type": "audio/mpeg",
+        "nip94": [
+          ["url", "https://route96.example/0eb42dad883310df7bdea79b0e07a722c249740ce5d91e7cd09ec1bf29ee283d.mpga"],
+          ["m", "audio/mpeg"]
+        ]
+      }
+      """
+
+      assert {:ok, result} = Blossom.parse_descriptor(json)
+      assert result.url == "https://route96.example/0eb42dad883310df7bdea79b0e07a722c249740ce5d91e7cd09ec1bf29ee283d.mp3"
+      assert result.nip94 == [
+               ["url", "https://route96.example/0eb42dad883310df7bdea79b0e07a722c249740ce5d91e7cd09ec1bf29ee283d.mp3"],
+               ["m", "audio/mpeg"]
+             ]
     end
 
     test "keeps a BUD-08 nip94 array" do

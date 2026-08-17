@@ -17,6 +17,8 @@ defmodule Rss2Nostr.Web.Auth do
   @event_max_age_seconds 120
   @session_pubkey :admin_pubkey
   @session_challenge :auth_challenge
+  @session_max_age 60 * 60 * 24
+  @secret_file ".secret_key_base"
   @content "rss2nostr-admin"
   @current_pubkey_key {__MODULE__, :pubkey}
 
@@ -53,10 +55,9 @@ defmodule Rss2Nostr.Web.Auth do
         secret
 
       _ ->
-        # Sessions reset on restart when SECRET_KEY_BASE is unset.
         case :persistent_term.get({__MODULE__, :secret_key_base}, nil) do
           nil ->
-            secret = Base.encode64(:crypto.strong_rand_bytes(48))
+            secret = read_or_create_secret_file()
             :persistent_term.put({__MODULE__, :secret_key_base}, secret)
             secret
 
@@ -66,6 +67,9 @@ defmodule Rss2Nostr.Web.Auth do
     end
   end
 
+  @spec session_max_age() :: pos_integer()
+  def session_max_age, do: @session_max_age
+
   @spec session_opts() :: keyword()
   def session_opts do
     [
@@ -74,8 +78,32 @@ defmodule Rss2Nostr.Web.Auth do
       signing_salt: "rss2nostr.auth",
       same_site: "Lax",
       http_only: true,
-      max_age: 60 * 60 * 24 * 7
+      max_age: @session_max_age
     ]
+  end
+
+  defp read_or_create_secret_file do
+    path = secret_file_path()
+
+    case File.read(path) do
+      {:ok, secret} ->
+        secret = String.trim(secret)
+        if byte_size(secret) >= 64, do: secret, else: write_secret_file(path)
+
+      _ ->
+        write_secret_file(path)
+    end
+  end
+
+  defp write_secret_file(path) do
+    secret = Base.encode64(:crypto.strong_rand_bytes(48))
+    File.write!(path, secret <> "\n")
+    secret
+  end
+
+  defp secret_file_path do
+    root = System.get_env("RELEASE_ROOT") || File.cwd!()
+    Path.join(root, @secret_file)
   end
 
   @spec put_current_pubkey(String.t() | nil) :: String.t() | nil

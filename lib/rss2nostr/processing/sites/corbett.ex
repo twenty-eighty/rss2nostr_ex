@@ -2,8 +2,8 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
   @moduledoc """
   Corbett Report HTML normalizations used before generic Markdown conversion.
 
-  * “WATCH ON:” rows become a heading plus one paragraph per remaining
-    platform link
+  * Short “Watch …” rows with video-platform links become a heading
+    plus one paragraph per remaining platform link
   * Links that already appear as an iframe embed (Odysee, YouTube, …)
     are omitted from that list
   """
@@ -24,6 +24,8 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
   def preprocess(html) when html in [nil, ""], do: html
 
   def preprocess(html) when is_binary(html) do
+    html = HtmlToMarkdown.preserve_inline_spaces(html)
+
     case Floki.parse_document(html) do
       {:ok, doc} ->
         embeds = iframe_watch_urls(doc)
@@ -82,12 +84,45 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
 
   defp expand_or_rewrite(other, _), do: [other]
 
+  # A lone "Watch the hearing:" show-note with one YouTube URL is not
+  # a platform row. Require a Watch-on phrase or two video hosts, and
+  # keep the paragraph short so prose does not match.
+  @watch_on_max_len 240
+  @video_hosts ~w(
+    youtube.com youtu.be odysee.com bitchute.com rumble.com
+    archive.org rokfin.com minds.com substack.com
+  )
+
   defp watch_on_row?({"p", _attrs, children}) do
-    text = children |> Floki.text() |> String.downcase()
-    String.match?(text, ~r/watch\s+on\s*:/) and Conversion.links(children) != []
+    text = children |> Floki.text() |> String.downcase() |> String.trim()
+    links = Conversion.links(children)
+
+    String.starts_with?(text, "watch") and links != [] and
+      String.length(text) <= @watch_on_max_len and
+      (watch_on_phrase?(text) or video_platform_count(links) >= 2)
   end
 
   defp watch_on_row?(_), do: false
+
+  defp watch_on_phrase?(text) do
+    String.match?(text, ~r/\Awatch(?:\s+\w+){0,4}\s+on(?:\s*:|\b)/u)
+  end
+
+  defp video_platform_count(links) do
+    Enum.count(links, fn {_text, href} -> video_platform_href?(href) end)
+  end
+
+  defp video_platform_href?(href) when is_binary(href) do
+    uri = URI.parse(href)
+    host = uri.host |> to_string() |> String.downcase()
+    path = uri.path |> to_string() |> String.downcase()
+
+    Enum.any?(@video_hosts, &String.contains?(host, &1)) or String.ends_with?(path, ".mp4")
+  rescue
+    _ -> false
+  end
+
+  defp video_platform_href?(_), do: false
 
   defp expand_watch_on(children, embeds) do
     links =
