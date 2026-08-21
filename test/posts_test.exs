@@ -351,6 +351,22 @@ defmodule Rss2Nostr.PostsTest do
       count = Posts.count_posts_by_status("new")
       assert count >= 1
     end
+
+    test "count_draft_cleaned/0 and count_draft_cleanup_candidates/0", %{source: source} do
+      cleaned_before = Posts.count_draft_cleaned()
+      pending_before = Posts.count_draft_cleanup_candidates()
+
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+      {:ok, published} = Posts.mark_published(post, "abc123", "def456", "naddr1...")
+
+      assert Posts.count_draft_cleanup_candidates() == pending_before + 1
+      assert Posts.count_draft_cleaned() == cleaned_before
+
+      {:ok, _} = Posts.mark_draft_cleaned(published)
+
+      assert Posts.count_draft_cleanup_candidates() == pending_before
+      assert Posts.count_draft_cleaned() == cleaned_before + 1
+    end
   end
 
   describe "exists_by_url_hash?/1" do

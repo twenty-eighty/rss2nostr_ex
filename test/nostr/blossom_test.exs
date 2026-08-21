@@ -456,6 +456,46 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       assert Enum.all?(images, &(&1.uploaded_url == uploaded))
     end
 
+    test "keeps the original video URL when the source does not mirror" do
+      put_upload_endpoint("https://route96.example")
+
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Original Video Source",
+          url: "https://example.com/video-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          publish_as: "video",
+          signing_nsec: "0000000000000000000000000000000000000000000000000000000000000001",
+          options: %{"mirror_media" => "original"}
+        })
+
+      url = "http://127.0.0.1:1/nwnw640.mp4"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "NWNW",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          content: "[Video](#{url} \"23:43 66928694\")\n\nThis week on NWNW.",
+          status: Post.status_pending_images(),
+          type: 34235,
+          source_id: source.id
+        })
+
+      {:ok, post, 1} = Rss2Nostr.Processing.ImageExtractor.extract_and_store(post)
+      {stamped, _mapping} = Blossom.stamp_hosted_images(post)
+
+      refute Blossom.pending_images?(stamped)
+      images = Posts.list_images_for_post(post.id)
+      assert Enum.all?(images, &(&1.uploaded_url == url))
+      imeta = hd(images).imeta
+      assert "url #{url}" in imeta
+      assert "m video/mp4" in imeta
+      assert "duration 1423" in imeta
+      assert "size 66928694" in imeta
+    end
+
     test "rewrites a markdown audio link after a hosted stamp" do
       put_upload_endpoint("https://route96.example")
 
@@ -476,7 +516,7 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
           title: "Already hosted audio",
           source_url: url,
           source_url_hash: Post.generate_url_hash(url),
-          content: "[Audio](#{audio})\n\nBody",
+          content: "[Audio](#{audio} \"45:12 49600123\")\n\nBody",
           status: Post.status_pending_images(),
           source_id: source.id
         })
@@ -489,6 +529,11 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
 
       images = Posts.list_images_for_post(post.id)
       assert Enum.all?(images, &(&1.uploaded_url == audio))
+      imeta = hd(images).imeta
+      assert "url #{audio}" in imeta
+      assert "m audio/mpeg" in imeta
+      assert "duration 2712" in imeta
+      assert "size 49600123" in imeta
     end
 
     test "skips posts without an image" do

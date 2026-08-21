@@ -16,11 +16,12 @@ defmodule Rss2Nostr.Nostr.Signer do
   @type signer :: {:private_key, binary()} | {:bunker, String.t()}
   @type open_signer :: {:private_key, binary()} | {:bunker, pid()}
 
-  @publish_as_values ~w(draft draft_plain article)
+  @publish_as_values ~w(draft draft_plain article video)
 
   @spec publish_as(Source.t() | map() | nil) :: String.t()
   def publish_as(%{publish_as: value}) when value in @publish_as_values, do: value
   def publish_as(%{default_post_kind: 30023}), do: "article"
+  def publish_as(%{default_post_kind: 34235}), do: "video"
   def publish_as(_), do: "draft"
 
   @spec draft?(Source.t() | map() | nil) :: boolean()
@@ -38,7 +39,7 @@ defmodule Rss2Nostr.Nostr.Signer do
 
   def resolve(%Source{} = source, opts) do
     case publish_as(source) do
-      "article" -> source_signer(source)
+      value when value in ["article", "video"] -> source_signer(source)
       value when value in ["draft", "draft_plain"] -> draft_signer(opts)
     end
   end

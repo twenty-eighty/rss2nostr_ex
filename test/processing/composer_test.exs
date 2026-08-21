@@ -120,6 +120,28 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert result.markdown =~ "scroogesquare"
     end
 
+    test "drops a featured-image duplicate after a short credit line" do
+      featured =
+        "https://substackcdn.com/image/fetch/$s_!SDk6!,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F6f8ea1c7-4a8c-46b2-a9f4-168fc6f98eb9_1254x1254.jpeg"
+
+      body =
+        "https://substack-post-media.s3.amazonaws.com/public/images/6f8ea1c7-4a8c-46b2-a9f4-168fc6f98eb9_1254x1254.jpeg"
+
+      html = """
+      <p>Von Martin Graf auf Facebook.</p>
+      <p><img src="#{body}" alt=""></p>
+      <p>Dieser wurde in den USA geboren und von einer Frau ausgetragen.</p>
+      """
+
+      result = Composer.compose(html, %{image: featured, skip_classes: []})
+
+      assert result.image == featured
+      assert result.markdown =~ "Von Martin Graf auf Facebook."
+      assert result.markdown =~ "Dieser wurde in den USA geboren"
+      refute result.markdown =~ "6f8ea1c7-4a8c-46b2-a9f4-168fc6f98eb9"
+      refute result.markdown =~ "!["
+    end
+
     test "drops a leading body image that is the same asset as the featured image" do
       featured =
         "https://substackcdn.com/image/fetch/$s_!A5Ic!,w_1200,h_675,c_fill,f_jpg,q_auto:good/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F73510e44-7195-418e-aa14-9e863d228777_1280x512.jpeg"
@@ -279,6 +301,36 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       opts = %{fetch_source_from: "content"}
 
       assert {:ok, "<p>Summary</p>", "feed"} = Composer.html_for_item(item, opts)
+    end
+
+    test "prefixes a video enclosure when the item has no page" do
+      item = %{
+        content: nil,
+        summary: "<p>This week on NWNW.</p>",
+        link: nil,
+        enclosure_url: "https://www.corbettreport.com/mp4/nwnw640.mp4",
+        duration: "23:43",
+        enclosure_length: 66_928_694
+      }
+
+      assert {:ok, html, "feed"} = Composer.html_for_item(item, %{fetch_source_from: "content"})
+      assert html =~ ~s(<a href="https://www.corbettreport.com/mp4/nwnw640.mp4" title="23:43 66928694">Video</a>)
+      assert html =~ "This week on NWNW."
+    end
+
+    test "prefixes an audio enclosure when the item has no page" do
+      item = %{
+        content: nil,
+        summary: "<p>Episode notes.</p>",
+        link: nil,
+        enclosure_url: "https://www.corbettreport.com/mp3/flnwo03.mp3",
+        duration: "45:12",
+        enclosure_length: 49_600_123
+      }
+
+      assert {:ok, html, "feed"} = Composer.html_for_item(item, %{fetch_source_from: "content"})
+      assert html =~ ~s(<a href="https://www.corbettreport.com/mp3/flnwo03.mp3" title="45:12 49600123">Audio</a>)
+      assert html =~ "Episode notes."
     end
   end
 

@@ -10,7 +10,7 @@ defmodule Rss2Nostr.Import.Importer do
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Import.{FeedFetcher, FeedParser, ItemIdentity}
-  alias Rss2Nostr.Processing.Composer
+  alias Rss2Nostr.Processing.{Composer, HtmlToMarkdown}
 
   @type import_result :: %{
           source: Source.t(),
@@ -102,7 +102,7 @@ defmodule Rss2Nostr.Import.Importer do
         Logger.debug("Skipping item without guid: #{item.title}")
         {:ok, :skipped, reached_start?}
 
-      ItemIdentity.media_without_page?(item) ->
+      ItemIdentity.media_without_page?(item) and not Source.video?(source) ->
         Logger.debug("Skipping media without page: #{item.title}")
         {:ok, :skipped, reached_start?}
 
@@ -178,12 +178,13 @@ defmodule Rss2Nostr.Import.Importer do
         article_identifier: item.guid,
         title: item.title,
         source_html: source_html,
-        source_url: item.link || ItemIdentity.page_url(item),
+        source_url:
+          ItemIdentity.page_url(item) || item.enclosure_url || item.link || item.guid,
         source_url_hash: url_hash,
         published_at: item.published_at,
         imported_at: DateTime.utc_now(),
         author_name: item.author,
-        summary: truncate_summary(item.summary),
+        summary: truncate_summary(HtmlToMarkdown.plain_summary(item.summary)),
         image: item.image,
         language: source.language,
         categories: item.categories || [],

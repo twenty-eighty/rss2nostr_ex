@@ -45,7 +45,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
     Output.info("  Import:  #{format_interval(intervals[:import] || :timer.minutes(15))}")
     Output.info("  Process: #{format_interval(intervals[:process] || :timer.minutes(5))}")
     Output.info("  Export:  #{format_interval(intervals[:export] || :timer.minutes(10))}")
-    Output.info("  Cleanup: #{format_interval(intervals[:cleanup] || :timer.hours(24))}")
+    Output.info("  Cleanup: #{format_interval(intervals[:cleanup] || :timer.hours(1))}")
     Output.info("")
     Output.info("Press Ctrl+C to stop")
     Output.info("")

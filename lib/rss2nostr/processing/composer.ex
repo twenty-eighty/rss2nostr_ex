@@ -4,7 +4,7 @@ defmodule Rss2Nostr.Processing.Composer do
   or the article page, using per-source composition settings.
   """
 
-  alias Rss2Nostr.Import.{FeedFetcher, FeedParser}
+  alias Rss2Nostr.Import.{FeedFetcher, FeedParser, ItemIdentity}
   alias Rss2Nostr.Nostr.Publisher
 
   alias Rss2Nostr.Processing.{
@@ -123,26 +123,24 @@ defmodule Rss2Nostr.Processing.Composer do
     feed_html = item_html(item)
     mode = opts.fetch_source_from
 
-    cond do
-      mode == "fetch_from_url" or blank?(feed_html) ->
-        case item_field(item, :link) do
-          nil ->
-            if blank?(feed_html) do
-              {:error, "Article has no URL or feed content"}
-            else
-              {:ok, feed_html, "feed"}
-            end
+    page = ItemIdentity.page_url(item)
 
-          url ->
-            case FeedFetcher.fetch_article(url) do
-              {:ok, html} -> {:ok, html, "url"}
-              {:error, reason} -> {:error, reason}
-            end
-        end
+    result =
+      cond do
+        is_binary(page) and (mode == "fetch_from_url" or blank?(feed_html)) ->
+          case FeedFetcher.fetch_article(page) do
+            {:ok, html} -> {:ok, html, "url"}
+            {:error, reason} -> {:error, reason}
+          end
 
-      true ->
-        {:ok, feed_html, "feed"}
-    end
+        not blank?(feed_html) ->
+          {:ok, feed_html, "feed"}
+
+        true ->
+          {:error, "Article has no URL or feed content"}
+      end
+
+    with_enclosure_html(result, item)
   end
 
   @doc """
@@ -228,7 +226,7 @@ defmodule Rss2Nostr.Processing.Composer do
       selector_matched: matched,
       title: opts.title || meta.title,
       image: image,
-      summary: opts.summary || meta.summary,
+      summary: HtmlToMarkdown.plain_summary(opts.summary || meta.summary),
       link_groups: Conversion.candidates(body, rules),
       body_regions: [],
       start_blocks: []
@@ -284,7 +282,9 @@ defmodule Rss2Nostr.Processing.Composer do
          {:ok, item} <- find_item(items, guid) do
       case html_for_item(item, opts) do
         {:ok, html, html_source} ->
-          article_url = item_field(item, :link) || url
+          article_url =
+            ItemIdentity.page_url(item) || item_field(item, :enclosure_url) ||
+              item_field(item, :link) || url
           selector = preview_selector(opts, params, article_url)
 
           composed =
@@ -297,7 +297,7 @@ defmodule Rss2Nostr.Processing.Composer do
               url: article_url,
               title: item_field(item, :title),
               image: item_field(item, :image),
-              summary: truncate_summary(item_field(item, :summary))
+              summary: truncate_summary(HtmlToMarkdown.plain_summary(item_field(item, :summary)))
             })
 
           {extracted, _} = extract_body(html, selector)
@@ -480,6 +480,61 @@ defmodule Rss2Nostr.Processing.Composer do
     end
   end
 
+  defp with_enclosure_html({:ok, html, source}, item) do
+    {:ok, enclosure_prefix(item, html) <> to_string(html || ""), source}
+  end
+
+  defp with_enclosure_html(other, _item), do: other
+
+  defp enclosure_prefix(item, html) do
+    url = item_field(item, :enclosure_url)
+    html = to_string(html || "")
+
+    cond do
+      ItemIdentity.page_url(item) ->
+        ""
+
+      blank?(url) ->
+        ""
+
+      String.contains?(html, url) ->
+        ""
+
+      ImageExtractor.video_url?(url) ->
+        title = enclosure_title(item)
+        title_attr = if title, do: ~s( title="#{html_attr(title)}"), else: ""
+        ~s(<p><a href="#{html_attr(url)}"#{title_attr}>Video</a></p>\n)
+
+      ImageExtractor.audio_url?(url) ->
+        title = enclosure_title(item)
+        title_attr = if title, do: ~s( title="#{html_attr(title)}"), else: ""
+        ~s(<p><a href="#{html_attr(url)}"#{title_attr}>Audio</a></p>\n)
+
+      true ->
+        ""
+    end
+  end
+
+  defp enclosure_title(item) do
+    parts =
+      [item_field(item, :duration), item_field(item, :enclosure_length)]
+      |> Enum.map(&to_string_or_nil/1)
+      |> Enum.reject(&is_nil/1)
+
+    if parts == [], do: nil, else: Enum.join(parts, " ")
+  end
+
+  defp to_string_or_nil(value) when is_integer(value) and value > 0, do: Integer.to_string(value)
+  defp to_string_or_nil(value) when is_binary(value) and value != "", do: value
+  defp to_string_or_nil(_), do: nil
+
+  defp html_attr(value) when is_binary(value) do
+    value
+    |> String.replace("&", "&amp;")
+    |> String.replace("\"", "&quot;")
+    |> String.replace("<", "&lt;")
+  end
+
   defp item_html(item) do
     content = item_field(item, :content)
     summary = item_field(item, :summary)
@@ -538,7 +593,9 @@ defmodule Rss2Nostr.Processing.Composer do
   @bare_image ~r/!\[[^\]]*\]\(\s*([^"\)]+)(?:\s+"[^"]*")?\s*\)/
 
   # First body image if it is still in the opening: at the top, after
-  # only player/watch links, or at the start of the first prose paragraph.
+  # player/watch links, a short credit line, or at the start of the
+  # first prose paragraph. Substack often repeats the cover after
+  # “By …” / “Von … auf Facebook.”
   defp extract_opening_image(markdown) when not is_binary(markdown), do: {nil, markdown}
 
   defp extract_opening_image(markdown) do
@@ -594,7 +651,18 @@ defmodule Rss2Nostr.Processing.Composer do
 
   defp thin_opening_block?(block) do
     trimmed = String.trim(block)
-    trimmed == "" or String.match?(trimmed, ~r/\A---+\z/) or lone_markdown_link?(trimmed)
+
+    trimmed == "" or String.match?(trimmed, ~r/\A---+\z/) or lone_markdown_link?(trimmed) or
+      short_credit?(trimmed)
+  end
+
+  # One short line (attribution, kicker) is still “opening”, unlike a
+  # real first paragraph. Word count keeps “Von X auf Facebook.” thin
+  # and “On this edition of Film, Literature …” substantial.
+  defp short_credit?(text) do
+    not String.contains?(text, "![") and
+      not String.contains?(text, "\n") and
+      length(String.split(text, ~r/\s+/, trim: true)) <= 10
   end
 
   defp lone_markdown_link?(text) do

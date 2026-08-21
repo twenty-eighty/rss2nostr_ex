@@ -9,7 +9,7 @@ defmodule Rss2Nostr.Sources.Source do
 
   @type_values ~w(rss atom)
   @mode_values ~w(setup automated)
-  @publish_as_values ~w(draft draft_plain article)
+  @publish_as_values ~w(draft draft_plain article video)
 
   @type t :: %__MODULE__{}
 
@@ -73,7 +73,7 @@ defmodule Rss2Nostr.Sources.Source do
     |> validate_inclusion(:type, @type_values)
     |> validate_inclusion(:mode, @mode_values)
     |> validate_inclusion(:publish_as, @publish_as_values)
-    |> validate_inclusion(:default_post_kind, [30023, 30024])
+    |> validate_inclusion(:default_post_kind, [30023, 30024, 34235])
     |> validate_inclusion(:fetch_source_from, ~w(content fetch_from_url))
     |> normalize_pubkey()
     |> normalize_notify_pubkey()
@@ -92,6 +92,33 @@ defmodule Rss2Nostr.Sources.Source do
   @spec automated?(t() | map() | nil) :: boolean()
   def automated?(%{mode: "automated"}), do: true
   def automated?(_), do: false
+
+  @spec video?(t() | map() | nil) :: boolean()
+  def video?(%{publish_as: "video"}), do: true
+  def video?(%{default_post_kind: 34235}), do: true
+  def video?(_), do: false
+
+  @doc """
+  True when video files should be uploaded to Blossom.
+
+  `options["mirror_media"]` of `"original"` (or false) keeps the feed URL
+  in the Nostr event instead.
+  """
+  @spec mirror_media?(t() | map() | nil) :: boolean()
+  def mirror_media?(source) when is_map(source) do
+    case option(source, "mirror_media") do
+      value when value in [false, "false", "original", "0"] -> false
+      _ -> true
+    end
+  end
+
+  def mirror_media?(_), do: true
+
+  defp option(%{options: options}, key) when is_map(options) do
+    Map.get(options, key) || Map.get(options, String.to_atom(key))
+  end
+
+  defp option(_, _), do: nil
 
   defp normalize_hashtag_attrs(attrs) when is_map(attrs) do
     cond do
@@ -156,6 +183,9 @@ defmodule Rss2Nostr.Sources.Source do
       "article" ->
         put_change(changeset, :default_post_kind, 30023)
 
+      "video" ->
+        put_change(changeset, :default_post_kind, 34235)
+
       value when value in ["draft", "draft_plain"] ->
         put_change(changeset, :default_post_kind, 30024)
 
@@ -171,7 +201,7 @@ defmodule Rss2Nostr.Sources.Source do
           changeset
           |> validate_required([:pubkey], message: "is required for drafts")
 
-        "article" ->
+        value when value in ["article", "video"] ->
           validate_article_signer(changeset)
 
         _ ->
@@ -195,7 +225,7 @@ defmodule Rss2Nostr.Sources.Source do
     if present?(nsec) or present?(cipher) or present?(bunker) do
       changeset
     else
-      add_error(changeset, :signing_nsec, "or a bunker URL is required for articles")
+      add_error(changeset, :signing_nsec, "or a bunker URL is required for articles and videos")
     end
   end
 

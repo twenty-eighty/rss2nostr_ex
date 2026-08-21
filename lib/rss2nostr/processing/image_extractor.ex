@@ -1,7 +1,7 @@
 defmodule Rss2Nostr.Processing.ImageExtractor do
   @moduledoc """
-  Extracts images and audio file links from Markdown and stores them
-  for later Blossom upload.
+  Extracts images, audio, and video file links from Markdown and stores
+  them for later Blossom upload.
   """
 
   require Logger
@@ -10,6 +10,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   alias Rss2Nostr.Posts.Post
 
   @audio_ext ~w(mp3 m4a aac ogg opus wav)
+  @video_ext ~w(mp4 m4v webm mov mkv)
 
   @type image_info :: %{url: String.t(), alt: String.t(), caption: String.t() | nil}
 
@@ -21,7 +22,9 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   def extract_and_store(%Post{} = post) do
     post = post |> repair_post_urls() |> Posts.preload_images()
     known = known_image_urls(post)
-    images = extract_images(post.content, post.image) ++ extract_audio(post.content)
+    images =
+      extract_images(post.content, post.image) ++
+        extract_audio(post.content) ++ extract_video(post.content)
 
     created =
       Enum.reduce(images, 0, fn image, count ->
@@ -127,6 +130,14 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   @spec extract_markdown_audio(String.t() | any()) :: [image_info()]
   def extract_markdown_audio(markdown) when is_binary(markdown) do
+    markdown
+    |> extract_markdown_links()
+    |> Enum.filter(&audio_url?(&1.url))
+  end
+
+  def extract_markdown_audio(_), do: []
+
+  defp extract_markdown_links(markdown) when is_binary(markdown) do
     pattern = ~r/(?<!!)\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/
 
     Regex.scan(pattern, markdown)
@@ -137,30 +148,103 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
       [_full, alt, url] ->
         %{url: String.trim(url), alt: String.trim(alt), caption: nil}
     end)
-    |> Enum.filter(&audio_url?(&1.url))
   end
-
-  def extract_markdown_audio(_), do: []
 
   @doc """
   True when `url` points at an audio file (by path extension).
   """
   @spec audio_url?(String.t() | nil) :: boolean()
   def audio_url?(url) when is_binary(url) do
-    ext =
-      url
-      |> String.trim()
-      |> URI.parse()
-      |> Map.get(:path, "")
-      |> to_string()
-      |> Path.extname()
-      |> String.downcase()
-      |> String.trim_leading(".")
-
-    ext in @audio_ext
+    path_ext(url) in @audio_ext
   end
 
   def audio_url?(_), do: false
+
+  @doc """
+  Video file URLs from Markdown links such as `[Video](https://…/episode.mp4)`.
+  """
+  @spec extract_video(String.t() | nil) :: [image_info()]
+  def extract_video(content) when is_binary(content) do
+    content
+    |> extract_markdown_links()
+    |> Enum.map(fn item -> %{item | url: normalize_url(item.url)} end)
+    |> Enum.uniq_by(& &1.url)
+    |> Enum.filter(&video_url?(&1.url))
+    |> Enum.filter(&valid_image_url?(&1.url))
+  end
+
+  def extract_video(_), do: []
+
+  @doc """
+  True when `url` points at a video file (by path extension).
+  """
+  @spec video_url?(String.t() | nil) :: boolean()
+  def video_url?(url) when is_binary(url) do
+    path_ext(url) in @video_ext
+  end
+
+  def video_url?(_), do: false
+
+  @doc """
+  Duration and optional byte size from a markdown title / RSS caption.
+
+  Accepts `23:43`, `01:15:39`, a second count, and an optional enclosure
+  length: `"23:43 66928694"`.
+  """
+  @spec parse_media_caption(String.t() | nil) :: %{duration: integer() | nil, size: integer() | nil}
+  def parse_media_caption(caption) when is_binary(caption) do
+    tokens = String.split(caption, ~r/\s+/, trim: true)
+    {clocks, rest} = Enum.split_with(tokens, &String.contains?(&1, ":"))
+
+    duration =
+      clocks
+      |> List.first()
+      |> clock_to_seconds()
+
+    integers =
+      Enum.flat_map(rest, fn token ->
+        case Integer.parse(token) do
+          {n, ""} when n > 0 -> [n]
+          _ -> []
+        end
+      end)
+
+    {sizes, seconds} = Enum.split_with(integers, &(&1 >= 10_000))
+
+    %{
+      duration: duration || List.first(seconds),
+      size: List.first(sizes)
+    }
+  end
+
+  def parse_media_caption(_), do: %{duration: nil, size: nil}
+
+  @doc """
+  Parses `HH:MM:SS`, `MM:SS`, or a raw second count from RSS/iTunes.
+  """
+  @spec clock_to_seconds(String.t() | nil) :: integer() | nil
+  def clock_to_seconds(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" ->
+        nil
+
+      String.match?(trimmed, ~r/^\d+$/) ->
+        String.to_integer(trimmed)
+
+      String.match?(trimmed, ~r/^\d+:\d{1,2}(:\d{1,2})?$/) ->
+        trimmed
+        |> String.split(":")
+        |> Enum.map(&String.to_integer/1)
+        |> Enum.reduce(0, fn part, acc -> acc * 60 + part end)
+
+      true ->
+        parse_media_caption(trimmed).duration
+    end
+  end
+
+  def clock_to_seconds(_), do: nil
 
   @doc """
   Replaces image URLs in Markdown content with new URLs.
@@ -278,6 +362,17 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
       _ ->
         url
     end
+  end
+
+  defp path_ext(url) when is_binary(url) do
+    url
+    |> String.trim()
+    |> URI.parse()
+    |> Map.get(:path, "")
+    |> to_string()
+    |> Path.extname()
+    |> String.downcase()
+    |> String.trim_leading(".")
   end
 
   defp valid_image_url?(nil), do: false

@@ -3,6 +3,7 @@ defmodule Rss2Nostr.Nostr.Event do
   Nostr event builder with support for:
   - Kind 1: Short text notes
   - Kind 30023: Long-form content (NIP-23)
+  - Kind 34235: Addressable video (NIP-71)
   - Kind 31234: Encrypted draft wraps (NIP-37)
   """
 
@@ -13,6 +14,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @kind_deletion 5
   @kind_long_form 30023
   @kind_long_form_draft 30024
+  @kind_video 34235
   @kind_draft_wrap 31234
   @draft_ttl_seconds 90 * 24 * 60 * 60
   @max_draft_plaintext_size 65_535
@@ -66,7 +68,7 @@ defmodule Rss2Nostr.Nostr.Event do
 
     tags =
       [["d", identifier], ["title", title]]
-      |> maybe_tag("summary", summary)
+      |> maybe_summary_or_alt(kind, summary)
       |> maybe_tag("image", image)
       |> maybe_published_at(published_at)
       |> maybe_hashtag_tags(hashtags)
@@ -275,6 +277,9 @@ defmodule Rss2Nostr.Nostr.Event do
   @spec kind_long_form_draft() :: integer()
   def kind_long_form_draft, do: @kind_long_form_draft
 
+  @spec kind_video() :: integer()
+  def kind_video, do: @kind_video
+
   @spec kind_draft_wrap() :: integer()
   def kind_draft_wrap, do: @kind_draft_wrap
 
@@ -383,6 +388,9 @@ defmodule Rss2Nostr.Nostr.Event do
       {:error, _} -> 0
     end
   end
+
+  defp maybe_summary_or_alt(tags, @kind_video, summary), do: maybe_tag(tags, "alt", summary)
+  defp maybe_summary_or_alt(tags, _kind, summary), do: maybe_tag(tags, "summary", summary)
 
   defp maybe_tag(tags, _name, value) when value in [nil, ""], do: tags
   defp maybe_tag(tags, name, value) when is_binary(value), do: tags ++ [[name, value]]

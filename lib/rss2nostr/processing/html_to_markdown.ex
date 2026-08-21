@@ -52,18 +52,22 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   def convert(html, opts) when is_binary(html) do
     skip = Keyword.get(opts, :skip_classes, @default_skip_classes)
     rules = Keyword.get(opts, :conversion_rules, [])
+    permalink = soundcloud_permalink(html)
     Process.put({__MODULE__, :skip_classes}, normalize_skip_classes(skip))
     Process.put({__MODULE__, :conversion_rules}, rules)
+    Process.put({__MODULE__, :soundcloud_permalink}, permalink)
 
     try do
       html
       |> preprocess_html()
       |> Floki.parse_document!()
       |> process_nodes()
+      |> maybe_prepend_soundcloud(permalink)
       |> postprocess_markdown()
     after
       Process.delete({__MODULE__, :skip_classes})
       Process.delete({__MODULE__, :conversion_rules})
+      Process.delete({__MODULE__, :soundcloud_permalink})
     end
   rescue
     e ->
@@ -71,6 +75,43 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       # Fallback: strip HTML tags
       html |> Floki.parse_document!() |> Floki.text()
   end
+
+  @doc """
+  SoundCloud track permalink from raw HTML.
+
+  Scripts are stripped before conversion, so this runs on the original
+  markup. Prefers `__sc_hydration` `permalink_url`, then a
+  `soundcloud.com/user/track` page URL, then the player iframe `url`
+  query (often `api.soundcloud.com/tracks/...`).
+  """
+  @spec soundcloud_permalink(String.t()) :: String.t() | nil
+  def soundcloud_permalink(html) when is_binary(html) do
+    hydration_permalink(html) ||
+      List.first(track_permalinks_in_html(html)) ||
+      player_inner_url(html)
+  end
+
+  def soundcloud_permalink(_), do: nil
+
+  @doc """
+  Plain-text teaser for a NIP-23 summary tag.
+
+  RSS `<description>` often includes HTML (iframes, SoundCloud widget
+  chrome). Tags are stripped, embeds dropped, and whitespace collapsed
+  like the PHP importer's `stripHtml`.
+  """
+  @spec plain_summary(String.t() | nil) :: String.t() | nil
+  def plain_summary(nil), do: nil
+  def plain_summary(""), do: nil
+
+  def plain_summary(text) when is_binary(text) do
+    text
+    |> strip_summary_html()
+    |> collapse_summary_whitespace()
+    |> blank_to_nil()
+  end
+
+  def plain_summary(_), do: nil
 
   # Preprocess HTML before parsing
   defp preprocess_html(html) do
@@ -324,6 +365,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       String.contains?(String.downcase(class), "pullquote") ->
         process_blockquote(children)
 
+      soundcloud_widget_div?(children) ->
+        ""
+
       true ->
         process_nodes(children)
     end
@@ -343,6 +387,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       discard_link?(href) ->
         ""
 
+      soundcloud_widget_chrome?(href) ->
+        ""
+
       true ->
         text = process_nodes(children) |> String.trim()
         clean_href = remove_tracking_params(href)
@@ -350,7 +397,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         if text == "" do
           clean_href
         else
-          "[#{text}](#{clean_href})"
+          markdown_media_link(text, clean_href, get_attr(attrs, "title"))
         end
     end
   end
@@ -603,7 +650,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         process_podbean_iframe(src)
 
       String.contains?(src, "soundcloud.com") ->
-        "\n\n[Listen on SoundCloud](#{src})\n\n"
+        url =
+          Process.get({__MODULE__, :soundcloud_permalink}) ||
+            permalink_from_player(src) ||
+            src
+
+        soundcloud_listen_markdown(url)
 
       watch = embed_watch_url(src) ->
         "\n\n[Watch on #{platform_label(watch)}](#{watch})\n\n"
@@ -821,6 +873,173 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end
   end
 
+  defp soundcloud_listen_markdown(url) when is_binary(url) and url != "" do
+    "\n\n[Listen on SoundCloud](#{url})\n\n"
+  end
+
+  defp soundcloud_listen_markdown(_), do: ""
+
+  defp maybe_prepend_soundcloud(markdown, permalink) when is_binary(permalink) do
+    if String.contains?(markdown, permalink) do
+      markdown
+    else
+      "[Listen on SoundCloud](#{permalink})\n\n" <> markdown
+    end
+  end
+
+  defp maybe_prepend_soundcloud(markdown, _), do: markdown
+
+  defp hydration_permalink(html) do
+    case Regex.run(~r/window\.__sc_hydration\s*=\s*(\[.*?\])\s*;?/s, html) do
+      [_, json] ->
+        case Jason.decode(json) do
+          {:ok, entries} when is_list(entries) ->
+            Enum.find_value(entries, &hydration_sound_url/1)
+
+          _ ->
+            nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp hydration_sound_url(%{"hydratable" => "sound", "data" => %{"permalink_url" => url}})
+       when is_binary(url) and url != "" do
+    url
+  end
+
+  defp hydration_sound_url(_), do: nil
+
+  defp track_permalinks_in_html(html) do
+    ~r/https?:\/\/(?:www\.)?soundcloud\.com\/[^\s"'<>]+/i
+    |> Regex.scan(html)
+    |> List.flatten()
+    |> Enum.map(&trim_url_punct/1)
+    |> Enum.filter(&track_permalink?/1)
+    |> Enum.uniq()
+  end
+
+  defp player_inner_url(html) do
+    html
+    |> soundcloud_player_srcs()
+    |> Enum.find_value(&permalink_from_player/1)
+  end
+
+  defp soundcloud_player_srcs(html) do
+    case Floki.parse_document(html) do
+      {:ok, doc} ->
+        doc
+        |> Floki.find("iframe")
+        |> Enum.flat_map(fn iframe ->
+          [
+            iframe |> Floki.attribute("src") |> List.first(),
+            iframe |> Floki.attribute("data-src") |> List.first()
+          ]
+        end)
+        |> Enum.filter(&(is_binary(&1) and String.contains?(&1, "w.soundcloud.com/player")))
+
+      _ ->
+        []
+    end
+  end
+
+  defp permalink_from_player(src) when is_binary(src) do
+    src = String.replace(src, "&amp;", "&")
+
+    query =
+      src
+      |> URI.parse()
+      |> Map.get(:query)
+      |> to_string()
+      |> URI.decode_query()
+
+    case query["url"] do
+      url when is_binary(url) and url != "" ->
+        if soundcloud_host?(url), do: url
+
+      _ ->
+        nil
+    end
+  end
+
+  defp permalink_from_player(_), do: nil
+
+  defp track_permalink?(url) when is_binary(url) do
+    uri = URI.parse(url)
+    host = uri.host |> to_string() |> String.downcase()
+    segments = (uri.path || "") |> String.split("/", trim: true)
+
+    host in ["soundcloud.com", "www.soundcloud.com"] and
+      length(segments) >= 2 and
+      hd(segments) not in ~w(you pages discover stream search groups signin login)
+  end
+
+  defp track_permalink?(_), do: false
+
+  defp soundcloud_host?(url) when is_binary(url) do
+    host = url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
+    host == "soundcloud.com" or String.ends_with?(host, ".soundcloud.com")
+  end
+
+  defp soundcloud_host?(_), do: false
+
+  defp soundcloud_widget_chrome?(href) do
+    case Process.get({__MODULE__, :soundcloud_permalink}) do
+      permalink when is_binary(permalink) ->
+        soundcloud_host?(href) and
+          (same_soundcloud_url?(href, permalink) or soundcloud_profile_of?(href, permalink))
+
+      _ ->
+        false
+    end
+  end
+
+  defp soundcloud_widget_div?(children) do
+    case Process.get({__MODULE__, :soundcloud_permalink}) do
+      permalink when is_binary(permalink) ->
+        anchors = collect_anchors(children)
+        anchors != [] and Enum.all?(anchors, &soundcloud_widget_chrome?(get_attr(&1, "href")))
+
+      _ ->
+        false
+    end
+  end
+
+  defp collect_anchors(nodes) when is_list(nodes), do: Enum.flat_map(nodes, &collect_anchors/1)
+  defp collect_anchors({"a", attrs, _}), do: [attrs]
+  defp collect_anchors({_, _, children}) when is_list(children), do: collect_anchors(children)
+  defp collect_anchors(_), do: []
+
+  defp same_soundcloud_url?(a, b) do
+    normalize_soundcloud_url(a) == normalize_soundcloud_url(b)
+  end
+
+  defp soundcloud_profile_of?(href, permalink) do
+    href_path =
+      href |> URI.parse() |> Map.get(:path) |> to_string() |> String.split("/", trim: true)
+
+    perm_path =
+      permalink |> URI.parse() |> Map.get(:path) |> to_string() |> String.split("/", trim: true)
+
+    case href_path do
+      [user] -> match?([^user | _], perm_path)
+      _ -> false
+    end
+  end
+
+  defp normalize_soundcloud_url(url) do
+    uri = URI.parse(url)
+    host = uri.host |> to_string() |> String.downcase() |> String.replace_prefix("www.", "")
+    path = uri.path |> to_string() |> String.trim_trailing("/")
+    "https://#{host}#{path}"
+  end
+
+  defp trim_url_punct(url) do
+    String.replace(url, ~r/[\.,;:)\]]+$/, "")
+  end
+
   # Process YouTube div with data-attrs
   defp process_youtube_div(attrs, _children) do
     data_attrs = get_attr(attrs, "data-attrs", "")
@@ -961,6 +1180,25 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   defp normalize_skip_classes(_), do: @default_skip_classes
 
+  defp markdown_media_link(text, href, title) do
+    if media_file_url?(href) and present_title?(title) do
+      ~s|[#{text}](#{href} "#{escape_md_title(title)}")|
+    else
+      "[#{text}](#{href})"
+    end
+  end
+
+  defp media_file_url?(href) do
+    ImageExtractor.audio_url?(href) or ImageExtractor.video_url?(href)
+  end
+
+  defp present_title?(title) when is_binary(title), do: String.trim(title) != ""
+  defp present_title?(_), do: false
+
+  defp escape_md_title(title) do
+    String.replace(title, "\"", "'")
+  end
+
   defp relative_path?(href) do
     String.starts_with?(href, "/") and not String.starts_with?(href, "//")
   end
@@ -1019,5 +1257,136 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       {tag, _, _} -> tag in tags
       _ -> false
     end)
+  end
+
+  defp strip_summary_html(text) do
+    if html_fragment?(text) do
+      case parse_summary_html(text) do
+        {:ok, nodes} ->
+          nodes
+          |> filter_summary_nodes()
+          |> Floki.text(sep: " ")
+
+        _ ->
+          text
+      end
+    else
+      text
+    end
+  end
+
+  defp parse_summary_html(text) do
+    case Floki.parse_fragment(text) do
+      {:ok, nodes} -> {:ok, nodes}
+      _ -> Floki.parse_document(text)
+    end
+  end
+
+  defp html_fragment?(text) do
+    String.contains?(text, "<") and Regex.match?(~r/<\/?[a-zA-Z]/, text)
+  end
+
+  defp filter_summary_nodes(nodes) when is_list(nodes) do
+    Enum.flat_map(nodes, &filter_summary_node/1)
+  end
+
+  defp filter_summary_node(node) do
+    case node do
+      {tag, _, _} when tag in ["iframe", "script", "style", "noscript"] ->
+        []
+
+      {tag, attrs, children} ->
+        if summary_chrome_node?({tag, attrs, children}) do
+          []
+        else
+          [{tag, attrs, filter_summary_nodes(children)}]
+        end
+
+      other ->
+        [other]
+    end
+  end
+
+  defp summary_chrome_node?({tag, attrs, children}) do
+    style = attrs |> get_attr("style", "") |> String.downcase()
+    hrefs = collect_hrefs(children)
+    soundcloud_links? = hrefs != [] and Enum.all?(hrefs, &soundcloud_host?/1)
+
+    cond do
+      not soundcloud_links? ->
+        false
+
+      String.contains?(style, "font-size: 10px") or String.contains?(style, "font-size:10px") ->
+        true
+
+      tag in ["div", "span"] and not has_paragraph?(children) and chrome_only_text?(children) ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp chrome_only_text?(children) do
+    text =
+      children
+      |> Floki.text()
+      |> String.replace("·", " ")
+      |> String.replace(~r/\s+/u, " ")
+      |> String.trim()
+
+    labels =
+      children
+      |> collect_anchor_nodes()
+      |> Enum.map(&Floki.text/1)
+      |> Enum.join(" ")
+      |> String.replace(~r/\s+/u, " ")
+      |> String.trim()
+
+    text == "" or text == labels
+  end
+
+  defp collect_hrefs(nodes) do
+    nodes
+    |> collect_anchor_nodes()
+    |> Enum.map(fn {"a", attrs, _} -> get_attr(attrs, "href") end)
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+  end
+
+  defp collect_anchor_nodes(nodes) when is_list(nodes),
+    do: Enum.flat_map(nodes, &collect_anchor_nodes/1)
+
+  defp collect_anchor_nodes({"a", _, _} = node), do: [node]
+
+  defp collect_anchor_nodes({_, _, children}) when is_list(children),
+    do: collect_anchor_nodes(children)
+
+  defp collect_anchor_nodes(_), do: []
+
+  defp has_paragraph?(nodes) when is_list(nodes) do
+    Enum.any?(nodes, fn
+      {"p", _, children} -> String.trim(Floki.text(children)) != ""
+      {_, _, children} -> has_paragraph?(children)
+      _ -> false
+    end)
+  end
+
+  defp has_paragraph?(_), do: false
+
+  defp collapse_summary_whitespace(text) do
+    text
+    |> String.replace(~r/[\r\n]+/, " ")
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
   end
 end

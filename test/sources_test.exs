@@ -114,6 +114,30 @@ defmodule Rss2Nostr.SourcesTest do
       assert source.pubkey == hex
     end
 
+    test "creates a video source with original media URLs" do
+      hex = "0000000000000000000000000000000000000000000000000000000000000001"
+
+      {:ok, source} =
+        Sources.create_source(
+          valid_attrs()
+          |> Map.put(:publish_as, "video")
+          |> Map.put(:signing_nsec, hex)
+          |> Map.put(:options, %{"mirror_media" => "original"})
+        )
+
+      assert source.publish_as == "video"
+      assert source.default_post_kind == 34235
+      refute Rss2Nostr.Sources.Source.mirror_media?(source)
+    end
+
+    test "requires an nsec or bunker when publish_as is video" do
+      {:error, changeset} =
+        Sources.create_source(Map.put(valid_attrs(), :publish_as, "video"))
+
+      refute changeset.valid?
+      assert changeset.errors[:signing_nsec]
+    end
+
     test "requires an nsec or bunker when publish_as is article" do
       {:error, changeset} =
         Sources.create_source(Map.put(valid_attrs(), :publish_as, "article"))

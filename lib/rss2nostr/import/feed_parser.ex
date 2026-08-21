@@ -17,6 +17,8 @@ defmodule Rss2Nostr.Import.FeedParser do
           image: String.t() | nil,
           enclosure_url: String.t() | nil,
           enclosure_type: String.t() | nil,
+          enclosure_length: integer() | nil,
+          duration: String.t() | nil,
           categories: [String.t()]
         }
 
@@ -71,7 +73,7 @@ defmodule Rss2Nostr.Import.FeedParser do
         _ -> nil
       end
 
-    clean_text(title)
+    decode_html(title)
   end
 
   def feed_title(_), do: nil
@@ -114,6 +116,10 @@ defmodule Rss2Nostr.Import.FeedParser do
             |> add_namespace("content", "http://purl.org/rss/1.0/modules/content/"),
           enclosure_url: ~x"./enclosure/@url"s,
           enclosure_type: ~x"./enclosure/@type"s,
+          enclosure_length: ~x"./enclosure/@length"s,
+          itunes_duration:
+            ~x"./itunes:duration/text()"s
+            |> add_namespace("itunes", "http://www.itunes.com/dtds/podcast-1.0.dtd"),
           media_thumbnail:
             ~x"./media:thumbnail/@url"s |> add_namespace("media", "http://search.yahoo.com/mrss/"),
           media_content:
@@ -135,7 +141,7 @@ defmodule Rss2Nostr.Import.FeedParser do
 
   defp normalize_rss_item(item) do
     %{
-      title: clean_text(item.title),
+      title: decode_html(item.title),
       link: clean_text(item.link),
       guid: clean_text(item.guid) || clean_text(item.link),
       author: clean_text(item.author),
@@ -145,6 +151,8 @@ defmodule Rss2Nostr.Import.FeedParser do
       image: extract_rss_image(item),
       enclosure_url: clean_text(item.enclosure_url),
       enclosure_type: clean_text(item.enclosure_type),
+      enclosure_length: parse_length(item.enclosure_length),
+      duration: clean_text(item.itunes_duration),
       categories: item.categories || []
     }
   end
@@ -236,7 +244,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     published = if item.published != "", do: item.published, else: item.updated
 
     %{
-      title: clean_text(item.title),
+      title: decode_html(item.title),
       link: clean_text(link),
       guid: clean_text(item.id) || clean_text(link),
       author: clean_text(item.author),
@@ -247,6 +255,8 @@ defmodule Rss2Nostr.Import.FeedParser do
       image: nil,
       enclosure_url: nil,
       enclosure_type: nil,
+      enclosure_length: nil,
+      duration: nil,
       categories: item.categories || []
     }
   end
@@ -307,6 +317,16 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  defp parse_length(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, _} when n > 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_length(n) when is_integer(n) and n > 0, do: n
+  defp parse_length(_), do: nil
+
   defp clean_text(nil), do: nil
   defp clean_text(""), do: nil
 
@@ -324,7 +344,7 @@ defmodule Rss2Nostr.Import.FeedParser do
 
   defp decode_html(text) when is_binary(text) do
     text
-    |> HtmlEntities.decode()
+    |> unescape_entities()
     |> String.trim()
     |> case do
       "" -> nil
@@ -334,6 +354,19 @@ defmodule Rss2Nostr.Import.FeedParser do
     e ->
       Logger.debug("HTML entity decoding failed for text: #{inspect(e)}")
       String.trim(text)
+  end
+
+  defp unescape_entities(text, remaining \\ 3)
+  defp unescape_entities(text, remaining) when remaining <= 0, do: text
+
+  defp unescape_entities(text, remaining) do
+    decoded = HtmlEntities.decode(text)
+
+    if decoded == text do
+      text
+    else
+      unescape_entities(decoded, remaining - 1)
+    end
   end
 
   defp parse_date(nil), do: nil

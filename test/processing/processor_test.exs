@@ -76,6 +76,24 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
       assert processed.summary == "Existing summary"
     end
 
+    test "strips HTML and SoundCloud chrome from an imported summary", %{source: source} do
+      post =
+        create_post(source, %{
+          summary: """
+          <div class="feed-description"><p>Die Redaktion macht Sommerpause.</p>
+          <p><iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe></p>
+          <div style="font-size: 10px"><a href="https://soundcloud.com/radiomuenchen">Radio München</a></div></div>
+          """,
+          source_html: "<p>Die Redaktion macht Sommerpause.</p>"
+        })
+
+      {:ok, processed} = Processor.process_post(post)
+
+      assert processed.summary == "Die Redaktion macht Sommerpause."
+      refute processed.summary =~ "<iframe"
+      refute processed.summary =~ "Radio München"
+    end
+
     test "applies the source body selector and skip classes", %{source: source} do
       {:ok, source} =
         Sources.update_source(source, %{

@@ -44,6 +44,15 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "[Link text](https://example.com)"
     end
 
+    test "keeps duration titles on audio and video file links" do
+      html =
+        ~s(<p><a href="https://www.corbettreport.com/mp3/flnwo03.mp3" title="45:12 49600123">Audio</a></p>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ ~s|[Audio](https://www.corbettreport.com/mp3/flnwo03.mp3 "45:12 49600123")|
+    end
+
     test "converts images" do
       html = "<img src=\"https://example.com/img.jpg\" alt=\"Alt text\">"
       md = HtmlToMarkdown.convert(html)
@@ -476,6 +485,67 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "[Watch on Bitchute](https://www.bitchute.com/video/2QbsxZOkIYjA/)"
       assert md =~ "[Watch on Rumble](https://rumble.com/embed/v123abc)"
       assert md =~ "[Watch on Archive.org](https://archive.org/details/nwnw639)"
+    end
+
+    test "turns a SoundCloud player iframe into a standalone permalink" do
+      html = """
+      <p>Intro text</p>
+      <iframe src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/soundcloud%3Atracks%3A2370950135%3Fsecret_token%3Ds-b588AbHllcI&amp;color=%23ffd400"></iframe>
+      <div style="font-size: 10px">
+        <a href="https://soundcloud.com/radiomuenchen">Radio München</a> ·
+        <a href="https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI">Sommerpause</a>
+      </div>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "Intro text"
+      assert md =~ "[Listen on SoundCloud](https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI)"
+      refute md =~ "w.soundcloud.com"
+      refute md =~ "api.soundcloud.com"
+      refute md =~ "[Radio München]"
+      refute md =~ "[Sommerpause]"
+      refute md =~ " ·"
+    end
+
+    test "plain_summary strips RSS description HTML and SoundCloud chrome" do
+      html = """
+      <div class="feed-description"><p>Die Radio München-Redaktion macht SOMMER-PAUSE. Wir hören uns im September wieder. Nutzen Sie doch mal die Gelegenheit und genießen Sie bis dahin unser Musikprogramm ... so vielfältig wie die Stadt!</p>
+      <p><iframe src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/soundcloud%3Atracks%3A2370950135%3Fsecret_token%3Ds-b588AbHllcI&amp;color=%23ffd400" width="100%" height="166"></iframe></p>
+      <div style="font-size: 10px; color: #cccccc;"><a href="https://soundcloud.com/radiomuenchen">Radio München</a> · <a href="https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI">RADIO MÜNCHEN-Redaktion macht Sommerpause</a></div></div>
+      """
+
+      assert HtmlToMarkdown.plain_summary(html) ==
+               "Die Radio München-Redaktion macht SOMMER-PAUSE. Wir hören uns im September wieder. Nutzen Sie doch mal die Gelegenheit und genießen Sie bis dahin unser Musikprogramm ... so vielfältig wie die Stadt!"
+    end
+
+    test "plain_summary keeps already-plain text" do
+      assert HtmlToMarkdown.plain_summary("A plain teaser.") == "A plain teaser."
+    end
+
+    test "plain_summary returns nil for iframe-only HTML" do
+      html = ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>)
+      assert HtmlToMarkdown.plain_summary(html) == nil
+    end
+
+    test "prepends a SoundCloud permalink from hydration JSON" do
+      html =
+        ~s(<script>window.__sc_hydration = [{"hydratable":"sound","data":{"permalink_url":"https://soundcloud.com/radiomuenchen/erziehung-ist-gewalt-von-lara-fischer"}}];</script><p>Body</p>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md ==
+               "[Listen on SoundCloud](https://soundcloud.com/radiomuenchen/erziehung-ist-gewalt-von-lara-fischer)\n\nBody"
+    end
+
+    test "falls back to the player url param when there is no track page" do
+      html =
+        ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/12345"></iframe>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Listen on SoundCloud](https://api.soundcloud.com/tracks/12345)"
+      refute md =~ "w.soundcloud.com/player"
     end
 
     test "treats an Odysee embed and a watch-page URL as the same video" do

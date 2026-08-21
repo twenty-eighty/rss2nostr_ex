@@ -57,7 +57,8 @@ defmodule Rss2Nostr.MCP.Server do
     param(:url, :string, required: true, description: "Feed URL")
     param(:type, :string, description: "rss or atom (default atom)")
     param(:language, :string, description: "ISO 639-1 language code (default de)")
-    param(:publish_as, :string, description: "draft, draft_plain, or article")
+    param(:publish_as, :string, description: "draft, draft_plain, article, or video")
+    param(:mirror_media, :string, description: "For video sources: blossom or original")
 
     param(:public, :boolean,
       description:
@@ -93,7 +94,8 @@ defmodule Rss2Nostr.MCP.Server do
     param(:name, :string)
     param(:url, :string)
     param(:language, :string)
-    param(:publish_as, :string, description: "draft, draft_plain, or article")
+    param(:publish_as, :string, description: "draft, draft_plain, article, or video")
+    param(:mirror_media, :string, description: "For video sources: blossom or original")
     param(:public, :boolean)
     param(:mode, :string, description: "setup or automated")
     param(:pubkey, :string)

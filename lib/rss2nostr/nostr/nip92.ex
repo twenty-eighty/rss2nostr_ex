@@ -49,6 +49,9 @@ defmodule Rss2Nostr.Nostr.NIP92 do
 
     pairs
     |> maybe_put_pair("alt", Keyword.get(opts, :alt))
+    |> maybe_put_pair("duration", Keyword.get(opts, :duration) || result[:duration])
+    |> maybe_put_pair("dim", Keyword.get(opts, :dim) || result[:dim])
+    |> maybe_put_pair("bitrate", Keyword.get(opts, :bitrate) || result[:bitrate])
     |> sanitize_pairs()
   end
 
@@ -64,7 +67,9 @@ defmodule Rss2Nostr.Nostr.NIP92 do
       pair("size", Keyword.get(opts, :size)),
       pair("dim", Keyword.get(opts, :dim)),
       pair("thumb", Keyword.get(opts, :thumb)),
-      pair("alt", Keyword.get(opts, :alt))
+      pair("alt", Keyword.get(opts, :alt)),
+      pair("duration", Keyword.get(opts, :duration)),
+      pair("bitrate", Keyword.get(opts, :bitrate))
     ]
     |> sanitize_pairs()
   end
@@ -224,6 +229,10 @@ defmodule Rss2Nostr.Nostr.NIP92 do
       ".gif" -> "image/gif"
       ".webp" -> "image/webp"
       ".svg" -> "image/svg+xml"
+      ".mp4" -> "video/mp4"
+      ".m4v" -> "video/mp4"
+      ".webm" -> "video/webm"
+      ".mov" -> "video/quicktime"
       ".mp3" -> "audio/mpeg"
       ".m4a" -> "audio/mp4"
       ".aac" -> "audio/aac"

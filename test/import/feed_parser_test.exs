@@ -5,7 +5,7 @@ defmodule Rss2Nostr.Import.FeedParserTest do
 
   @rss_feed """
   <?xml version="1.0" encoding="UTF-8"?>
-  <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
     <channel>
       <title>Test Feed</title>
       <link>https://example.com</link>
@@ -18,6 +18,7 @@ defmodule Rss2Nostr.Import.FeedParserTest do
         <description>This is a test article</description>
         <content:encoded><![CDATA[<p>Full content here</p>]]></content:encoded>
         <enclosure url="https://cdn.example/episode.mp3" type="audio/mpeg" length="123"/>
+        <itunes:duration>23:43</itunes:duration>
         <category>Tech</category>
         <category>News</category>
       </item>
@@ -125,6 +126,8 @@ defmodule Rss2Nostr.Import.FeedParserTest do
       assert "News" in first.categories
       assert first.enclosure_url == "https://cdn.example/episode.mp3"
       assert first.enclosure_type == "audio/mpeg"
+      assert first.enclosure_length == 123
+      assert first.duration == "23:43"
     end
 
     test "parses RSS item without optional fields" do
@@ -212,6 +215,23 @@ defmodule Rss2Nostr.Import.FeedParserTest do
 
       {:ok, [item]} = FeedParser.parse(rss_with_entities, "rss")
       assert item.title == "Test & Article <Special>"
+    end
+
+    test "decodes a double-encoded apostrophe in the title" do
+      rss = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <rss version="2.0">
+        <channel>
+          <item>
+            <title>Vier Wochen Wahnsinn im Juli &amp;#039;26 - von Michael Sailer und Franz Esser</title>
+            <link>https://www.radiomuenchen.net/de/example.html</link>
+          </item>
+        </channel>
+      </rss>
+      """
+
+      {:ok, [item]} = FeedParser.parse(rss, "rss")
+      assert item.title == "Vier Wochen Wahnsinn im Juli '26 - von Michael Sailer und Franz Esser"
     end
   end
 end

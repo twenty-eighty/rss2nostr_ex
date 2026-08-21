@@ -51,6 +51,21 @@ defmodule Rss2Nostr.Nostr.NIP92Test do
                "size 12"
              ]
     end
+
+    test "keeps duration and bitrate from a probed descriptor" do
+      pairs =
+        NIP92.pairs_from_descriptor(%{
+          url: "https://cdn.example/file.mp3",
+          sha256: "bb",
+          size: 12,
+          type: "audio/mpeg",
+          duration: 2712,
+          bitrate: 128_000
+        })
+
+      assert "duration 2712" in pairs
+      assert "bitrate 128000" in pairs
+    end
   end
 
   describe "tag/1" do

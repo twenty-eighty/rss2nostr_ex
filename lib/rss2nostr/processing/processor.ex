@@ -12,7 +12,7 @@ defmodule Rss2Nostr.Processing.Processor do
   alias Rss2Nostr.Nostr.{Blossom, Signer}
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
-  alias Rss2Nostr.Processing.{Composer, ImageExtractor}
+  alias Rss2Nostr.Processing.{Composer, HtmlToMarkdown, ImageExtractor}
 
   @type process_result :: %{
           processed: non_neg_integer(),
@@ -139,7 +139,9 @@ defmodule Rss2Nostr.Processing.Processor do
     {:ok, post} =
       Posts.update_post(post, %{
         content: composed.markdown,
-        summary: post.summary || composed.summary || generate_summary(composed.markdown),
+        summary:
+          HtmlToMarkdown.plain_summary(post.summary) || composed.summary ||
+            generate_summary(composed.markdown),
         image: post.image || composed.image
       })
 
@@ -217,13 +219,9 @@ defmodule Rss2Nostr.Processing.Processor do
   def generate_summary(""), do: nil
 
   def generate_summary(markdown) do
-    # Get first paragraph (non-empty line that's not a heading)
     markdown
     |> String.split("\n\n")
-    |> Enum.find(fn para ->
-      trimmed = String.trim(para)
-      trimmed != "" && !String.starts_with?(trimmed, "#")
-    end)
+    |> Enum.find(&summary_paragraph?/1)
     |> case do
       nil ->
         nil
@@ -233,6 +231,18 @@ defmodule Rss2Nostr.Processing.Processor do
         |> String.trim()
         |> truncate_text(200)
     end
+  end
+
+  defp summary_paragraph?(para) do
+    trimmed = String.trim(para)
+
+    trimmed != "" and
+      not String.starts_with?(trimmed, "#") and
+      not markdown_media_only?(trimmed)
+  end
+
+  defp markdown_media_only?(text) do
+    Regex.match?(~r/\A!?(\[[^\]]*\]\([^)]+\)\s*)+\z/, text)
   end
 
   defp truncate_text(text, max_length) when byte_size(text) <= max_length, do: text

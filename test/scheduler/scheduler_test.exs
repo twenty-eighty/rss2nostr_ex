@@ -34,6 +34,8 @@ defmodule Rss2Nostr.SchedulerTest do
 
       assert is_map(status)
       assert Map.has_key?(status, :running)
+      assert Map.has_key?(status, :last_result)
+      assert status.intervals[:cleanup] == "1h"
     end
   end
 

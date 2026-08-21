@@ -90,7 +90,7 @@ defmodule Rss2Nostr.Web.Views.Settings do
         </tr>
         <tr>
           <td>Cleanup</td>
-          <td>24 hours</td>
+          <td>1 hour</td>
         </tr>
       </table>
     </div>

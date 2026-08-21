@@ -77,7 +77,7 @@ defmodule Rss2Nostr.Sources do
   end
 
   defp sync_post_kinds(%Source{id: id, default_post_kind: kind})
-       when kind in [30023, 30024] do
+       when kind in [30023, 30024, 34235] do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     Post
@@ -127,7 +127,7 @@ defmodule Rss2Nostr.Sources do
   end
 
   defp maybe_put_publish_as(attrs, source) do
-    if source.publish_as in ["article", "draft_plain"] or present_binary?(source.pubkey) do
+    if source.publish_as in ["article", "video", "draft_plain"] or present_binary?(source.pubkey) do
       Map.put(attrs, :publish_as, source.publish_as)
     else
       attrs

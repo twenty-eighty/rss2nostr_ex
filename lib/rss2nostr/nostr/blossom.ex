@@ -14,7 +14,8 @@ defmodule Rss2Nostr.Nostr.Blossom do
   alias Rss2Nostr.HTTP
   alias Rss2Nostr.Nostr.{NIP92, Signer}
   alias Rss2Nostr.Posts
-  alias Rss2Nostr.Processing.ImageExtractor
+  alias Rss2Nostr.Processing.{ImageExtractor, VideoProbe}
+  alias Rss2Nostr.Sources.Source
 
   @kind_auth 24242
   @auth_ttl_seconds 600
@@ -243,7 +244,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
   @spec stamp_hosted_images(Rss2Nostr.Posts.Post.t()) ::
           {Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}}
   def stamp_hosted_images(post) do
-    post = Posts.preload_images(post)
+    post = post |> Posts.preload_source() |> Posts.preload_images()
 
     uploaded_urls =
       MapSet.new(for image <- post.images, present?(image.uploaded_url), do: image.uploaded_url)
@@ -264,7 +265,8 @@ defmodule Rss2Nostr.Nostr.Blossom do
           present?(image.uploaded_url) ->
             Map.put(acc, image.original_url, image.uploaded_url)
 
-          already_hosted?(image.original_url) or MapSet.member?(uploaded_urls, image.original_url) ->
+          already_hosted?(image.original_url) or keep_original_media?(post, image.original_url) or
+              MapSet.member?(uploaded_urls, image.original_url) ->
             {:ok, updated} = Posts.mark_image_uploaded(image, image.original_url, hosted_attrs(image))
             Map.put(acc, updated.original_url, updated.uploaded_url)
 
@@ -280,7 +282,8 @@ defmodule Rss2Nostr.Nostr.Blossom do
       end)
 
     mapping =
-      if present?(post.image) and already_hosted?(post.image) do
+      if present?(post.image) and
+           (already_hosted?(post.image) or keep_original_media?(post, post.image)) do
         Map.put_new(mapping, post.image, post.image)
       else
         mapping
@@ -382,6 +385,12 @@ defmodule Rss2Nostr.Nostr.Blossom do
       MapSet.member?(uploaded_urls, image.original_url)
   end
 
+  defp keep_original_media?(%{source: %Source{} = source}, url) do
+    ImageExtractor.video_url?(url) and not Source.mirror_media?(source)
+  end
+
+  defp keep_original_media?(_, _), do: false
+
   defp mapping_or_hosted(url, images) do
     cond do
       already_hosted?(url) ->
@@ -402,24 +411,84 @@ defmodule Rss2Nostr.Nostr.Blossom do
   defp present?(_), do: false
 
   defp hosted_attrs(image) do
+    caption = ImageExtractor.parse_media_caption(image.caption)
+    probed = probe_media(image, caption)
+    mime = probed[:type] || image.mime_type || guess_content_type(image.original_url)
+    duration = probed[:duration] || caption.duration
+    size = probed[:size] || caption.size || image.file_size
+    dim = probed[:dim] || image.dim
+
     NIP92.stored_attrs(
       %{
         url: image.original_url,
         sha256: image.sha256,
-        size: image.file_size,
-        type: image.mime_type,
+        size: size,
+        type: mime,
         nip94: []
       },
-      alt: image.alt_text
+      alt: image.alt_text,
+      duration: duration,
+      dim: dim,
+      bitrate: probed[:bitrate]
     )
     |> Map.merge(%{
       imeta:
         case image.imeta do
-          pairs when is_list(pairs) and pairs != [] -> pairs
-          _ -> NIP92.pairs_from_url(image.original_url, alt: image.alt_text, mime: image.mime_type)
+          pairs when is_list(pairs) and pairs != [] ->
+            pairs
+
+          _ ->
+            NIP92.pairs_from_url(image.original_url,
+              alt: image.alt_text,
+              mime: mime,
+              duration: duration,
+              size: size,
+              dim: dim,
+              bitrate: probed[:bitrate]
+            )
         end
     })
   end
+
+  defp probe_media(image, caption) do
+    url = image.original_url
+
+    if ImageExtractor.video_url?(url) or ImageExtractor.audio_url?(url) do
+      kind = if ImageExtractor.audio_url?(url), do: "audio", else: "video"
+      Logger.info("Probing #{kind} metadata at #{url}")
+
+      VideoProbe.probe(url,
+        duration: caption.duration,
+        size: caption.size || image.file_size,
+        type: image.mime_type
+      )
+    else
+      %{}
+    end
+  end
+
+  defp enrich_media_upload({:ok, result}, data, url, content_type)
+       when is_binary(data) do
+    if ImageExtractor.audio_url?(url) or ImageExtractor.video_url?(url) do
+      ext =
+        url
+        |> extract_filename(content_type)
+        |> Path.extname()
+
+      probed =
+        VideoProbe.probe_binary(data,
+          ext: ext,
+          type: content_type,
+          size: byte_size(data)
+        )
+
+      {:ok, Map.merge(result, Map.take(probed, [:duration, :bitrate, :dim]))}
+    else
+      {:ok, result}
+    end
+  end
+
+  defp enrich_media_upload(other, _data, _url, _content_type), do: other
 
   defp copy_upload_attrs(image) do
     %{
@@ -439,7 +508,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
     image_url
     |> ImageExtractor.download_urls()
     |> Enum.reduce_while({:error, {:download_failed, :no_url}}, fn url, _acc ->
-      kind = if ImageExtractor.audio_url?(url), do: "audio", else: "image"
+      kind = download_kind(url)
       Logger.info("Downloading #{kind} from #{url}")
 
       case HTTP.get(url, receive_timeout: download_timeout(url), retry: false) do
@@ -447,10 +516,15 @@ defmodule Rss2Nostr.Nostr.Blossom do
           content_type = content_type_for(url, headers)
 
           content_type =
-            if ImageExtractor.audio_url?(url) and not audio_content?(content_type) do
-              "audio/mpeg"
-            else
-              content_type
+            cond do
+              ImageExtractor.audio_url?(url) and not audio_content?(content_type) ->
+                "audio/mpeg"
+
+              ImageExtractor.video_url?(url) and not video_content?(content_type) ->
+                "video/mp4"
+
+              true ->
+                content_type
             end
 
           filename = extract_filename(url, content_type)
@@ -460,7 +534,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
             |> Keyword.put_new(:content_type, content_type)
             |> Keyword.put_new(:source_url, public_http_url(url))
 
-          {:halt, upload_data(data, filename, opts)}
+          {:halt, enrich_media_upload(upload_data(data, filename, opts), data, url, content_type)}
 
         {:ok, %{status: code}} ->
           {:cont, {:error, {:download_failed, code}}}
@@ -696,15 +770,27 @@ defmodule Rss2Nostr.Nostr.Blossom do
     end
   end
 
+  defp download_kind(url) do
+    cond do
+      ImageExtractor.video_url?(url) -> "video"
+      ImageExtractor.audio_url?(url) -> "audio"
+      true -> "image"
+    end
+  end
+
   defp download_timeout(url) do
-    if ImageExtractor.audio_url?(url), do: @audio_download_ms, else: @image_download_ms
+    if ImageExtractor.audio_url?(url) or ImageExtractor.video_url?(url) do
+      @audio_download_ms
+    else
+      @image_download_ms
+    end
   end
 
   # Finch's receive_timeout covers sending the body too. A fixed 60s
   # abort is what route96 logged as "EOF before message length reached".
   defp upload_timeout(content_type, byte_size) when is_integer(byte_size) and byte_size > 0 do
     base =
-      if audio_content?(content_type) do
+      if audio_content?(content_type) or video_content?(content_type) do
         @audio_upload_ms
       else
         @image_upload_ms
@@ -722,6 +808,12 @@ defmodule Rss2Nostr.Nostr.Blossom do
   end
 
   defp audio_content?(_), do: false
+
+  defp video_content?(type) when is_binary(type) do
+    String.starts_with?(normalize_content_type(type), "video/")
+  end
+
+  defp video_content?(_), do: false
 
   # mime_guess maps audio/mpeg → .mpga. Blossom URLs are hash-addressed;
   # the extension is only a hint, and .mp3 is what players and users expect.
@@ -764,6 +856,11 @@ defmodule Rss2Nostr.Nostr.Blossom do
       ".gif" -> "image/gif"
       ".webp" -> "image/webp"
       ".svg" -> "image/svg+xml"
+      ".mp4" -> "video/mp4"
+      ".m4v" -> "video/mp4"
+      ".webm" -> "video/webm"
+      ".mov" -> "video/quicktime"
+      ".mkv" -> "video/x-matroska"
       ".mp3" -> "audio/mpeg"
       ".m4a" -> "audio/mp4"
       ".aac" -> "audio/aac"
@@ -787,6 +884,9 @@ defmodule Rss2Nostr.Nostr.Blossom do
           "image/png" -> ".png"
           "image/gif" -> ".gif"
           "image/webp" -> ".webp"
+          "video/mp4" -> ".mp4"
+          "video/webm" -> ".webm"
+          "video/quicktime" -> ".mov"
           "audio/mpeg" -> ".mp3"
           "audio/mp4" -> ".m4a"
           "audio/aac" -> ".aac"

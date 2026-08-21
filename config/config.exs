@@ -14,7 +14,7 @@ config :rss2nostr, Rss2Nostr.Scheduler,
     # Export to Nostr every 10 minutes
     export: :timer.minutes(10),
     # Delete our drafts after the article exists as kind 30023
-    cleanup: :timer.hours(24)
+    cleanup: :timer.hours(1)
   }
 
 # Draft / test / public / inbox Nostr relays. Overridden per env and by
@@ -36,7 +36,7 @@ config :rss2nostr, :nostr,
   },
   relay_audience: :test,
   # Pause between articles (and before retrying a rate-limited relay).
-  publish_gap_ms: 3_000
+  publish_gap_ms: 10_000
 
 # Admin UI: NIP-07 allowlist (overridden by ADMIN_NOSTR_PUBKEYS)
 config :rss2nostr, :admin, pubkeys: []

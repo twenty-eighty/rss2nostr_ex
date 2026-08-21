@@ -3,7 +3,8 @@ defmodule Rss2Nostr.Import.ItemIdentity do
   Page vs media identity for a feed item.
 
   Dedup keys come from `<link>` and `<guid>`. Items that only point at
-  audio/video (enclosure or media URL) and have no HTML page URL are skipped.
+  audio/video (enclosure or media URL) and have no HTML page URL are skipped
+  unless the source publishes videos.
   """
 
   @media_ext ~w(mp3 mp4 m4a m4v aac ogg opus wav webm mov)

@@ -12,9 +12,10 @@ defmodule Rss2Nostr.Web.API.Scheduler do
       nil ->
         %{
           running: false,
-          intervals: %{import: "15m", process: "5m", export: "10m", cleanup: "24h"},
+          intervals: %{import: "15m", process: "5m", export: "10m", cleanup: "1h"},
           task_status: %{import: :idle, process: :idle, export: :idle, cleanup: :idle},
           last_run: %{},
+          last_result: %{},
           export_configured: System.get_env("NOSTR_NSEC") != nil
         }
 

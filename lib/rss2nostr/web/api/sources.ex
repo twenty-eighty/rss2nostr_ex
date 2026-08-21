@@ -228,6 +228,7 @@ defmodule Rss2Nostr.Web.API.Sources do
       active: source.active,
       mode: source.mode,
       publish_as: source.publish_as,
+      mirror_media: if(Rss2Nostr.Sources.Source.mirror_media?(source), do: "blossom", else: "original"),
       language: source.language,
       public: source.public,
       pubkey: source.pubkey,
@@ -240,9 +241,23 @@ defmodule Rss2Nostr.Web.API.Sources do
 
     existing
     |> maybe_put("start_guid", blank_to_nil(params["start_guid"]))
+    |> maybe_put_mirror_media(params)
     |> maybe_merge_compose(params)
     |> maybe_infer_body_selector(params)
   end
+
+  defp maybe_put_mirror_media(options, params) do
+    if Map.has_key?(params, "mirror_media") do
+      Map.put(options, "mirror_media", normalize_mirror_media(params["mirror_media"]))
+    else
+      options
+    end
+  end
+
+  defp normalize_mirror_media(value) when value in ["original", "false", false, "0"],
+    do: "original"
+
+  defp normalize_mirror_media(_), do: "blossom"
 
   defp maybe_infer_body_selector(options, params) do
     explicit_blank? =

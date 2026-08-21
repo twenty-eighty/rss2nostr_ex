@@ -22,7 +22,7 @@ defmodule Rss2Nostr.Scheduler do
     import: :timer.minutes(15),
     process: :timer.minutes(5),
     export: :timer.minutes(10),
-    cleanup: :timer.hours(24)
+    cleanup: :timer.hours(1)
   }
 
   defstruct [
@@ -31,7 +31,8 @@ defmodule Rss2Nostr.Scheduler do
     :export_config,
     running: false,
     task_status: %{},
-    last_run: %{}
+    last_run: %{},
+    last_result: %{}
   ]
 
   @type t :: %__MODULE__{}
@@ -48,7 +49,7 @@ defmodule Rss2Nostr.Scheduler do
     - :import - Feed import interval (default: 15 minutes)
     - :process - Processing interval (default: 5 minutes)
     - :export - Export interval (default: 10 minutes)
-    - :cleanup - Draft cleanup interval (default: 24 hours)
+    - :cleanup - Draft cleanup interval (default: 1 hour)
   - :export_config - Configuration for export task
     - :private_key - Nostr private key (required for export)
     - :relays - Explicit relay URLs (optional; otherwise per-source test/public)
@@ -121,7 +122,13 @@ defmodule Rss2Nostr.Scheduler do
 
   @impl true
   def init(opts) do
-    intervals = Map.merge(@default_intervals, Keyword.get(opts, :intervals, %{}))
+    config_intervals = Application.get_env(:rss2nostr, __MODULE__, [])[:intervals] || %{}
+
+    intervals =
+      @default_intervals
+      |> Map.merge(config_intervals)
+      |> Map.merge(Keyword.get(opts, :intervals, %{}))
+
     export_config = Keyword.get(opts, :export_config, %{})
     auto_start = Keyword.get(opts, :auto_start, false)
 
@@ -130,7 +137,8 @@ defmodule Rss2Nostr.Scheduler do
       timers: %{},
       export_config: export_config,
       task_status: %{import: :idle, process: :idle, export: :idle, cleanup: :idle},
-      last_run: %{}
+      last_run: %{},
+      last_result: %{}
     }
 
     if auto_start do
@@ -168,6 +176,7 @@ defmodule Rss2Nostr.Scheduler do
       intervals: format_intervals(state.intervals),
       task_status: state.task_status,
       last_run: state.last_run,
+      last_result: state.last_result,
       export_configured: state.export_config[:private_key] != nil
     }
 
@@ -280,11 +289,16 @@ defmodule Rss2Nostr.Scheduler do
     state = %{
       state
       | task_status: Map.put(state.task_status, task, status),
-        last_run: Map.put(state.last_run, task, DateTime.utc_now())
+        last_run: Map.put(state.last_run, task, DateTime.utc_now()),
+        last_result: Map.put(state.last_result, task, summarize_result(result))
     }
 
     {result, state}
   end
+
+  defp summarize_result({:ok, stats}) when is_map(stats), do: stats
+  defp summarize_result({:error, reason}), do: %{error: inspect(reason)}
+  defp summarize_result(other), do: %{result: inspect(other)}
 
   defp format_intervals(intervals) do
     Enum.map(intervals, fn {task, ms} ->

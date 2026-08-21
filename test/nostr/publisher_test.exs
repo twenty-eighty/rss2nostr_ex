@@ -78,6 +78,51 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       assert preview.relays == ["wss://draft.example.com"]
     end
 
+    test "builds a kind 34235 video event with the original file URL" do
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Video Source",
+          url: "https://example.com/video-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          publish_as: "video",
+          signing_nsec: @hex,
+          options: %{"mirror_media" => "original"}
+        })
+
+      video = "https://www.corbettreport.com/mp4/nwnw640.mp4"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Guess Where They're Building Data Centres Now... (NWNW #640)",
+          content: "[Video](#{video})\n\nThis week on New World Next Week.",
+          summary: "This week on New World Next Week.",
+          source_url: video,
+          source_url_hash: Post.generate_url_hash(video),
+          status: Post.status_processed(),
+          type: 34235,
+          source_id: source.id
+        })
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: video,
+          uploaded_url: video,
+          mime_type: "video/mp4",
+          imeta: ["url #{video}", "m video/mp4", "duration 1423", "alt Video"]
+        })
+
+      post = Posts.get_post(post.id, preload: [:source, :images])
+      preview = Publisher.preview_event(post)
+
+      assert preview.event.kind == 34235
+      assert ["title", post.title] in preview.event.tags
+      assert ["alt", "This week on New World Next Week."] in preview.event.tags
+      assert ["imeta", "url #{video}", "m video/mp4", "duration 1423", "alt Video"] in preview.event.tags
+      refute preview.encrypted
+    end
+
     test "adds imeta tags for uploaded media in the article" do
       {:ok, source} =
         Sources.create_source(%{

@@ -131,6 +131,27 @@ defmodule Rss2Nostr.Posts do
     update_post(post, %{draft_cleaned_at: utc_now()})
   end
 
+  @doc """
+  Published posts whose app-signed drafts have already been deleted.
+  """
+  @spec count_draft_cleaned() :: non_neg_integer()
+  def count_draft_cleaned do
+    Post
+    |> where([p], not is_nil(p.draft_cleaned_at))
+    |> Repo.aggregate(:count, :id)
+  end
+
+  @doc """
+  Published posts still waiting for draft cleanup.
+  """
+  @spec count_draft_cleanup_candidates() :: non_neg_integer()
+  def count_draft_cleanup_candidates do
+    Post
+    |> where([p], p.status == ^Post.status_published())
+    |> where([p], is_nil(p.draft_cleaned_at))
+    |> Repo.aggregate(:count, :id)
+  end
+
   @spec hold_elapsed?(Post.t(), DateTime.t()) :: boolean()
   def hold_elapsed?(%Post{} = post, now \\ utc_now()) do
     post = preload_source(post)

@@ -14,6 +14,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Processing.ArticleSplit
   alias Rss2Nostr.Repo
+  alias Rss2Nostr.Sources.Source
 
   @type relay_failure :: %{url: String.t(), error: String.t()}
 
@@ -280,7 +281,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   @spec publish_gap_ms() :: non_neg_integer()
   def publish_gap_ms do
     Application.get_env(:rss2nostr, :nostr, [])
-    |> Keyword.get(:publish_gap_ms, 3_000)
+    |> Keyword.get(:publish_gap_ms, 10_000)
     |> max(0)
   end
 
@@ -399,10 +400,10 @@ defmodule Rss2Nostr.Nostr.Publisher do
   end
 
   defp long_form_kind(post) do
-    if draft_kind?(post) do
-      Event.kind_long_form_draft()
-    else
-      Event.kind_long_form()
+    cond do
+      video?(post) -> Event.kind_video()
+      draft_kind?(post) -> Event.kind_long_form_draft()
+      true -> Event.kind_long_form()
     end
   end
 
@@ -410,8 +411,17 @@ defmodule Rss2Nostr.Nostr.Publisher do
     cond do
       encrypted_draft?(post) -> Event.kind_draft_wrap()
       plain_draft?(post) -> Event.kind_long_form_draft()
+      video?(post) -> Event.kind_video()
       true -> Event.kind_long_form()
     end
+  end
+
+  defp video?(post) do
+    field(post, :type) == Event.kind_video() or
+      case source_of(post) do
+        %Rss2Nostr.Sources.Source{} = source -> Source.video?(source)
+        _ -> field(post, :publish_as) == "video"
+      end
   end
 
   defp public_article?(post) do
@@ -430,7 +440,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
           "draft_plain" ->
             false
 
-          "article" ->
+          value when value in ["article", "video"] ->
             false
 
           "draft" ->
@@ -439,6 +449,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
           _ ->
             case field(post, :type) do
               30023 -> false
+              34235 -> false
               30024 -> true
               31234 -> true
               _ -> true

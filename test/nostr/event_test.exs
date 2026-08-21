@@ -14,6 +14,10 @@ defmodule Rss2Nostr.Nostr.EventTest do
       assert Event.kind_long_form_draft() == 30024
     end
 
+    test "kind_video returns 34235" do
+      assert Event.kind_video() == 34235
+    end
+
     test "kind_draft_wrap returns 31234" do
       assert Event.kind_draft_wrap() == 31234
     end
@@ -56,6 +60,20 @@ defmodule Rss2Nostr.Nostr.EventTest do
     test "can build a draft kind 30024 event" do
       event = Event.build_long_form(@test_pubkey, "Content", title: "Draft", kind: 30024)
       assert event.kind == 30024
+    end
+
+    test "builds a NIP-71 video event with alt instead of summary" do
+      event =
+        Event.build_long_form(@test_pubkey, "Description",
+          title: "NWNW",
+          summary: "This week on NWNW",
+          kind: 34235
+        )
+
+      assert event.kind == 34235
+      assert ["title", "NWNW"] in event.tags
+      assert ["alt", "This week on NWNW"] in event.tags
+      refute Enum.any?(event.tags, fn [tag | _] -> tag == "summary" end)
     end
 
     test "adds a p tag with the intended author on drafts" do

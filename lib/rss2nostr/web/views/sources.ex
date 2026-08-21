@@ -614,8 +614,13 @@ defmodule Rss2Nostr.Web.Views.Sources do
     draft_checked = if publish_as == "draft", do: "checked", else: ""
     plain_checked = if publish_as == "draft_plain", do: "checked", else: ""
     article_checked = if publish_as == "article", do: "checked", else: ""
+    video_checked = if publish_as == "video", do: "checked", else: ""
     draft_hidden = if publish_as in ["draft", "draft_plain"], do: "", else: "hidden"
-    article_hidden = if publish_as == "article", do: "", else: "hidden"
+    article_hidden = if publish_as in ["article", "video"], do: "", else: "hidden"
+    video_hidden = if publish_as == "video", do: "", else: "hidden"
+    mirror_media = params["mirror_media"] || option(source, "mirror_media") || "blossom"
+    blossom_checked = if mirror_media != "original", do: "checked", else: ""
+    original_checked = if mirror_media == "original", do: "checked", else: ""
     nsec_set? = source && Signer.signing_nsec_configured?(source)
     bunker = params["bunker_connection"] || (source && source.bunker_connection) || ""
     pubkey = params["pubkey"] || (source && source.pubkey) || ""
@@ -645,8 +650,36 @@ defmodule Rss2Nostr.Web.Views.Sources do
             <span class="help-text">Signed by a source nsec or bunker URL as the author.</span>
           </span>
         </label>
+        <label class="choice">
+          <input type="radio" name="publish_as" value="video" #{video_checked}>
+          <span>
+            <strong>Video (kind 34235)</strong>
+            <span class="help-text">NIP-71 addressable video. Imports enclosure-only feeds (no article page). Signed like an article.</span>
+          </span>
+        </label>
       </div>
     </fieldset>
+    <div id="video-hosting-fields" #{video_hidden}>
+      <fieldset class="compose-fieldset">
+        <legend>Video file</legend>
+        <div class="choice-list">
+          <label class="choice">
+            <input type="radio" name="mirror_media" value="blossom" #{blossom_checked}>
+            <span>
+              <strong>Mirror to Blossom</strong>
+              <span class="help-text">Upload the MP4 to <code>NOSTR_UPLOAD_ENDPOINT</code> and put that URL on the event.</span>
+            </span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="mirror_media" value="original" #{original_checked}>
+            <span>
+              <strong>Link original URL</strong>
+              <span class="help-text">Leave the feed enclosure URL as-is. No download or upload.</span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+    </div>
     <div id="draft-author-fields" #{draft_hidden}>
       <div class="form-group">
         <label for="pubkey">Author public key</label>
@@ -662,7 +695,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
         <input type="password" id="signing_nsec" name="signing_nsec" autocomplete="new-password"
                placeholder="#{if nsec_set?, do: "Configured — paste a new key to replace", else: "nsec1…"}">
         #{error_message(errors, :signing_nsec)}
-        <p class="help-text">Required for articles unless a bunker URL is set. Stored encrypted.</p>
+        <p class="help-text">Required for articles and videos unless a bunker URL is set. Stored encrypted.</p>
       </div>
       <div class="form-group">
         <label for="bunker_connection">Bunker URL</label>
@@ -684,13 +717,15 @@ defmodule Rss2Nostr.Web.Views.Sources do
     (function () {
       const draft = document.getElementById("draft-author-fields");
       const article = document.getElementById("article-signer-fields");
+      const video = document.getElementById("video-hosting-fields");
       const radios = document.querySelectorAll("input[name='publish_as']");
       if (!radios.length) return;
       function sync() {
         const selected = document.querySelector("input[name='publish_as']:checked");
         const value = selected ? selected.value : "draft";
         if (draft) draft.hidden = value !== "draft" && value !== "draft_plain";
-        if (article) article.hidden = value !== "article";
+        if (article) article.hidden = value !== "article" && value !== "video";
+        if (video) video.hidden = value !== "video";
         if (window.rss2nostrSyncAddSourceSubmit) window.rss2nostrSyncAddSourceSubmit();
       }
       radios.forEach(function (radio) { radio.addEventListener("change", sync); });
@@ -922,7 +957,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
       }
 
       function identityOk() {
-        if (selectedPublishAs() === "article") {
+        if (selectedPublishAs() === "article" || selectedPublishAs() === "video") {
           const nsec = document.getElementById("signing_nsec");
           const bunker = document.getElementById("bunker_connection");
           return present(nsec && nsec.value) || present(bunker && bunker.value);

@@ -85,7 +85,7 @@ config :rss2nostr, Rss2Nostr.Scheduler,
     import: :timer.minutes(15),
     process: :timer.minutes(5),
     export: :timer.minutes(10),
-    cleanup: :timer.hours(24)
+    cleanup: :timer.hours(1)
   }
 
 config :rss2nostr, :nostr,

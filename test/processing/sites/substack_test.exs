@@ -148,6 +148,61 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
       refute md =~ "[[43]]"
     end
 
+    test "keeps a native Substack footnote URL on the same line as the marker" do
+      html = """
+      <p>wahrgenommen wird. <a data-component-name="FootnoteAnchorToDOM" id="footnote-anchor-1" href="#footnote-1" class="footnote-anchor">1</a></p>
+      <div data-component-name="FootnoteToDOM" class="footnote">
+        <a id="footnote-1" href="#footnote-anchor-1" class="footnote-number">1</a>
+        <div class="footnote-content">
+          <p><a href="https://www.bachelorprint.ch/linguistik/redewendungen/schwarzes-schaf/">https://www.bachelorprint.ch/linguistik/redewendungen/schwarzes-schaf/</a></p>
+        </div>
+      </div>
+      """
+
+      md = convert(html, url: "https://lebegelassen.substack.com/p/das-schwarze-schaf")
+
+      assert md =~ "wahrgenommen wird. [^1]"
+      assert md =~
+               "[^1]: [https://www.bachelorprint.ch/linguistik/redewendungen/schwarzes-schaf/](https://www.bachelorprint.ch/linguistik/redewendungen/schwarzes-schaf/)"
+
+      refute md =~ "[^1]:\n"
+      refute md =~ "#footnote-1"
+      refute md =~ "#footnote-anchor-1"
+      refute md =~ "[[1]]"
+    end
+
+    test "keeps the last footnote URL on the same line when Substack appends a subscribe widget" do
+      url =
+        "https://www.geo.de/geolino/redewendungen/1217-rtkl-redewendung-das-schwarze-schaf-sein"
+
+      html = """
+      <p>Ende.<a id="footnote-anchor-7" href="#footnote-7" class="footnote-anchor">7</a></p>
+      <div data-component-name="FootnoteToDOM" class="footnote">
+        <a id="footnote-7" href="#footnote-anchor-7" class="footnote-number">7</a>
+        <div class="footnote-content">
+          <p><a href="#{url}">#{url}</a></p>
+          <div><hr/></div>
+          <p></p>
+          <div class="subscription-widget-wrap">
+            <div class="subscription-widget show-subscribe">
+              <div class="preamble">
+                <p>This Substack is reader-supported. To receive new posts and support my work, consider becoming a free or paid subscriber.</p>
+              </div>
+              <div data-component-name="SubscribeWidget" class="subscribe-widget"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      """
+
+      md = convert(html, url: "https://lebegelassen.substack.com/p/das-schwarze-schaf")
+
+      assert md =~ "[^7]: [#{url}](#{url})"
+      refute md =~ "[^7]:\n"
+      refute md =~ "reader-supported"
+      refute md =~ "subscriber"
+    end
+
     test "keeps a footnote tweet URL on its own line after the definition marker" do
       html = """
       <p><a href="#_ftnref43"><sup><span>[43]</span></sup></a></p>

@@ -189,6 +189,22 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
     end
   end
 
+  describe "extract_video/1" do
+    test "extracts markdown video links and duration captions" do
+      markdown = """
+      [Video](https://www.corbettreport.com/mp4/nwnw640.mp4 "23:43")
+
+      [YouTube](https://www.youtube.com/watch?v=abc)
+      """
+
+      [video] = ImageExtractor.extract_video(markdown)
+      assert video.url == "https://www.corbettreport.com/mp4/nwnw640.mp4"
+      assert video.caption == "23:43"
+      assert ImageExtractor.clock_to_seconds(video.caption) == 1423
+      assert ImageExtractor.parse_media_caption("23:43 66928694") == %{duration: 1423, size: 66_928_694}
+    end
+  end
+
   describe "extract_and_store/1 audio" do
     test "stores an audio file link from markdown", %{source: source} do
       post = create_test_post(source, "<p>x</p>")
