@@ -357,7 +357,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
     cond do
       String.contains?(class, "youtube") ->
-        process_youtube_div(attrs, children)
+        case process_youtube_div(attrs, children) do
+          md when is_binary(md) and md != "" -> md
+          _ -> process_nodes(children)
+        end
 
       String.contains?(class, "powerpress") ->
         process_powerpress_div(children)
@@ -492,7 +495,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp clean_image_url(url) do
     url
     |> remove_wp_cdn_wrapper()
-    |> ImageExtractor.normalize_url()
+    |> ImageExtractor.display_url()
     |> remove_tracking_params()
   end
 
@@ -532,14 +535,81 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     if src && src != "" do
       clean_src = clean_image_url(src)
 
-      if caption != "" do
-        "\n\n![#{alt}](#{clean_src} \"#{caption}\")\n\n"
-      else
-        "\n\n![#{alt}](#{clean_src})\n\n"
+      image_md =
+        if caption != "" do
+          "![#{alt}](#{clean_src} \"#{caption}\")"
+        else
+          "![#{alt}](#{clean_src})"
+        end
+
+      case figure_wrap_href(children, img_attrs, clean_src) do
+        href when is_binary(href) -> "\n\n[#{image_md}](#{href})\n\n"
+        _ -> "\n\n#{image_md}\n\n"
       end
     else
-      ""
+      # WordPress video embeds are <figure class="wp-block-embed-youtube">
+      # wrapping a lazy iframe, with no <img>.
+      process_nodes(children)
     end
+  end
+
+  # Substack Image2ToDOM wraps the <img> in <a>. Keep product/article
+  # links; drop lightbox hrefs that only point at the same image.
+  defp figure_wrap_href(children, img_attrs, image_src) do
+    href =
+      case find_element(children, "a") do
+        {"a", attrs, _} -> get_attr(attrs, "href")
+        _ -> nil
+      end
+
+    href = href || href_from_data_attrs(img_attrs)
+    keep_figure_href(href, image_src)
+  end
+
+  defp href_from_data_attrs(attrs) do
+    case get_attr(attrs, "data-attrs") do
+      json when is_binary(json) and json != "" ->
+        case Jason.decode(json) do
+          {:ok, %{"href" => href}} when is_binary(href) and href != "" -> href
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp keep_figure_href(href, image_src) when is_binary(href) and href != "" do
+    cond do
+      relative_path?(href) or discard_link?(href) or not http_url?(href) ->
+        nil
+
+      same_image_ref?(href, image_src) or image_like_href?(href) ->
+        nil
+
+      true ->
+        remove_tracking_params(href)
+    end
+  end
+
+  defp keep_figure_href(_, _), do: nil
+
+  defp same_image_ref?(left, right) do
+    a = ImageExtractor.normalize_url(left)
+    b = ImageExtractor.normalize_url(right)
+
+    a != "" and b != "" and
+      (a == b or Path.basename(a) == Path.basename(b))
+  end
+
+  defp image_like_href?(href) do
+    path = href |> URI.parse() |> Map.get(:path, "") |> to_string() |> String.downcase()
+    ext = path |> Path.extname() |> String.trim_leading(".")
+
+    ext in ~w(jpg jpeg png gif webp heic heif svg avif) or
+      String.contains?(path, "/image/fetch/")
+  rescue
+    _ -> false
   end
 
   # Bare `alt` (no value) is a boolean attribute; Floki yields "alt".
@@ -637,7 +707,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   # Process iframe (YouTube, etc.)
   defp process_iframe(attrs) do
-    src = get_attr(attrs, "src", "")
+    src = iframe_src(attrs)
 
     cond do
       src == "" ->
@@ -863,15 +933,77 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end
   end
 
+  # Pareto iframes www.podbean.com/ep/pb-{id} (LinkPreview.parsePodbeanUrl).
+  # WordPress often lazy-loads the player as data-src with i={id}-pb.
   defp process_podbean_iframe(src) do
-    case Regex.run(~r/i=([^-&]+(?:-[^-&]+)*?)(?:-pb)?(?:&|$)/, src) do
-      [_, episode_id] ->
-        "\n\n[Listen on Podbean](https://www.podbean.com/ep/pb-#{episode_id})\n\n"
+    case podbean_episode_url(src) do
+      url when is_binary(url) ->
+        "\n\n[Listen on Podbean](#{url})\n\n"
 
       _ ->
         "\n\n[Listen on Podbean](#{src})\n\n"
     end
   end
+
+  defp podbean_episode_url(src) when is_binary(src) do
+    decoded = unescape_attr(src)
+    uri = URI.parse(decoded)
+    query = uri.query || ""
+
+    cond do
+      id = podbean_player_id(query) ->
+        "https://www.podbean.com/ep/pb-#{id}"
+
+      id = podbean_path_id(uri.path) ->
+        "https://www.podbean.com/ep/pb-#{id}"
+
+      true ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp podbean_episode_url(_), do: nil
+
+  defp podbean_player_id(query) do
+    id =
+      query
+      |> URI.decode_query()
+      |> Map.get("i")
+
+    cond do
+      is_binary(id) and id != "" -> String.replace_suffix(id, "-pb", "")
+      true -> nil
+    end
+  end
+
+  defp podbean_path_id(path) when is_binary(path) do
+    case Regex.run(~r{(?:^|/)pb-([A-Za-z0-9]+-[A-Za-z0-9]+)(?:/|$)}, path) do
+      [_, id] -> id
+      _ -> nil
+    end
+  end
+
+  defp podbean_path_id(_), do: nil
+
+  defp iframe_src(attrs) do
+    [get_attr(attrs, "src"), get_attr(attrs, "data-src")]
+    |> Enum.find(&(is_binary(&1) and String.trim(&1) != ""))
+    |> case do
+      nil -> ""
+      src -> unescape_attr(src)
+    end
+  end
+
+  defp unescape_attr(value) when is_binary(value) do
+    value
+    |> String.replace("&amp;", "&")
+    |> String.replace("&#038;", "&")
+    |> String.replace("&#38;", "&")
+  end
+
+  defp unescape_attr(_), do: ""
 
   defp soundcloud_listen_markdown(url) when is_binary(url) and url != "" do
     "\n\n[Listen on SoundCloud](#{url})\n\n"

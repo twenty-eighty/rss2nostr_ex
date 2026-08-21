@@ -33,7 +33,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   Options:
   - :signer - `{:private_key, key}` or `{:bunker, url}`
   - :private_key - 32-byte binary or hex/nsec (legacy; used when `:signer` is absent)
-  - :relays - List of relay URLs (optional; setup sources cannot use public relays)
+  - :relays - List of relay URLs (optional; unknown sources cannot use public relays)
   - :min_success - Minimum number of successful publishes (default: 1)
   """
   def publish_post(%Post{} = post, opts) do

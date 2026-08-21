@@ -400,6 +400,9 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
 
       assert conn.status == 302
       assert get_resp_header(conn, "location") == ["/scheduler"]
+      assert Rss2Nostr.Scheduler.status().running
+
+      on_exit(fn -> Rss2Nostr.Scheduler.stop() end)
     end
 
     test "POST /scheduler/stop redirects" do

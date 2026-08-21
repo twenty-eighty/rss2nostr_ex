@@ -55,6 +55,28 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       refute result.markdown =~ "Ignore me"
     end
 
+    test "keeps a WordPress YouTube figure inside entry-content" do
+      html = """
+      <div class="entry-content">
+        <p>Intro.</p>
+        <figure class="wp-block-embed is-provider-youtube wp-block-embed-youtube">
+          <div class="wp-block-embed__wrapper">
+            <iframe title="Talk"
+              data-src="https://www.youtube.com/embed/4pQ8boPNzpY?feature=oembed"
+              class="lazyload"></iframe>
+          </div>
+        </figure>
+        <p>Outro.</p>
+      </div>
+      """
+
+      result = Composer.compose(html, %{body_selector: "div.entry-content", skip_classes: []})
+
+      assert result.markdown =~ "Intro."
+      assert result.markdown =~ "[Talk](https://www.youtube.com/watch?v=4pQ8boPNzpY)"
+      assert result.markdown =~ "Outro."
+    end
+
     test "promotes a leading image when none is provided" do
       html = ~s(<p><img src="https://example.com/hero.jpg" alt="Hero"></p><p>Article</p>)
       result = Composer.compose(html, %{skip_classes: []})
@@ -139,6 +161,41 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert result.markdown =~ "Von Martin Graf auf Facebook."
       assert result.markdown =~ "Dieser wurde in den USA geboren"
       refute result.markdown =~ "6f8ea1c7-4a8c-46b2-a9f4-168fc6f98eb9"
+      refute result.markdown =~ "!["
+    end
+
+    test "drops a leading HEIC cover that matches the featured Substack image" do
+      featured =
+        "https://substackcdn.com/image/fetch/$s_!hCAb!,w_1200,h_675,c_fill,f_jpg,q_auto:good,fl_progressive:steep,g_auto/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F2b3449dd-0412-4b83-a3c3-241395e4f6a3_4592x3448.heic"
+
+      html = """
+      <html>
+        <head>
+          <meta property="og:image" content="#{featured}">
+        </head>
+        <body>
+          <div class="body markup">
+            <div class="captioned-image-container">
+              <figure>
+                <a href="#{featured}" class="image-link image2">
+                  <img src="https://substackcdn.com/image/fetch/$s_!hCAb!,w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F2b3449dd-0412-4b83-a3c3-241395e4f6a3_4592x3448.heic" alt="">
+                </a>
+              </figure>
+            </div>
+            <p>Eine geniale Erkenntnis: Eis ist gesund!</p>
+          </div>
+        </body>
+      </html>
+      """
+
+      result =
+        Composer.compose(html, %{
+          body_selector: ".body.markup",
+          url: "https://drwatsonfooddetective.substack.com/p/die-sommer-sensation-eis-ist-gesund"
+        })
+
+      assert String.starts_with?(String.trim(result.markdown), "Eine geniale Erkenntnis")
+      refute result.markdown =~ "2b3449dd-0412-4b83-a3c3-241395e4f6a3"
       refute result.markdown =~ "!["
     end
 

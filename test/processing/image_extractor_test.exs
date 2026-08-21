@@ -295,6 +295,26 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
     end
   end
 
+  describe "display_url/1" do
+    test "rewraps a Substack HEIC origin for browsers" do
+      origin =
+        "https://substack-post-media.s3.amazonaws.com/public/images/47485710-5d05-4cea-a61c-53138cfa407b_4032x3024.heic"
+
+      displayed = ImageExtractor.display_url(origin)
+
+      assert String.starts_with?(displayed, "https://substackcdn.com/image/fetch/f_jpg/")
+      assert displayed =~ "47485710-5d05-4cea-a61c-53138cfa407b_4032x3024.heic"
+    end
+
+    test "still unwraps a JPEG Substack CDN URL" do
+      url =
+        "https://substackcdn.com/image/fetch/w_192,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fpbs.substack.com%2Fprofile_images%2F1829651769380503552%2FbMTtwSuG.jpg"
+
+      assert ImageExtractor.display_url(url) ==
+               "https://pbs.substack.com/profile_images/1829651769380503552/bMTtwSuG.jpg"
+    end
+  end
+
   describe "download_urls/1" do
     test "adds a Substack CDN fetch URL after a blocked S3 origin" do
       origin =

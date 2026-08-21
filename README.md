@@ -97,7 +97,7 @@ config :rss2nostr, :nostr,
   }
 ```
 
-Draft sources always publish to the **draft** list (or **test** if that list is empty). Article sources publish to the **test** list unless they are marked public (`source add --public`, or the checkbox in the web UI). `--relays` on export still overrides all lists. Staging DMs use the recipient’s NIP-05 relays (or **public** if none are advertised), plus **inbox**.
+Draft sources always publish to the **draft** list (or **test** if that list is empty). Article and video sources always publish to the **public** list. `--relays` on export still overrides all lists. Staging DMs use the recipient’s NIP-05 relays (or **public** if none are advertised), plus **inbox**.
 
 ## Usage
 
@@ -106,11 +106,8 @@ Draft sources always publish to the **draft** list (or **test** if that list is 
 #### Source Management
 
 ```bash
-# Add a new RSS/Atom source (publishes to test relays)
+# Add a new RSS/Atom source (articles go to public relays)
 ./rss2nostr source add --name "Bitcoin Magazine" --url "https://bitcoinmagazine.com/feed"
-
-# Add a source that publishes to public relays
-./rss2nostr source add --name "Bitcoin Magazine" --url "https://bitcoinmagazine.com/feed" --public
 
 # List all sources
 ./rss2nostr source list

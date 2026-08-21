@@ -85,7 +85,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
       end
 
     all_images
-    |> Enum.map(fn image -> %{image | url: normalize_url(image.url)} end)
+    |> Enum.map(fn image -> %{image | url: display_url(image.url)} end)
     |> Enum.uniq_by(& &1.url)
     |> Enum.filter(&valid_image_url?(&1.url))
   end
@@ -277,7 +277,35 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   def normalize_url(nil), do: ""
 
+  @heic_ext ~w(heic heif)
   @substack_cdn_prefix "https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/"
+  # No commas: Markdown image destinations split on `,`.
+  @substack_display_prefix "https://substackcdn.com/image/fetch/f_jpg/"
+
+  @doc """
+  URL suitable for Markdown and browsers.
+
+  HEIC/HEIF files on Substack S3 do not render in most clients. Keep
+  (or restore) the CDN `f_auto` fetch wrapper so they are served as
+  JPEG/WebP.
+  """
+  @spec display_url(String.t() | nil) :: String.t()
+  def display_url(url) when is_binary(url) do
+    origin = normalize_url(url)
+
+    cond do
+      origin == "" ->
+        url
+
+      heic_url?(origin) ->
+        substack_display_url(origin) || url
+
+      true ->
+        origin
+    end
+  end
+
+  def display_url(nil), do: ""
 
   @doc """
   URLs to try when downloading `url`. The stored URL is first; if it is a
@@ -309,16 +337,16 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   defp repair_content(content) when is_binary(content) do
     Regex.replace(~r/!\[([^\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/, content, fn _full, alt, url, rest ->
-      "![#{alt}](#{normalize_url(url)}#{rest})"
+      "![#{alt}](#{display_url(url)}#{rest})"
     end)
   end
 
   defp repair_content(content), do: content
 
   defp normalize_optional_url(url) when is_binary(url) and url != "" do
-    case normalize_url(url) do
+    case display_url(url) do
       "" -> url
-      normalized -> normalized
+      displayed -> displayed
     end
   end
 
@@ -334,6 +362,14 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   end
 
   defp substack_cdn_url(_), do: nil
+
+  defp substack_display_url(origin) when is_binary(origin) and origin != "" do
+    if substack_origin?(origin) and not substack_cdn?(origin) do
+      @substack_display_prefix <> URI.encode(origin, &URI.char_unreserved?/1)
+    end
+  end
+
+  defp substack_display_url(_), do: nil
 
   defp substack_cdn?(url) do
     host = url_host(url)
@@ -363,6 +399,8 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
         url
     end
   end
+
+  defp heic_url?(url), do: path_ext(url) in @heic_ext
 
   defp path_ext(url) when is_binary(url) do
     url

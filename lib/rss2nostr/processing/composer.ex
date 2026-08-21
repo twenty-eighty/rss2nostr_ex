@@ -197,8 +197,11 @@ defmodule Rss2Nostr.Processing.Composer do
   def compose(html, opts \\ %{}) do
     opts = normalize_opts(opts)
     selector = resolve_body_selector(opts)
+    meta = extract_meta(html)
+    image = opts.image || meta.image
     {body, matched} = extract_body(html, selector)
     body = BodySchema.apply_start_at(body, opts.start_at)
+    body = drop_opening_featured_html(body, image)
 
     body =
       Sites.preprocess(body,
@@ -216,8 +219,6 @@ defmodule Rss2Nostr.Processing.Composer do
       )
       |> Youtube.enrich_markdown()
 
-    meta = extract_meta(html)
-    image = opts.image || meta.image
     {image, markdown} = maybe_promote_leading_image(markdown, image)
 
     %{
@@ -570,10 +571,178 @@ defmodule Rss2Nostr.Processing.Composer do
   # CDN sizes (Substack w_1200,c_fill vs w_1456,c_limit) or paths
   # (`/wp-content/uploads/…/scroogesquare.jpg` vs `/images/scroogesquare.jpg`).
   defp same_image?(left, right) do
-    a = ImageExtractor.normalize_url(left)
-    b = ImageExtractor.normalize_url(right)
+    keys_left = image_keys(left)
+    keys_right = image_keys(right)
 
-    a != "" and b != "" and (a == b or image_basename(a) == image_basename(b))
+    keys_left != MapSet.new() and not MapSet.disjoint?(keys_left, keys_right)
+  end
+
+  defp image_keys(url) do
+    origin = ImageExtractor.normalize_url(url)
+
+    [origin, image_basename(origin), image_basename(url), substack_media_id(origin), substack_media_id(url)]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> MapSet.new()
+  end
+
+  defp substack_media_id(url) when is_binary(url) do
+    decoded =
+      url
+      |> ImageExtractor.normalize_url()
+      |> URI.decode()
+
+    case Regex.run(~r/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/i, decoded) do
+      [_, id] -> String.downcase(id)
+      _ -> nil
+    end
+  end
+
+  defp substack_media_id(_), do: nil
+
+  defp drop_opening_featured_html(html, image)
+       when is_binary(html) and is_binary(image) and image != "" do
+    case Floki.parse_fragment(html) do
+      {:ok, nodes} -> nodes |> drop_opening_featured_nodes(image) |> Floki.raw_html()
+      _ -> html
+    end
+  rescue
+    _ -> html
+  end
+
+  defp drop_opening_featured_html(html, _), do: html
+
+  defp drop_opening_featured_nodes([node], featured) do
+    case node do
+      {tag, attrs, children} ->
+        [{tag, attrs, drop_opening_children(children, featured)}]
+
+      _ ->
+        [node]
+    end
+  end
+
+  defp drop_opening_featured_nodes(nodes, featured) when is_list(nodes) do
+    drop_opening_children(nodes, featured)
+  end
+
+  defp drop_opening_children(nodes, featured) do
+    {kept, _} =
+      Enum.reduce(nodes, {[], :opening}, fn
+        node, {acc, :done} ->
+          {acc ++ [node], :done}
+
+        node, {acc, :opening} ->
+          cond do
+            blank_html_node?(node) ->
+              {acc, :opening}
+
+            short_credit_html?(node) ->
+              {acc ++ [node], :opening}
+
+            featured_image_block?(node, featured) ->
+              {acc, :done}
+
+            true ->
+              {acc ++ [node], :done}
+          end
+      end)
+
+    kept
+  end
+
+  defp blank_html_node?(text) when is_binary(text), do: String.trim(text) == ""
+  defp blank_html_node?(_), do: false
+
+  defp short_credit_html?({"p", _, _} = node) do
+    text = node |> Floki.text() |> String.trim()
+
+    image_urls_in(node) == [] and text != "" and
+      length(String.split(text, ~r/\s+/, trim: true)) <= 10
+  end
+
+  defp short_credit_html?(_), do: false
+
+  defp featured_image_block?(node, featured) do
+    urls = image_urls_in(node)
+
+    urls != [] and image_only_block?(node) and
+      Enum.any?(urls, &same_image?(&1, featured))
+  end
+
+  defp image_only_block?({"img", _, _}), do: true
+  defp image_only_block?({"figure", _, _}), do: true
+  defp image_only_block?({"picture", _, _}), do: true
+  defp image_only_block?({"a", _, children}), do: image_only_block_children?(children)
+
+  defp image_only_block?({"p", _, children}) do
+    image_only_block_children?(children) and
+      String.trim(Floki.text({"p", [], children})) == ""
+  end
+
+  defp image_only_block?({"div", _, children}), do: image_only_block_children?(children)
+  defp image_only_block?(_), do: false
+
+  defp image_only_block_children?(children) do
+    children
+    |> Enum.reject(&blank_html_node?/1)
+    |> Enum.all?(fn
+      {"img", _, _} -> true
+      {"figure", _, _} -> true
+      {"picture", _, _} -> true
+      {"a", _, inner} -> image_only_block_children?(inner)
+      {"div", _, inner} -> image_only_block_children?(inner)
+      {"p", _, inner} -> image_only_block_children?(inner) and String.trim(Floki.text({"p", [], inner})) == ""
+      _ -> false
+    end)
+  end
+
+  defp image_urls_in(nodes) when is_list(nodes), do: Enum.flat_map(nodes, &image_urls_in/1)
+
+  defp image_urls_in({"img", attrs, children}) do
+    img_urls(attrs) ++ image_urls_in(children)
+  end
+
+  defp image_urls_in({"source", attrs, children}) do
+    img_urls(attrs) ++ image_urls_in(children)
+  end
+
+  defp image_urls_in({_, _, children}), do: image_urls_in(children)
+  defp image_urls_in(_), do: []
+
+  defp img_urls(attrs) do
+    [
+      html_attr_value(attrs, "src"),
+      html_attr_value(attrs, "data-src"),
+      srcset_head(html_attr_value(attrs, "srcset") || html_attr_value(attrs, "data-srcset")),
+      data_attrs_src(html_attr_value(attrs, "data-attrs"))
+    ]
+    |> List.flatten()
+    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+  end
+
+  defp srcset_head(srcset) when is_binary(srcset) and srcset != "" do
+    case Regex.run(~r/(\S+)\s+\d+w/i, srcset) do
+      [_, url] -> [url]
+      _ -> []
+    end
+  end
+
+  defp srcset_head(_), do: []
+
+  defp data_attrs_src(json) when is_binary(json) and json != "" do
+    case Jason.decode(json) do
+      {:ok, %{"src" => src}} when is_binary(src) and src != "" -> [src]
+      _ -> []
+    end
+  end
+
+  defp data_attrs_src(_), do: []
+
+  defp html_attr_value(attrs, name) do
+    case List.keyfind(attrs, name, 0) do
+      {_, value} -> value
+      nil -> nil
+    end
   end
 
   defp image_basename(url) do

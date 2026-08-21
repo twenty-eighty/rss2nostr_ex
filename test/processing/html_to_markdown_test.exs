@@ -282,6 +282,45 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "substack-post-media.s3.amazonaws.com/public/images/45b3c34b-433c-4d7c-a9dd-56048068b673_1280x640.jpeg"
       assert md =~ "Ashot Grigorian"
       refute md =~ "image-link"
+      refute md =~ "](https://substackcdn.com/image/fetch"
+    end
+
+    test "keeps a Substack HEIC image on the CDN so browsers can display it" do
+      origin =
+        "https://substack-post-media.s3.amazonaws.com/public/images/47485710-5d05-4cea-a61c-53138cfa407b_4032x3024.heic"
+
+      html = """
+      <figure>
+        <img src="https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F47485710-5d05-4cea-a61c-53138cfa407b_4032x3024.heic" alt="">
+      </figure>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "substackcdn.com/image/fetch/"
+      assert md =~ "f_jpg"
+      assert md =~ "47485710-5d05-4cea-a61c-53138cfa407b_4032x3024.heic"
+      refute md =~ "![](#{origin})"
+    end
+
+    test "keeps an Amazon link around a Substack book-cover figure" do
+      html = """
+      <div class="captioned-image-container">
+        <figure>
+          <a target="_blank" href="https://www.amazon.de/dp/B0HCPJVJHV?spcref=HARDCOVER_LISTING" class="image-link image2">
+            <picture>
+              <img src="https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F681909bf-1247-4a6a-a465-047ba9862943_1044x258.heic" alt="">
+            </picture>
+          </a>
+        </figure>
+      </div>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "](https://www.amazon.de/dp/B0HCPJVJHV"
+      assert md =~ "substackcdn.com/image/fetch/"
+      assert md =~ "681909bf-1247-4a6a-a465-047ba9862943_1044x258.heic"
     end
 
     test "does not use a bare alt attribute as a caption" do
@@ -443,6 +482,24 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "[Watch on YouTube](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
     end
 
+    test "keeps a WordPress lazy YouTube embed wrapped in a figure" do
+      html = """
+      <figure class="wp-block-embed is-type-video is-provider-youtube wp-block-embed-youtube">
+        <div class="wp-block-embed__wrapper">
+          <iframe title="Ulrike Guerot bei Menschlich Wirtschaften – noch nie war sie so nahbar und verletzlich."
+            width="750" height="422" frameborder="0" allowfullscreen
+            data-src="https://www.youtube.com/embed/4pQ8boPNzpY?feature=oembed"
+            class="lazyload"></iframe>
+        </div>
+      </figure>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~
+               "[Ulrike Guerot bei Menschlich Wirtschaften – noch nie war sie so nahbar und verletzlich.](https://www.youtube.com/watch?v=4pQ8boPNzpY)"
+    end
+
     test "uses a meaningful iframe title for YouTube embeds" do
       html =
         ~s(<iframe src="https://www.youtube.com/embed/bLA0a0xiy_g" title="A Bloody Delay of Bankruptcy"></iframe>)
@@ -485,6 +542,20 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "[Watch on Bitchute](https://www.bitchute.com/video/2QbsxZOkIYjA/)"
       assert md =~ "[Watch on Rumble](https://rumble.com/embed/v123abc)"
       assert md =~ "[Watch on Archive.org](https://archive.org/details/nwnw639)"
+    end
+
+    test "turns a lazy-loaded Podbean player into a Pareto episode permalink" do
+      html = """
+      <p><iframe title="Schwindelfrei – Kapitel 6" allowtransparency="true" height="150" width="100%"
+        scrolling="no" data-name="pb-iframe-player" loading="lazy"
+        data-src="https://www.podbean.com/player-v2/?i=rwwyx-1b3e4d9-pb&#038;from=pb6admin&#038;share=1&#038;download=1"
+        class="lazyload"></iframe></p>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Listen on Podbean](https://www.podbean.com/ep/pb-rwwyx-1b3e4d9)"
+      refute md =~ "player-v2"
     end
 
     test "turns a SoundCloud player iframe into a standalone permalink" do

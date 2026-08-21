@@ -27,9 +27,6 @@ defmodule Rss2Nostr.Web.API.Status do
   end
 
   defp get_scheduler_status do
-    case Process.whereis(Rss2Nostr.Scheduler) do
-      nil -> %{running: false}
-      _pid -> %{running: true}
-    end
+    %{running: Rss2Nostr.Web.API.Scheduler.status().running}
   end
 end

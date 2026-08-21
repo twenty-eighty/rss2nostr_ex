@@ -94,27 +94,32 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
   end
 
   describe "for_post/1" do
-    test "uses the test list when the source is not public" do
+    test "uses the public list for article sources" do
       put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
       {:ok, source} = Sources.create_source(source_attrs(public: false))
       post = create_post(source)
 
-      assert Relays.audience_for_post(post) == :test
-      assert Relays.for_post(post) == ["wss://test.example"]
-    end
-
-    test "uses the public list when the source is public" do
-      put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
-      {:ok, source} = Sources.create_source(source_attrs(public: true, mode: "automated"))
-      post = create_post(source)
-
       assert Relays.audience_for_post(post) == :public
+      assert Relays.target_for(post) == :public
       assert Relays.for_post(post) == ["wss://public.example"]
     end
 
-    test "uses the public list for a public article source even in setup" do
+    test "uses the public list for a video source" do
       put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
-      {:ok, source} = Sources.create_source(source_attrs(public: true, mode: "setup"))
+
+      {:ok, source} =
+        Sources.create_source(source_attrs([]) |> Map.merge(%{publish_as: "video"}))
+
+      post = create_post(source)
+
+      assert Relays.audience_for_source(source) == :public
+      assert Relays.target_for(post) == :public
+      assert Relays.for_post(post) == ["wss://public.example"]
+    end
+
+    test "uses the public list for an article source even in setup" do
+      put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
+      {:ok, source} = Sources.create_source(source_attrs(mode: "setup"))
       post = create_post(source)
 
       assert Relays.audience_for_source(source) == :public
@@ -126,29 +131,29 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
              ]
     end
 
-    test "uses the test list for an article source that is not public" do
+    test "keeps public relays on an explicit list for article sources" do
       put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
       {:ok, source} = Sources.create_source(source_attrs(public: false, mode: "automated"))
       post = create_post(source)
 
-      assert Relays.target_for(post) == :test
-      assert Relays.for_post(post) == ["wss://test.example"]
+      assert Relays.target_for(post) == :public
+      assert Relays.for_post(post) == ["wss://public.example"]
 
       assert Relays.publish_relays(post, relays: ["wss://public.example"]) == [
-               "wss://test.example"
+               "wss://public.example"
              ]
     end
 
     test "preloads an unloaded source association" do
       put_relays(%{test: ["wss://test.example"], public: ["wss://public.example"]})
-      {:ok, source} = Sources.create_source(source_attrs(public: true, mode: "automated"))
+      {:ok, source} = Sources.create_source(source_attrs(mode: "automated"))
       post = create_post(source)
       unloaded = Posts.get_post(post.id)
 
       assert Relays.for_post(unloaded) == ["wss://public.example"]
     end
 
-    test "uses the draft list for a draft source even when public and automated" do
+    test "uses the draft list for a draft source even when the public flag is set" do
       put_relays(%{
         draft: ["wss://draft.example"],
         test: ["wss://test.example"],
@@ -171,7 +176,6 @@ defmodule Rss2Nostr.Nostr.RelaysTest do
 
       post = create_post(source)
 
-      assert Relays.audience_for_post(post) == :public
       assert Relays.target_for(post) == :draft
       assert Relays.for_post(post) == ["wss://draft.example"]
       assert Relays.publish_relays(post, audience: :public) == ["wss://draft.example"]

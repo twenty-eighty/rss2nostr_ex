@@ -62,7 +62,7 @@ defmodule Rss2Nostr.CLI do
                 flags: [
                   public: [
                     long: "--public",
-                    help: "Publish this source's articles to public relays (default: test relays)"
+                    help: "Deprecated: articles and videos always use public relays"
                   ]
                 ]
               ],

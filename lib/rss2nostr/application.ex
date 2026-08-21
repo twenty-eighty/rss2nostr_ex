@@ -15,11 +15,11 @@ defmodule Rss2Nostr.Application do
       Supervisor.child_spec({Cachex, name: :inbox_relays_cache}, id: :inbox_relays_cache),
 
       # Nostr Relay Registry
-      {Registry, keys: :unique, name: Rss2Nostr.RelayRegistry}
+      {Registry, keys: :unique, name: Rss2Nostr.RelayRegistry},
 
-      # Schedulers (will be added in Phase 7)
-      # Rss2Nostr.Scheduler.ImportScheduler,
-      # Rss2Nostr.Scheduler.ExportScheduler
+      # Import / process / export / cleanup. Start/Stop on the Scheduler
+      # page only toggles timers; the process itself stays up.
+      {Rss2Nostr.Scheduler, []}
     ]
 
     opts = [strategy: :one_for_one, name: Rss2Nostr.Supervisor]

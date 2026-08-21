@@ -200,6 +200,7 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
 
       feed = Sources.show(source, tab: "feed")
       assert feed =~ ~s(<option value="eo" selected>eo</option>)
+      refute feed =~ "Intended for public relays"
     end
   end
 
@@ -219,6 +220,8 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "Draft (unencrypted)"
       assert html =~ "Article (kind 30023)"
       assert html =~ "Video (kind 34235)"
+      assert html =~ "Drafts are sent to the draft relay list"
+      refute html =~ "Intended for public relays"
       assert html =~ "Author public key"
       assert html =~ "signing_nsec"
       assert html =~ "bunker_connection"

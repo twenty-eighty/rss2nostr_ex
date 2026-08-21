@@ -6,7 +6,7 @@ defmodule Rss2Nostr.Scheduler do
   - import: Fetch new articles from RSS/Atom feeds
   - process: Convert HTML to Markdown
   - export: Publish processed posts to Nostr
-  - cleanup: Delete app-signed drafts after a kind 30023 exists
+  - cleanup: Delete app-signed drafts after a matching kind 30023 exists
 
   The scheduler runs as a GenServer and executes tasks at configurable intervals.
   """
@@ -14,6 +14,7 @@ defmodule Rss2Nostr.Scheduler do
   use GenServer
   require Logger
 
+  alias Rss2Nostr.Nostr.Keys
   alias Rss2Nostr.Scheduler.Tasks
 
   @tasks [:import, :process, :export, :cleanup]
@@ -52,7 +53,7 @@ defmodule Rss2Nostr.Scheduler do
     - :cleanup - Draft cleanup interval (default: 1 hour)
   - :export_config - Configuration for export task
     - :private_key - Nostr private key (required for export)
-    - :relays - Explicit relay URLs (optional; otherwise per-source test/public)
+    - :relays - Explicit relay URLs (optional; otherwise per-source draft/public)
     - :audience - `:test` or `:public` (optional; forces one list for every post)
     - :upload_images - Whether to upload images
   - :auto_start - Start scheduling immediately (default: false)
@@ -129,7 +130,7 @@ defmodule Rss2Nostr.Scheduler do
       |> Map.merge(config_intervals)
       |> Map.merge(Keyword.get(opts, :intervals, %{}))
 
-    export_config = Keyword.get(opts, :export_config, %{})
+    export_config = Keyword.get(opts, :export_config) || default_export_config()
     auto_start = Keyword.get(opts, :auto_start, false)
 
     state = %__MODULE__{
@@ -213,6 +214,10 @@ defmodule Rss2Nostr.Scheduler do
   end
 
   @impl true
+  def handle_info({:execute, _task}, %{running: false} = state) do
+    {:noreply, state}
+  end
+
   def handle_info({:execute, task}, state) do
     {_result, new_state} = execute_task(task, state)
 
@@ -237,8 +242,6 @@ defmodule Rss2Nostr.Scheduler do
 
     timers =
       Enum.reduce(state.intervals, %{}, fn {task, interval}, acc ->
-        # Run immediately, then schedule recurring
-        send(self(), {:execute, task})
         timer = schedule_task(task, interval)
         Map.put(acc, task, timer)
       end)
@@ -311,4 +314,18 @@ defmodule Rss2Nostr.Scheduler do
   defp format_duration(ms) when ms < 60_000, do: "#{div(ms, 1000)}s"
   defp format_duration(ms) when ms < 3_600_000, do: "#{div(ms, 60_000)}m"
   defp format_duration(ms), do: "#{div(ms, 3_600_000)}h"
+
+  defp default_export_config do
+    nsec = System.get_env("NOSTR_NSEC")
+
+    private_key =
+      if nsec do
+        case Keys.parse_private_key(nsec) do
+          {:ok, key} -> key
+          _ -> nil
+        end
+      end
+
+    if private_key, do: %{private_key: private_key}, else: %{}
+  end
 end

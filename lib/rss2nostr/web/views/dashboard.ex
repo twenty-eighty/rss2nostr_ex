@@ -18,7 +18,7 @@ defmodule Rss2Nostr.Web.Views.Dashboard do
     published_posts = length(Posts.list_posts_by_status(Post.status_published(), limit: 1000))
 
     # Check scheduler status
-    scheduler_running = Process.whereis(Rss2Nostr.Scheduler) != nil
+    scheduler_running = Rss2Nostr.Web.API.Scheduler.status().running
 
     content = """
     <h1>Dashboard</h1>

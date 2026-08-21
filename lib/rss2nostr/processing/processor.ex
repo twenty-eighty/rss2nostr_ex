@@ -126,10 +126,15 @@ defmodule Rss2Nostr.Processing.Processor do
     store_composed(post, composed)
   end
 
-  defp compose_opts_for(%Post{source: source, source_url: article_url}) do
+  defp compose_opts_for(%Post{} = post) do
+    source = post.source
+
     source
     |> Composer.opts_from_source()
-    |> Map.put(:url, article_url || feed_url(source))
+    |> Map.put(:url, post.source_url || feed_url(source))
+    |> Map.put(:image, post.image)
+    |> Map.put(:title, post.title)
+    |> Map.put(:summary, post.summary)
   end
 
   defp feed_url(%{url: url}), do: url

@@ -1,14 +1,17 @@
 defmodule Rss2Nostr.Nostr.DraftCleanup do
   @moduledoc """
   Deletes app-signed draft events (kind 30024 / 31234) after a kind 30023
-  article with the same `d` tag has been published.
+  article with the same `d` tag has been published by the author named in
+  the draft's `p` tag.
+
+  Scans relays for every draft authored by `NOSTR_PRIVATE_KEY`, not only
+  drafts that came from a known RSS source.
   """
 
   require Logger
 
   alias Rss2Nostr.Nostr.{Event, Keys, Publisher, Relay, RelayQuery, Relays, Signer}
   alias Rss2Nostr.Posts
-  alias Rss2Nostr.Posts.Post
 
   @reason "replaced by published article"
 
@@ -27,17 +30,27 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
   defp do_run(key, opts) do
     query = Keyword.get(opts, :query, &RelayQuery.query_relays/2)
     publish = Keyword.get(opts, :publish, &Relay.publish_to_relays/2)
-    limit = Keyword.get(opts, :limit, 50)
+    limit = Keyword.get(opts, :limit, 200)
     app_pubkey = key |> Keys.derive_public_key() |> Keys.to_hex()
+    lookup = lookup_relays()
+    delete_on = delete_relays()
+
+    drafts =
+      Keyword.get_lazy(opts, :drafts, fn ->
+        query.(lookup, all_drafts_filter(app_pubkey, limit))
+      end)
 
     posts =
       Keyword.get_lazy(opts, :posts, fn ->
         Posts.list_draft_cleanup_candidates(limit: limit)
       end)
 
+    groups = draft_groups(drafts, posts)
+    published = published_keys(groups, query, lookup)
+
     {deleted, skipped} =
-      Enum.reduce(posts, {0, 0}, fn post, {deleted, skipped} ->
-        case cleanup_post(post, key, app_pubkey, query, publish) do
+      Enum.reduce(groups, {0, 0}, fn group, {deleted, skipped} ->
+        case cleanup_group(group, key, app_pubkey, published, delete_on, publish, posts) do
           :deleted -> {deleted + 1, skipped}
           :skipped -> {deleted, skipped + 1}
         end
@@ -47,24 +60,20 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     {:ok, %{deleted: deleted, skipped: skipped}}
   end
 
-  defp cleanup_post(%Post{} = post, key, app_pubkey, query, publish) do
-    identifier = Publisher.identifier(post)
-    lookup = lookup_relays()
-    delete_on = delete_relays()
+  defp cleanup_group(group, key, app_pubkey, published, delete_on, publish, posts) do
+    %{identifier: identifier, author: author, event_ids: event_ids} = group
 
     cond do
-      identifier == "" or lookup == [] or delete_on == [] ->
+      identifier == "" or author == nil or delete_on == [] ->
         :skipped
 
-      query.(lookup, article_filter(post, identifier)) == [] ->
+      not MapSet.member?(published, {identifier, author}) ->
         :skipped
 
       true ->
-        drafts = query.(lookup, draft_filter(app_pubkey, identifier))
-
         deletion =
           Event.build_deletion(app_pubkey,
-            event_ids: draft_event_ids(post, drafts),
+            event_ids: event_ids,
             addresses: draft_addresses(app_pubkey, identifier),
             reason: @reason
           )
@@ -75,12 +84,12 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
             ok? = Enum.any?(results, fn {_url, result} -> result == :ok end)
 
             if ok? do
-              _ = Posts.mark_draft_cleaned(post)
-              Logger.info("[Cleanup] Deleted drafts for post #{post.id} (#{identifier})")
+              mark_local_posts(posts, identifier, author)
+              Logger.info("[Cleanup] Deleted drafts for d=#{identifier} p=#{author}")
               :deleted
             else
               Logger.warning(
-                "[Cleanup] Deletion rejected for post #{post.id}: #{inspect(results)}"
+                "[Cleanup] Deletion rejected for d=#{identifier}: #{inspect(results)}"
               )
 
               :skipped
@@ -88,7 +97,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
 
           {:error, reason} ->
             Logger.warning(
-              "[Cleanup] Could not sign deletion for post #{post.id}: #{inspect(reason)}"
+              "[Cleanup] Could not sign deletion for d=#{identifier}: #{inspect(reason)}"
             )
 
             :skipped
@@ -96,30 +105,102 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end
   end
 
-  defp article_filter(post, identifier) do
-    filter = %{"kinds" => [Event.kind_long_form()], "#d" => [identifier], "limit" => 5}
-
-    case source_author(post) do
-      nil -> filter
-      author -> Map.put(filter, "authors", [author])
-    end
+  defp draft_groups(drafts, posts) do
+    %{}
+    |> add_draft_events(drafts)
+    |> add_local_posts(posts)
+    |> Enum.map(fn {{identifier, author}, event_ids} ->
+      %{
+        identifier: identifier,
+        author: author,
+        event_ids: event_ids |> Enum.reject(&(&1 in [nil, ""])) |> Enum.uniq()
+      }
+    end)
   end
 
-  defp draft_filter(app_pubkey, identifier) do
+  defp add_draft_events(groups, drafts) do
+    Enum.reduce(drafts, groups, fn event, acc ->
+      identifier = tag_value(event, "d")
+      author = author_p_tag(event)
+
+      if identifier != "" and author do
+        Map.update(acc, {identifier, author}, compact_ids([event_id(event)]), fn ids ->
+          compact_ids([event_id(event) | ids])
+        end)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp add_local_posts(groups, posts) do
+    Enum.reduce(posts, groups, fn post, acc ->
+      identifier = Publisher.identifier(post)
+      author = source_author(post)
+
+      if identifier != "" and author do
+        Map.update(acc, {identifier, author}, compact_ids([post.event_id]), fn ids ->
+          compact_ids([post.event_id | ids])
+        end)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp mark_local_posts(posts, identifier, author) do
+    posts
+    |> Enum.filter(fn post ->
+      Publisher.identifier(post) == identifier and source_author(post) == author
+    end)
+    |> Enum.each(fn post ->
+      _ = Posts.mark_draft_cleaned(post)
+    end)
+  end
+
+  defp all_drafts_filter(app_pubkey, limit) do
     %{
       "kinds" => [Event.kind_long_form_draft(), Event.kind_draft_wrap()],
       "authors" => [app_pubkey],
-      "#d" => [identifier],
-      "limit" => 20
+      "limit" => limit
     }
   end
 
-  defp draft_event_ids(post, drafts) do
-    found = Enum.map(drafts, &event_id/1)
+  defp published_keys([], _query, _urls), do: MapSet.new()
 
-    [post.event_id | found]
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.uniq()
+  defp published_keys(groups, query, urls) do
+    groups
+    |> Enum.group_by(& &1.author, & &1.identifier)
+    |> Enum.reduce(MapSet.new(), fn {author, identifiers}, acc ->
+      ids = Enum.uniq(identifiers)
+
+      query.(urls, article_filter(ids, author))
+      |> Enum.reduce(acc, fn event, acc ->
+        identifier = tag_value(event, "d")
+        event_author = normalize_pubkey(event_pubkey(event))
+
+        if identifier in ids and event_author == author do
+          MapSet.put(acc, {identifier, author})
+        else
+          acc
+        end
+      end)
+    end)
+  end
+
+  defp article_filter(identifiers, author) do
+    ids = List.wrap(identifiers)
+
+    %{
+      "kinds" => [Event.kind_long_form()],
+      "#d" => ids,
+      "authors" => [author],
+      "limit" => max(length(ids), 5)
+    }
+  end
+
+  defp event_pubkey(event) do
+    event["pubkey"] || event[:pubkey]
   end
 
   defp draft_addresses(app_pubkey, identifier) do
@@ -131,18 +212,56 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
 
   defp source_author(post) do
     pubkey = post.source && post.source.pubkey
+    normalize_pubkey(pubkey)
+  end
 
+  defp author_p_tag(event) do
+    event
+    |> tag_values("p")
+    |> Enum.find_value(&normalize_pubkey/1)
+  end
+
+  defp normalize_pubkey(pubkey) do
     if Keys.valid_pubkey?(pubkey), do: String.downcase(pubkey)
   end
 
+  defp tag_value(event, name) do
+    event
+    |> tag_values(name)
+    |> List.first()
+    |> case do
+      value when is_binary(value) -> value
+      _ -> ""
+    end
+  end
+
+  defp tag_values(event, name) do
+    event
+    |> event_tags()
+    |> Enum.flat_map(fn
+      [tag, value | _] when tag == name and is_binary(value) and value != "" -> [value]
+      _ -> []
+    end)
+  end
+
+  defp event_tags(event) do
+    event[:tags] || event["tags"] || []
+  end
+
+  defp compact_ids(ids) do
+    ids
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
+
   defp lookup_relays do
-    Relays.draft() ++ Relays.test() ++ Relays.public()
+    Enum.uniq(Relays.draft() ++ Relays.test() ++ Relays.public())
   end
 
   defp delete_relays do
     case Relays.draft() do
-      [] -> Relays.test() ++ Relays.public()
-      list -> list
+      [] -> Enum.uniq(Relays.test() ++ Relays.public())
+      list -> Enum.uniq(list)
     end
   end
 

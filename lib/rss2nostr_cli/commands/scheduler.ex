@@ -57,7 +57,18 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
            auto_start: true
          ) do
       {:ok, _pid} ->
-        # Keep the process running
+        receive do
+          :stop -> :ok
+        end
+
+      {:error, {:already_started, _pid}} ->
+        Scheduler.set_export_config(export_config)
+
+        case Scheduler.start() do
+          :ok -> :ok
+          {:error, :already_running} -> :ok
+        end
+
         receive do
           :stop -> :ok
         end

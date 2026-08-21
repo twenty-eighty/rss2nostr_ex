@@ -25,13 +25,11 @@ defmodule Rss2Nostr.Web.API.Scheduler do
   end
 
   def start do
-    case Process.whereis(Rss2Nostr.Scheduler) do
-      nil ->
-        Scheduler.start_link([])
-        {:ok, "Scheduler started"}
-
-      _pid ->
-        {:ok, "Scheduler already running"}
+    with :ok <- ensure_started() do
+      case Scheduler.start() do
+        :ok -> {:ok, "Scheduler started"}
+        {:error, :already_running} -> {:ok, "Scheduler already running"}
+      end
     end
   end
 
@@ -69,6 +67,21 @@ defmodule Rss2Nostr.Web.API.Scheduler do
   end
 
   def run_task(_task), do: {:error, "Invalid task"}
+
+  defp ensure_started do
+    case Process.whereis(Rss2Nostr.Scheduler) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        # Unlinked: a start_link from the HTTP request would die with the Plug process.
+        case GenServer.start(Rss2Nostr.Scheduler, [], name: Rss2Nostr.Scheduler) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
 
   defp get_export_config do
     nsec = System.get_env("NOSTR_NSEC")

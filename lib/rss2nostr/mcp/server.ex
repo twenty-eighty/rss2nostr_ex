@@ -60,11 +60,6 @@ defmodule Rss2Nostr.MCP.Server do
     param(:publish_as, :string, description: "draft, draft_plain, article, or video")
     param(:mirror_media, :string, description: "For video sources: blossom or original")
 
-    param(:public, :boolean,
-      description:
-        "Publish articles to the public relay list. Drafts always use the draft list."
-    )
-
     param(:pubkey, :string,
       description: "Author npub or hex pubkey (required for drafts)"
     )
@@ -96,7 +91,6 @@ defmodule Rss2Nostr.MCP.Server do
     param(:language, :string)
     param(:publish_as, :string, description: "draft, draft_plain, article, or video")
     param(:mirror_media, :string, description: "For video sources: blossom or original")
-    param(:public, :boolean)
     param(:mode, :string, description: "setup or automated")
     param(:pubkey, :string)
     param(:signing_nsec, :string)

@@ -19,6 +19,7 @@ defmodule Rss2Nostr.Nostr.Relay do
       :max_reconnect_attempts,
       :pending_requests,
       :pending_confirmations,
+      :pending_queries,
       :last_activity,
       :idle_timeout,
       :idle_timer
@@ -33,6 +34,21 @@ defmodule Rss2Nostr.Nostr.Relay do
   def start_link(relay_url, opts \\ []) do
     name = Keyword.get(opts, :name, via_name(relay_url))
     GenServer.start_link(__MODULE__, relay_url, name: name)
+  end
+
+  @doc """
+  Runs a one-shot REQ on a pooled relay connection.
+  Reuses an existing socket when the relay is already connected.
+  """
+  @spec query(String.t(), map(), timeout()) :: {:ok, [map()]} | {:error, term()}
+  def query(relay_url, filter, timeout \\ 8_000) when is_map(filter) do
+    case get_or_start_relay(relay_url) do
+      {:ok, pid} ->
+        GenServer.call(pid, {:query, filter}, timeout)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @doc """
@@ -143,6 +159,7 @@ defmodule Rss2Nostr.Nostr.Relay do
       max_reconnect_attempts: 5,
       pending_requests: [],
       pending_confirmations: %{},
+      pending_queries: %{},
       last_activity: nil,
       idle_timeout: 60_000,
       idle_timer: nil
@@ -153,34 +170,12 @@ defmodule Rss2Nostr.Nostr.Relay do
 
   @impl true
   def handle_call({:publish, event}, from, state) do
-    case state.status do
-      :connected ->
-        case send_event(state.conn, event) do
-          :ok ->
-            event_id = get_event_id(event)
-            new_confirmations = Map.put(state.pending_confirmations, event_id, from)
+    enqueue_or_run(state, {:publish, event, from})
+  end
 
-            new_state =
-              %{state | pending_confirmations: new_confirmations}
-              |> update_activity()
-              |> schedule_idle_timeout()
-
-            {:noreply, new_state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
-
-      :disconnected ->
-        new_state =
-          connect(%{state | pending_requests: [{:publish, event, from} | state.pending_requests]})
-
-        {:noreply, new_state}
-
-      :connecting ->
-        {:noreply,
-         %{state | pending_requests: [{:publish, event, from} | state.pending_requests]}}
-    end
+  @impl true
+  def handle_call({:query, filter}, from, state) do
+    enqueue_or_run(state, {:query, filter, from})
   end
 
   @impl true
@@ -253,6 +248,65 @@ defmodule Rss2Nostr.Nostr.Relay do
 
   # Private functions
 
+  defp enqueue_or_run(state, request) do
+    case state.status do
+      :connected ->
+        {:noreply, run_request(state, request)}
+
+      :disconnected ->
+        {:noreply, connect(%{state | pending_requests: [request | state.pending_requests]})}
+
+      :connecting ->
+        {:noreply, %{state | pending_requests: [request | state.pending_requests]}}
+    end
+  end
+
+  defp run_request(state, {:publish, event, from}) do
+    case send_event(state.conn, event) do
+      :ok ->
+        event_id = get_event_id(event)
+        new_confirmations = Map.put(state.pending_confirmations, event_id, from)
+
+        %{state | pending_confirmations: new_confirmations}
+        |> update_activity()
+        |> schedule_idle_timeout()
+
+      {:error, reason} ->
+        GenServer.reply(from, {:error, reason})
+        state
+    end
+  end
+
+  defp run_request(state, {:query, filter, from}) do
+    sub = "q" <> Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
+
+    case send_req(state.conn, sub, filter) do
+      :ok ->
+        queries = Map.put(state.pending_queries, sub, %{from: from, events: []})
+
+        %{state | pending_queries: queries}
+        |> update_activity()
+        |> schedule_idle_timeout()
+
+      {:error, reason} ->
+        GenServer.reply(from, {:error, reason})
+        state
+    end
+  end
+
+  defp send_req(conn, sub, filter) do
+    WebSockex.send_frame(conn, {:text, Jason.encode!(["REQ", sub, filter])})
+  rescue
+    e -> {:error, e}
+  end
+
+  defp send_close(conn, sub) do
+    _ = WebSockex.send_frame(conn, {:text, Jason.encode!(["CLOSE", sub])})
+    :ok
+  rescue
+    _ -> :ok
+  end
+
   defp idle_exceeded?(state) do
     now = System.monotonic_time(:millisecond)
     now - state.last_activity > state.idle_timeout
@@ -317,18 +371,8 @@ defmodule Rss2Nostr.Nostr.Relay do
   end
 
   defp process_pending_requests(state) do
-    Enum.reduce(state.pending_requests, %{state | pending_requests: []}, fn
-      {:publish, event, from}, acc_state ->
-        case send_event(acc_state.conn, event) do
-          :ok ->
-            event_id = get_event_id(event)
-            new_confirmations = Map.put(acc_state.pending_confirmations, event_id, from)
-            %{acc_state | pending_confirmations: new_confirmations}
-
-          {:error, reason} ->
-            GenServer.reply(from, {:error, reason})
-            acc_state
-        end
+    Enum.reduce(state.pending_requests, %{state | pending_requests: []}, fn request, acc_state ->
+      run_request(acc_state, request)
     end)
   end
 
@@ -336,6 +380,12 @@ defmodule Rss2Nostr.Nostr.Relay do
     case Jason.decode(message) do
       {:ok, ["OK", event_id, success, reason]} ->
         handle_ok_message(event_id, success, reason, state)
+
+      {:ok, ["EVENT", sub, event]} when is_map(event) ->
+        handle_query_event(sub, event, state)
+
+      {:ok, ["EOSE", sub]} ->
+        handle_query_eose(sub, state)
 
       {:ok, ["NOTICE", notice]} ->
         Logger.info("Relay notice from #{state.url}: #{notice}")
@@ -348,6 +398,32 @@ defmodule Rss2Nostr.Nostr.Relay do
       {:error, _} ->
         Logger.warning("Failed to parse relay message: #{message}")
         state
+    end
+  end
+
+  defp handle_query_event(sub, event, state) do
+    case Map.get(state.pending_queries, sub) do
+      nil ->
+        state
+
+      query ->
+        queries = Map.put(state.pending_queries, sub, %{query | events: [event | query.events]})
+        %{state | pending_queries: queries}
+    end
+  end
+
+  defp handle_query_eose(sub, state) do
+    case Map.pop(state.pending_queries, sub) do
+      {nil, _} ->
+        state
+
+      {%{from: from, events: events}, queries} ->
+        if state.conn, do: send_close(state.conn, sub)
+        GenServer.reply(from, {:ok, Enum.reverse(events)})
+
+        %{state | pending_queries: queries}
+        |> update_activity()
+        |> schedule_idle_timeout()
     end
   end
 
@@ -388,8 +464,13 @@ defmodule Rss2Nostr.Nostr.Relay do
       GenServer.reply(from, {:error, reason})
     end)
 
-    Enum.each(state.pending_requests, fn {:publish, _event, from} ->
+    Enum.each(state.pending_queries, fn {_sub, %{from: from}} ->
       GenServer.reply(from, {:error, reason})
+    end)
+
+    Enum.each(state.pending_requests, fn
+      {:publish, _event, from} -> GenServer.reply(from, {:error, reason})
+      {:query, _filter, from} -> GenServer.reply(from, {:error, reason})
     end)
 
     %{
@@ -399,6 +480,7 @@ defmodule Rss2Nostr.Nostr.Relay do
         idle_timer: nil,
         pending_requests: [],
         pending_confirmations: %{},
+        pending_queries: %{},
         reconnect_attempts: 0
     }
   end
@@ -422,7 +504,11 @@ defmodule Rss2Nostr.Nostr.Relay do
       GenServer.reply(from, {:error, :disconnected})
     end)
 
-    new_state = %{new_state | pending_confirmations: %{}}
+    Enum.each(state.pending_queries, fn {_sub, %{from: from}} ->
+      GenServer.reply(from, {:error, :disconnected})
+    end)
+
+    new_state = %{new_state | pending_confirmations: %{}, pending_queries: %{}}
 
     if state.pending_requests != [] do
       schedule_reconnect(new_state)
@@ -441,8 +527,9 @@ defmodule Rss2Nostr.Nostr.Relay do
       Logger.error("Max reconnect attempts reached for #{state.url}")
 
       # Fail pending requests
-      Enum.each(state.pending_requests, fn {:publish, _event, from} ->
-        GenServer.reply(from, {:error, :max_reconnect_attempts})
+      Enum.each(state.pending_requests, fn
+        {:publish, _event, from} -> GenServer.reply(from, {:error, :max_reconnect_attempts})
+        {:query, _filter, from} -> GenServer.reply(from, {:error, :max_reconnect_attempts})
       end)
 
       %{state | pending_requests: [], reconnect_attempts: 0}

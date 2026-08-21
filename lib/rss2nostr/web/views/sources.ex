@@ -256,19 +256,6 @@ defmodule Rss2Nostr.Web.Views.Sources do
           Current start: #{escape_html(start_label(source, start_guid, start_at))}
         </p>
       </div>
-      <div class="form-group checkbox">
-        <input type="hidden" name="public" value="false">
-        <label for="public">
-          <input type="checkbox" id="public" name="public" value="true"
-                 #{if public_checked?(params, source), do: "checked", else: ""}>
-          Intended for public relays
-        </label>
-        <p class="help-text">
-          Articles use the public relay list when this is checked, otherwise
-          the test list. Drafts always use the draft list. Setup vs automated
-          only controls whether the scheduler publishes on its own.
-        </p>
-      </div>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Save feed settings</button>
       </div>
@@ -658,6 +645,11 @@ defmodule Rss2Nostr.Web.Views.Sources do
           </span>
         </label>
       </div>
+      <p class="help-text">
+        Drafts are sent to the draft relay list. Articles and videos are sent
+        to the public relay list. Setup vs automated only controls whether the
+        scheduler publishes on its own.
+      </p>
     </fieldset>
     <div id="video-hosting-fields" #{video_hidden}>
       <fieldset class="compose-fieldset">
@@ -1863,22 +1855,6 @@ defmodule Rss2Nostr.Web.Views.Sources do
       list when is_list(list) -> Enum.join(list, ", ")
       text when is_binary(text) -> text
       _ -> Composer.default_skip_classes_text()
-    end
-  end
-
-  defp public_checked?(params, source) do
-    cond do
-      params["public"] in ["true", "on", "1"] ->
-        true
-
-      params["public"] in ["false", "off", "0"] ->
-        false
-
-      is_map(params) and map_size(params) > 0 and Map.has_key?(params, "public") ->
-        false
-
-      true ->
-        source.public
     end
   end
 

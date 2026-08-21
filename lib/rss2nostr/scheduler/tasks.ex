@@ -103,8 +103,8 @@ defmodule Rss2Nostr.Scheduler.Tasks do
 
   Config:
   - :private_key - App key used for draft sources (optional if every source has its own signer)
-  - :relays - Explicit relay URLs (public relays are dropped for setup sources)
-  - :audience - `:test` or `:public` (ignored for setup sources)
+  - :relays - Explicit relay URLs (public relays are dropped unless the source publishes articles or videos)
+  - :audience - `:test` or `:public` (draft sources always use the draft list)
   - :limit - Maximum number of posts to export (default: 10)
   - :upload_images - Ignored; images are uploaded during process, before a post is processed
 
@@ -178,7 +178,8 @@ defmodule Rss2Nostr.Scheduler.Tasks do
   end
 
   @doc """
-  Deletes app-signed drafts after the same article exists as kind 30023.
+  Deletes app-signed drafts after a kind 30023 with the same `d` tag exists,
+  published by the author named in the draft's `p` tag.
   """
   @spec run_cleanup(keyword()) :: cleanup_result()
   def run_cleanup(opts \\ []) do

@@ -482,10 +482,10 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       refute preview.encrypted
       assert is_nil(preview.inner)
       refute Enum.any?(preview.event.tags, fn [tag | _] -> tag == "p" end)
-      refute Event.pareto_client_tag() in preview.event.tags
+      assert Event.pareto_client_tag() in preview.event.tags
     end
 
-    test "adds the Pareto client tag on public automated articles" do
+    test "adds the Pareto client tag on articles sent to public relays" do
       {:ok, source} =
         Sources.create_source(%{
           name: "Public Article Source",

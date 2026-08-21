@@ -34,7 +34,7 @@ defmodule Rss2Nostr.Web.Views.Settings do
 
     <div class="settings-section">
       <h2>Relays</h2>
-      <p>Draft sources always use the draft list. Article sources use the public list when marked public, otherwise the test list. Setup vs automated only controls the scheduler.</p>
+      <p>Draft sources always use the draft list. Article and video sources use the public list. Setup vs automated only controls the scheduler.</p>
 
       <h3>Draft relays</h3>
       <p class="help-text">Used for NIP-37 drafts (Pareto client). Set with <code>NOSTR_RELAYS_DRAFT</code>. Falls back to the test list if empty.</p>
@@ -43,14 +43,14 @@ defmodule Rss2Nostr.Web.Views.Settings do
       </ul>
 
       <h3>Test relays</h3>
-      <p class="help-text">Used for article sources that are not marked public. Set with <code>NOSTR_RELAYS_TEST</code> (or <code>NOSTR_RELAYS</code>).</p>
+      <p class="help-text">Fallback when the draft list is empty. Set with <code>NOSTR_RELAYS_TEST</code> (or <code>NOSTR_RELAYS</code>).</p>
       <ul>
         #{relay_items(relays.test)}
       </ul>
 
       <h3>Public relays</h3>
       <p class="help-text">
-        Used for article sources marked public, and as the inbox fallback for staging DMs
+        Used for article and video sources, and as the inbox fallback for staging DMs
         when the recipient’s NIP-05 response lists no relays. Set with <code>NOSTR_RELAYS_PUBLIC</code>.
       </p>
       <ul>

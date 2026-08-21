@@ -5,17 +5,17 @@ defmodule Rss2Nostr.Nostr.Relays do
   There are four lists:
 
   * `:draft` — relays used for NIP-37 draft wraps (Pareto client)
-  * `:test` — relays used while a source is being tried out
-  * `:public` — relays used for sources that should be published openly
+  * `:test` — fallback when the draft list is empty
+  * `:public` — relays used for article and video sources
   * `:inbox` — extra relays always used when sending NIP-17 DMs
 
-  Draft sources always use the draft list, regardless of setup/public.
-  If the draft list is empty, they fall back to the test list.
+  Draft sources always use the draft list. If that list is empty, they
+  fall back to the test list.
 
-  Article sources use the public list when marked `public`, otherwise
-  the test list. Setup vs automated only controls the scheduler, not
-  which relays are used. An explicit `:relays` option is stripped of
-  public relays only for article sources that are not marked public.
+  Article and video sources use the public list. Setup vs automated only
+  controls the scheduler, not which relays are used. An explicit `:relays`
+  option is stripped of public relays only when the target is not public
+  (unknown/unloaded sources).
   """
 
   alias Rss2Nostr.Nostr.Signer
@@ -38,7 +38,7 @@ defmodule Rss2Nostr.Nostr.Relays do
   def test, do: list(:test)
 
   @doc """
-  Relays used for sources marked public.
+  Relays used for article and video sources.
   """
   @spec public() :: [String.t()]
   def public, do: list(:public)
@@ -65,7 +65,7 @@ defmodule Rss2Nostr.Nostr.Relays do
 
   @doc """
   Relays for a post: draft list when the source publishes drafts,
-  otherwise test/public from the source `public` flag.
+  otherwise the public list for articles and videos.
 
   Missing or unloaded sources use the test list so articles are not published
   widely by accident.
@@ -82,8 +82,8 @@ defmodule Rss2Nostr.Nostr.Relays do
 
   Draft sources always get the draft list (or test, if draft is empty).
   Those URLs are kept even when they also appear on the public list.
-  Article sources use the public list when marked public. An explicit
-  relay list cannot include public relays unless the source is public.
+  Article and video sources use the public list. An explicit relay list
+  cannot include public relays unless the source publishes articles or videos.
   """
   @spec publish_relays(Post.t() | Source.t() | map(), keyword()) :: [String.t()]
   def publish_relays(post_or_source, opts \\ []) do
@@ -108,7 +108,7 @@ defmodule Rss2Nostr.Nostr.Relays do
   end
 
   @doc """
-  Audience for a post (`:public` when the source is marked public).
+  Audience for a post (`:public` for article and video sources).
 
   Does not account for drafts; use `target_for/1` when choosing a relay list.
   """
@@ -124,10 +124,15 @@ defmodule Rss2Nostr.Nostr.Relays do
   def audience_for_post(_), do: :test
 
   @doc """
-  Audience for a source. Public article sources use `:public`.
+  Audience for a source. Article and video sources use `:public`.
   """
   @spec audience_for_source(Source.t() | map() | nil) :: :test | :public
-  def audience_for_source(%{public: true}), do: :public
+  def audience_for_source(%Source{} = source) do
+    if Signer.draft?(source), do: :test, else: :public
+  end
+
+  def audience_for_source(%{publish_as: value}) when value in ["article", "video"], do: :public
+  def audience_for_source(%{default_post_kind: kind}) when kind in [30023, 34235], do: :public
   def audience_for_source(_), do: :test
 
   @doc """

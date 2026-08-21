@@ -57,6 +57,17 @@ defmodule Rss2Nostr.SchedulerTest do
         Scheduler.start()
       end
     end
+
+    test "the web start handler enables scheduling" do
+      _ = Scheduler.stop()
+      refute Scheduler.status().running
+
+      assert {:ok, _} = Rss2Nostr.Web.API.Scheduler.start()
+      assert Scheduler.status().running
+
+      assert {:ok, _} = Rss2Nostr.Web.API.Scheduler.stop()
+      refute Scheduler.status().running
+    end
   end
 
   describe "run_task/1" do

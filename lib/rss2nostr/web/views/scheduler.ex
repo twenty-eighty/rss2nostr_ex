@@ -60,8 +60,11 @@ defmodule Rss2Nostr.Web.Views.Scheduler do
     <div class="scheduler-section">
       <h2>Draft cleanup</h2>
       <p class="help-text">
-        After an article is published as kind 30023, this job deletes the app-signed
-        drafts (kind 30024 / 31234). It runs every hour.
+        Finds kind 30024 / 31234 drafts signed by the app key
+        (<code>NOSTR_NSEC</code>) and deletes them when a kind 30023 with the
+        same <code>d</code> tag has been published by the author named in the
+        draft’s <code>p</code> tag. This includes drafts that did not come from
+        an imported RSS feed. It runs every hour.
       </p>
       <table class="table">
         <tr>
@@ -77,25 +80,6 @@ defmodule Rss2Nostr.Web.Views.Scheduler do
           <td>#{format_cleanup_last(status)}</td>
         </tr>
       </table>
-    </div>
-
-    <div class="scheduler-section">
-      <h2>Manual Execution</h2>
-      <p>Run individual tasks manually:</p>
-      <div class="action-buttons">
-        <form action="/scheduler/run/import" method="POST" style="display:inline">
-          <button type="submit" class="btn btn-secondary">Run Import</button>
-        </form>
-        <form action="/scheduler/run/process" method="POST" style="display:inline">
-          <button type="submit" class="btn btn-secondary">Run Process</button>
-        </form>
-        <form action="/scheduler/run/export" method="POST" style="display:inline">
-          <button type="submit" class="btn btn-secondary">Run Export</button>
-        </form>
-        <form action="/scheduler/run/cleanup" method="POST" style="display:inline">
-          <button type="submit" class="btn btn-secondary">Run Cleanup</button>
-        </form>
-      </div>
     </div>
 
     <div class="scheduler-section">

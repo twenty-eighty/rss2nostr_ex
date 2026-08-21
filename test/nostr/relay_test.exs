@@ -40,4 +40,13 @@ defmodule Rss2Nostr.Nostr.RelayTest do
   after
     Relay.disconnect("wss://no-such-relay.invalid")
   end
+
+  test "query/3 returns an error instead of crashing on nxdomain" do
+    url = "wss://no-such-query-relay.invalid"
+
+    assert {:error, reason} = Relay.query(url, %{"kinds" => [1], "limit" => 1}, 3_000)
+    assert reason == :nxdomain or match?(%WebSockex.ConnError{}, reason)
+  after
+    Relay.disconnect("wss://no-such-query-relay.invalid")
+  end
 end
