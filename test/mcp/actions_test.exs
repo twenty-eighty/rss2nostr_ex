@@ -96,11 +96,13 @@ defmodule Rss2Nostr.MCP.ActionsTest do
                source_id: created.id,
                staging_hold_minutes: 120,
                notify_pubkey: npub,
-               fixed_hashtags: "#PatrikBaab, bitcoin, patrikbaab"
+               fixed_hashtags: "#PatrikBaab, bitcoin, patrikbaab",
+               excluded_hashtags: "ROOT, Haupteintrag, root"
              })
 
     assert updated.staging_hold_minutes == 120
     assert updated.notify_pubkey == hex
     assert updated.fixed_hashtags == ["patrikbaab", "bitcoin"]
+    assert updated.excluded_hashtags == ["root", "haupteintrag"]
   end
 end

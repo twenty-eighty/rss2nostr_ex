@@ -49,6 +49,9 @@ defmodule Rss2Nostr.MCP.Server do
     param(:body_selector, :string, description: "CSS selector for the article body")
     param(:start_at, :string, description: "Skip content before this marker")
     param(:skip_classes, :string, description: "Comma-separated CSS class fragments to drop")
+    param(:excluded_hashtags, :string,
+      description: "Comma-separated RSS categories dropped from published t tags"
+    )
     param(:language, :string, description: "ISO 639-1 feed language for generated labels")
     run(fn args, state -> reply(Actions.preview_compose(args), state) end)
   end
@@ -82,6 +85,9 @@ defmodule Rss2Nostr.MCP.Server do
         "npub or hex to receive a NIP-17 staging DM (NIP-05 or public, plus NOSTR_RELAYS_INBOX)"
     )
     param(:fixed_hashtags, :string, description: "Comma-separated hashtags added to every article")
+    param(:excluded_hashtags, :string,
+      description: "Comma-separated RSS categories dropped from published t tags"
+    )
     run(fn args, state -> reply(Actions.add_source(args), state) end)
   end
 
@@ -111,6 +117,9 @@ defmodule Rss2Nostr.MCP.Server do
         "npub or hex to receive a NIP-17 staging DM (NIP-05 or public, plus NOSTR_RELAYS_INBOX)"
     )
     param(:fixed_hashtags, :string, description: "Comma-separated hashtags added to every article")
+    param(:excluded_hashtags, :string,
+      description: "Comma-separated RSS categories dropped from published t tags"
+    )
     run(fn args, state -> reply(Actions.update_source(args), state) end)
   end
 

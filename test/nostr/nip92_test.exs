@@ -52,6 +52,34 @@ defmodule Rss2Nostr.Nostr.NIP92Test do
              ]
     end
 
+    test "drops dim 0x0 from SVG descriptors" do
+      pairs =
+        NIP92.pairs_from_descriptor(%{
+          url: "https://cdn.example/facebook.svg",
+          sha256: "cc",
+          size: 512,
+          type: "image/svg+xml",
+          nip94: [
+            ["url", "https://cdn.example/facebook.svg"],
+            ["x", "cc"],
+            ["m", "image/svg+xml"],
+            ["dim", "0x0"]
+          ]
+        })
+
+      assert "m image/svg+xml" in pairs
+      refute Enum.any?(pairs, &String.starts_with?(&1, "dim "))
+
+      attrs =
+        NIP92.stored_attrs(%{
+          url: "https://cdn.example/facebook.svg",
+          type: "image/svg+xml",
+          dim: "0x0"
+        })
+
+      assert attrs.dim == nil
+    end
+
     test "keeps duration and bitrate from a probed descriptor" do
       pairs =
         NIP92.pairs_from_descriptor(%{
@@ -112,6 +140,26 @@ defmodule Rss2Nostr.Nostr.NIP92Test do
       assert "https://cdn.example/hero.png" in urls
       assert "https://cdn.example/audio.mp3" in urls
       refute "https://cdn.example/unused.png" in urls
+    end
+
+    test "omits stored dim 0x0 from event tags" do
+      images = [
+        %{
+          uploaded_url: "https://cdn.example/facebook.svg",
+          mime_type: "image/svg+xml",
+          imeta: [
+            "url https://cdn.example/facebook.svg",
+            "m image/svg+xml",
+            "x cc",
+            "dim 0x0"
+          ]
+        }
+      ]
+
+      assert [["imeta" | pairs]] =
+               NIP92.tags_for_event(images, "![Facebook](https://cdn.example/facebook.svg)")
+
+      refute Enum.any?(pairs, &String.starts_with?(&1, "dim "))
     end
   end
 end

@@ -422,6 +422,19 @@ defmodule Rss2Nostr.Nostr.Event do
 
   def normalize_hashtags(_), do: []
 
+  @doc """
+  Combines article categories and source fixed hashtags, then drops
+  excluded tags. All values are normalized like `normalize_hashtags/1`.
+  """
+  @spec merge_hashtags(term(), term(), term()) :: [String.t()]
+  def merge_hashtags(article, fixed \\ [], excluded \\ []) do
+    skip = MapSet.new(normalize_hashtags(excluded))
+
+    (normalize_hashtags(fixed) ++ normalize_hashtags(article))
+    |> Enum.uniq()
+    |> Enum.reject(&MapSet.member?(skip, &1))
+  end
+
   defp maybe_hashtag_tags(tags, hashtags) do
     hashtags
     |> normalize_hashtags()

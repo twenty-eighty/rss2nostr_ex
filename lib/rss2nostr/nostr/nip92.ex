@@ -184,9 +184,14 @@ defmodule Rss2Nostr.Nostr.NIP92 do
 
   defp noise_pair?(pair) do
     case String.split(pair, " ", parts: 2) do
+      ["dim", dim] -> zero_dim?(dim)
       [key, value] -> key in @zero_noise and value in ["0", "0.0"]
       _ -> true
     end
+  end
+
+  defp zero_dim?(value) do
+    String.match?(value, ~r/\A0+x0+\z/i)
   end
 
   defp pair_key(pair) do

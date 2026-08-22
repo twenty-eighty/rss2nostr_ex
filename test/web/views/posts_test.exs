@@ -272,6 +272,29 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       assert html =~ "process" or html =~ "Process" or html =~ "publish" or html =~ "Publish"
     end
 
+    test "shows published hashtags without source exclusions" do
+      {source, post} = create_test_post()
+
+      {:ok, _} =
+        Sources.update_source(source, %{excluded_hashtags: "ROOT, Haupteintrag"})
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          status: Post.status_processed(),
+          content: "Body",
+          categories: ["Haupteintrag", "Politik", "ROOT", "radiomuenchen"]
+        })
+
+      html = PostsView.show(to_string(post.id))
+
+      assert html =~ ~s(value="politik, radiomuenchen")
+      refute html =~ ~s(value="Haupteintrag)
+      assert html =~ "Omitted from the event: Haupteintrag, ROOT"
+      assert html =~ "#politik, #radiomuenchen"
+      refute html =~ "#root"
+      refute html =~ "#haupteintrag"
+    end
+
     test "shows an editor for staging posts" do
       {_source, post} = create_test_post()
 

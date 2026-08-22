@@ -280,6 +280,15 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
 
       assert updated.fixed_hashtags == ["patrikbaab", "bitcoin"]
     end
+
+    test "stores excluded hashtags from publishing settings" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+
+      {:ok, updated} =
+        API.update(source, %{"excluded_hashtags" => "ROOT, Haupteintrag, root"})
+
+      assert updated.excluded_hashtags == ["root", "haupteintrag"]
+    end
   end
 
   describe "compose_preview/1" do

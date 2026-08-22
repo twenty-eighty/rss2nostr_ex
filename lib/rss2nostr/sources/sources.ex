@@ -120,6 +120,7 @@ defmodule Rss2Nostr.Sources do
       staging_hold_minutes: source.staging_hold_minutes || 0,
       notify_pubkey: source.notify_pubkey,
       fixed_hashtags: source.fixed_hashtags || [],
+      excluded_hashtags: source.excluded_hashtags || [],
       options: copy_options(source.options)
     }
     |> maybe_put_publish_as(source)

@@ -147,6 +147,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
 
         #{publish_as_fields(params, nil, errors)}
         #{fixed_hashtag_fields(params, nil, errors)}
+        #{excluded_hashtag_fields(params, nil, errors)}
       </div>
 
       <div class="form-actions">
@@ -490,6 +491,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
       <input type="hidden" name="tab" value="publishing">
       #{publish_as_fields(params, source, errors)}
       #{fixed_hashtag_fields(params, source, errors)}
+      #{excluded_hashtag_fields(params, source, errors)}
       #{staging_fields(params, source, errors)}
       #{error_message(errors, :mode)}
       #{unless signer_ok? do
@@ -553,6 +555,32 @@ defmodule Rss2Nostr.Web.Views.Sources do
       <p class="help-text">
         Added to every published article as <code>t</code> tags.
         Duplicates of article hashtags are dropped.
+      </p>
+    </div>
+    """
+  end
+
+  defp excluded_hashtag_fields(params, source, errors) do
+    tags =
+      params["excluded_hashtags"] ||
+        (source && Enum.join(source.excluded_hashtags || [], ", ")) ||
+        ""
+
+    tags =
+      case tags do
+        list when is_list(list) -> Enum.join(list, ", ")
+        value -> to_string(value)
+      end
+
+    """
+    <div class="form-group">
+      <label for="excluded_hashtags">Excluded hashtags</label>
+      <input type="text" id="excluded_hashtags" name="excluded_hashtags"
+             value="#{escape_attr(tags)}" placeholder="ROOT, Haupteintrag">
+      #{error_message(errors, :excluded_hashtags)}
+      <p class="help-text">
+        RSS categories on every item (for example <code>ROOT</code>, <code>Haupteintrag</code>)
+        are dropped from published <code>t</code> tags.
       </p>
     </div>
     """
@@ -1258,10 +1286,14 @@ defmodule Rss2Nostr.Web.Views.Sources do
       </div>
     </fieldset>
 
-    <details id="body-regions-details" class="compose-advanced"
+    <fieldset class="compose-fieldset">
+      <legend>Hashtags</legend>
+      #{excluded_hashtag_fields(params, source, %{})}
+    </fieldset>
+
+    <details id="body-regions-details" class="compose-advanced"#{if known_body_schema?(selector, source), do: "", else: " open"}
              data-known-selectors="#{escape_attr(Enum.join(BodySchema.known_selectors(), ","))}"
-             data-url-schema="#{escape_attr(to_string(BodySchema.selector_for_url(source && source.url) || ""))}"
-             #{if known_body_schema?(selector, source), do: "", else: "open"}>
+             data-url-schema="#{escape_attr(to_string(BodySchema.selector_for_url(source && source.url) || ""))}">
       <summary>Which block is the article?</summary>
       <p class="help-text">
         Click the region that looks like the article body. Known sites such as
@@ -1360,6 +1392,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
       const startAt = document.getElementById("start_at");
       const startAtText = document.getElementById("start_at_text");
       const skip = document.getElementById("skip_classes");
+      const excludedHashtags = document.getElementById("excluded_hashtags");
       const regionsEl = document.getElementById("body-regions");
       const startBlocksEl = document.getElementById("start-blocks");
       const fetchRadios = document.querySelectorAll("input[name='fetch_source_from']");
@@ -1386,6 +1419,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
           body_selector_auto: bodyChosen ? "false" : "true",
           start_at: startAt ? startAt.value : "",
           skip_classes: skip ? skip.value : "",
+          excluded_hashtags: excludedHashtags ? excludedHashtags.value : "",
           source_id: sourceId ? sourceId.value : "",
           language: (document.getElementById("language") || {}).value || ""
         };
@@ -1584,6 +1618,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
           appendMeta(metaEl, "Title", body.title);
           appendMeta(metaEl, "Summary", body.summary);
           appendMeta(metaEl, "Image", body.image);
+          appendMeta(metaEl, "Hashtags", formatHashtags(body.hashtags));
           if (parts.length > 1) {
             appendMeta(metaEl, "Parts", parts.length + " Nostr events");
           }
@@ -1698,6 +1733,11 @@ defmodule Rss2Nostr.Web.Views.Sources do
         });
       }
 
+      function formatHashtags(tags) {
+        if (!tags || !tags.length) return "none";
+        return tags.map(function (tag) { return "#" + tag; }).join(", ");
+      }
+
       function appendMeta(parent, label, value) {
         if (!value) return;
         const row = document.createElement("div");
@@ -1751,6 +1791,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
       }
 
       if (skip) skip.addEventListener("input", schedulePreview);
+      if (excludedHashtags) excludedHashtags.addEventListener("input", schedulePreview);
       fetchRadios.forEach(function (radio) {
         radio.addEventListener("change", schedulePreview);
       });

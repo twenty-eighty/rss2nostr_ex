@@ -266,6 +266,38 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       assert length(preview.parts) == 1
     end
 
+    test "drops excluded RSS categories from published hashtags" do
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Radio Filter Source",
+          url: "https://example.com/radio-filter-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "de",
+          excluded_hashtags: ["ROOT", "Haupteintrag"]
+        })
+
+      url = "https://example.com/radio-filter-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Sommerpause",
+          content: "Body",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          status: Post.status_processed(),
+          type: 30024,
+          language: "de",
+          categories: ["Haupteintrag", "radiomuenchen", "ROOT", "Politik"],
+          source_id: source.id
+        })
+
+      post = Posts.get_post(post.id, preload: [:source])
+      preview = Publisher.preview_event(post)
+      t_tags = for ["t", tag] <- preview.event.tags, do: tag
+
+      assert t_tags == ["radiomuenchen", "politik"]
+    end
+
     test "splits a draft whose wrap would exceed the relay event limit" do
       {:ok, source} =
         Sources.create_source(%{

@@ -75,6 +75,7 @@ defmodule Rss2Nostr.Web.API.Sources do
       }
       |> maybe_put(:publish_as, blank_to_nil(params["publish_as"]))
       |> maybe_put_fixed_hashtags(params)
+      |> maybe_put_excluded_hashtags(params)
 
     Sources.create_source(attrs)
   end
@@ -99,6 +100,7 @@ defmodule Rss2Nostr.Web.API.Sources do
       |> maybe_put_hold_minutes(params)
       |> maybe_put_notify_pubkey(params)
       |> maybe_put_fixed_hashtags(params)
+      |> maybe_put_excluded_hashtags(params)
       |> maybe_put_public(params, source)
 
     Sources.update_source(source, attrs)
@@ -341,6 +343,14 @@ defmodule Rss2Nostr.Web.API.Sources do
   defp maybe_put_fixed_hashtags(attrs, params) do
     if Map.has_key?(params, "fixed_hashtags") do
       Map.put(attrs, :fixed_hashtags, params["fixed_hashtags"])
+    else
+      attrs
+    end
+  end
+
+  defp maybe_put_excluded_hashtags(attrs, params) do
+    if Map.has_key?(params, "excluded_hashtags") do
+      Map.put(attrs, :excluded_hashtags, params["excluded_hashtags"])
     else
       attrs
     end

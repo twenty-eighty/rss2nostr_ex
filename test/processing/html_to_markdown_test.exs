@@ -860,6 +860,31 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "[E-Mail schreiben](mailto:freie-medienakademie@posteo.de?subject=Bewerbung)"
     end
 
+    test "labels Facebook, Instagram, and Twitter links from the URL" do
+      facebook = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/facebook.svg"
+      instagram = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/instagram.svg"
+      twitter = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/x-twitter.svg"
+
+      md =
+        HtmlToMarkdown.convert("""
+        <p><a href="https://www.facebook.com/radiomuenchen"></a></p>
+        <p><a href="https://www.instagram.com/radio_muenchen/">www.instagram.com/radio_muenchen/</a></p>
+        <p>twitter.com/RadioMuenchen</p>
+        """)
+
+      assert md =~ "[![](#{facebook}) Facebook](https://www.facebook.com/radiomuenchen)"
+      assert md =~ "[Instagram ![](#{instagram})](https://www.instagram.com/radio_muenchen/)"
+      assert md =~ "[![](#{twitter}) Twitter](https://twitter.com/RadioMuenchen)"
+    end
+
+    test "keeps custom text on a Facebook link and adds the platform icon" do
+      html = ~s(<a href="https://www.facebook.com/radiomuenchen">Radio München</a>)
+      md = HtmlToMarkdown.convert(html)
+      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/facebook.svg"
+
+      assert md =~ "[Radio München ![](#{icon})](https://www.facebook.com/radiomuenchen)"
+    end
+
     test "drops relative links" do
       html =
         ~s(<p>See <a href="/local-page">this</a> and <a href="https://example.com">that</a>.</p>)

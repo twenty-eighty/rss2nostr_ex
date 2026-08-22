@@ -240,6 +240,15 @@ defmodule Rss2Nostr.SourcesTest do
 
       assert updated.fixed_hashtags == ["patrikbaab", "bitcoin"]
     end
+
+    test "stores excluded hashtags without duplicates" do
+      {:ok, source} = Sources.create_source(valid_attrs())
+
+      {:ok, updated} =
+        Sources.update_source(source, %{excluded_hashtags: "ROOT, Haupteintrag, root,  "})
+
+      assert updated.excluded_hashtags == ["root", "haupteintrag"]
+    end
   end
 
   describe "duplicate_source/2" do
@@ -255,6 +264,7 @@ defmodule Rss2Nostr.SourcesTest do
             public: true,
             fetch_source_from: "content",
             fixed_hashtags: ["patrikbaab", "bitcoin"],
+            excluded_hashtags: ["root", "haupteintrag"],
             options: %{
               "body_selector" => "div.et_pb_column_0_tb_body",
               "skip_classes" => ["OUTBRAIN"],
@@ -280,6 +290,7 @@ defmodule Rss2Nostr.SourcesTest do
       assert is_nil(copy.publish_after_date)
       assert copy.staging_hold_minutes == 0
       assert copy.fixed_hashtags == ["patrikbaab", "bitcoin"]
+      assert copy.excluded_hashtags == ["root", "haupteintrag"]
     end
 
     test "accepts a new feed URL and name" do

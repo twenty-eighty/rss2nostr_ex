@@ -89,6 +89,8 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "start-blocks"
       assert html =~ "Technical settings"
       assert html =~ "Nostr event preview"
+      assert html =~ "excluded_hashtags"
+      assert html =~ "Excluded hashtags"
       assert html =~ "data-original-article"
       assert html =~ "Open original article"
       assert html =~ "compose-preview-hero"
@@ -126,6 +128,8 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert publishing =~ "notify_pubkey"
       assert publishing =~ "fixed_hashtags"
       assert publishing =~ "Fixed hashtags"
+      assert publishing =~ "excluded_hashtags"
+      assert publishing =~ "Excluded hashtags"
       assert publishing =~ "Hold before auto-publish"
 
       articles = Sources.show(source, tab: "articles")

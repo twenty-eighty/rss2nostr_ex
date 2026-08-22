@@ -163,8 +163,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp process_nodes(node), do: process_node(node)
 
   defp process_node(text) when is_binary(text) do
-    text
-    |> String.replace(~r/\s+/u, " ")
+    collapsed = String.replace(text, ~r/\s+/u, " ")
+
+    if Process.get({__MODULE__, :in_link}) do
+      collapsed
+    else
+      autolink_platform_urls(collapsed)
+    end
   end
 
   defp process_node({tag, attrs, children}) do
@@ -517,7 +522,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
     cond do
       is_nil(href) or href == "" ->
-        process_nodes(children) |> String.trim()
+        process_link_children(children) |> String.trim()
 
       relative_path?(href) ->
         ""
@@ -529,9 +534,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         ""
 
       true ->
-        text = process_nodes(children) |> String.trim()
-        clean_href = remove_tracking_params(href)
-        label = if text == "", do: link_fallback_label(attrs, children, clean_href), else: text
+        text = process_link_children(children) |> String.trim()
+        clean_href = href |> ensure_absolute_url() |> remove_tracking_params()
+        label = link_display_label(attrs, children, text, clean_href)
         icon = network_icon_url(children, label, clean_href)
 
         if icon do
@@ -539,6 +544,16 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         else
           markdown_media_link(label, clean_href, get_attr(attrs, "title"))
         end
+    end
+  end
+
+  defp process_link_children(children) do
+    Process.put({__MODULE__, :in_link}, true)
+
+    try do
+      process_nodes(children)
+    after
+      Process.delete({__MODULE__, :in_link})
     end
   end
 
@@ -1577,15 +1592,20 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end)
   end
 
-  defp network_icon_url(nodes, _label, _href) do
+  defp network_icon_url(nodes, _label, href) do
     case fa_brand_slug(nodes) do
       slug when is_binary(slug) and slug != "" ->
-        "#{@fa_brand_cdn}/#{slug}.svg"
+        fa_brand_url(slug)
 
       _ ->
-        nil
+        case platform_for_href(href) do
+          {_label, slug} -> fa_brand_url(slug)
+          _ -> nil
+        end
     end
   end
+
+  defp fa_brand_url(slug), do: "#{@fa_brand_cdn}/#{slug}.svg"
 
   defp fa_brand_slug(nodes) do
     skip = MapSet.new(~w(lg sm xs 2x 3x 4x 5x fw spin pulse border))
@@ -1597,6 +1617,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         cond do
           rest in skip -> nil
           String.contains?(rest, "telegram") -> "telegram"
+          rest in ~w(twitter x-twitter) -> "x-twitter"
           true -> rest
         end
 
@@ -1625,6 +1646,34 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     (address |> URI.decode() |> String.trim()) <> suffix
   end
 
+  defp link_display_label(attrs, children, text, href) do
+    if url_like_label?(text, href) do
+      link_fallback_label(attrs, children, href)
+    else
+      text
+    end
+  end
+
+  defp url_like_label?(text, href) do
+    stripped = strip_url_noise(text)
+
+    stripped == "" or
+      stripped == strip_url_noise(href) or
+      match?({_, _}, platform_for_href(text))
+  end
+
+  defp strip_url_noise(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace_prefix("https://", "")
+    |> String.replace_prefix("http://", "")
+    |> String.replace_prefix("www.", "")
+    |> String.trim_trailing("/")
+  end
+
+  defp strip_url_noise(_), do: ""
+
   defp link_fallback_label(attrs, children, href) do
     aria = get_attr(attrs, "aria-label")
     title = get_attr(attrs, "title")
@@ -1633,8 +1682,11 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       present_title?(aria) -> String.trim(aria)
       present_title?(title) -> String.trim(title)
       label = icon_network_label(children) -> label
-      label = host_network_label(href) -> label
-      true -> href
+      true ->
+        case platform_for_href(href) do
+          {label, _} -> label
+          _ -> href
+        end
     end
   end
 
@@ -1660,17 +1712,69 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end)
   end
 
-  defp host_network_label(href) do
-    host = href |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
+  @platform_hosts [
+    {"facebook.com", "Facebook", "facebook"},
+    {"fb.com", "Facebook", "facebook"},
+    {"instagram.com", "Instagram", "instagram"},
+    {"twitter.com", "Twitter", "x-twitter"},
+    {"x.com", "X", "x-twitter"},
+    {"t.me", "Telegram", "telegram"},
+    {"telegram.me", "Telegram", "telegram"},
+    {"telegram.org", "Telegram", "telegram"}
+  ]
 
-    cond do
-      host in ["t.me", "telegram.me", "www.telegram.me", "telegram.org"] -> "Telegram"
-      String.ends_with?(host, ".t.me") -> "Telegram"
-      true -> nil
+  @platform_url_re ~r{(?:https?://)?(?:www\.)?(?:facebook\.com|fb\.com|instagram\.com|twitter\.com|x\.com|t\.me|telegram\.me)/[^\s<>\]\)]+}i
+
+  defp autolink_platform_urls(text) do
+    Regex.replace(@platform_url_re, text, fn url ->
+      {bare, trail} = split_url_trail(url)
+      href = ensure_absolute_url(bare)
+
+      case platform_for_href(href) do
+        {label, slug} -> markdown_icon_link(href, label, fa_brand_url(slug)) <> trail
+        _ -> url
+      end
+    end)
+  end
+
+  defp split_url_trail(url) do
+    case Regex.run(~r/\A(.*?)([.,;:!?]+)\z/, url) do
+      [_, bare, trail] -> {bare, trail}
+      _ -> {url, ""}
     end
+  end
+
+  defp platform_for_href(href) when is_binary(href) do
+    host =
+      href
+      |> ensure_absolute_url()
+      |> URI.parse()
+      |> Map.get(:host)
+      |> to_string()
+      |> String.downcase()
+      |> String.replace_prefix("www.", "")
+
+    Enum.find_value(@platform_hosts, fn {name, label, slug} ->
+      if host == name or String.ends_with?(host, "." <> name) do
+        {label, slug}
+      end
+    end)
   rescue
     _ -> nil
   end
+
+  defp platform_for_href(_), do: nil
+
+  defp ensure_absolute_url(url) when is_binary(url) do
+    cond do
+      String.match?(url, ~r/\A[a-z][a-z0-9+.-]*:/i) -> url
+      String.starts_with?(url, "/") -> url
+      String.contains?(url, ".") -> "https://" <> url
+      true -> url
+    end
+  end
+
+  defp ensure_absolute_url(url), do: url
 
   defp element_classes(nodes) do
     Enum.flat_map(List.wrap(nodes), fn

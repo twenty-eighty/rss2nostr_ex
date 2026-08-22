@@ -36,6 +36,7 @@ defmodule Rss2Nostr.Sources.Source do
     field(:staging_hold_minutes, :integer, default: 0)
     field(:notify_pubkey, :string)
     field(:fixed_hashtags, {:array, :string}, default: [])
+    field(:excluded_hashtags, {:array, :string}, default: [])
 
     # Additional options
     field(:options, :map, default: %{})
@@ -67,6 +68,7 @@ defmodule Rss2Nostr.Sources.Source do
       :staging_hold_minutes,
       :notify_pubkey,
       :fixed_hashtags,
+      :excluded_hashtags,
       :options
     ])
     |> validate_required([:name, :url])
@@ -121,19 +123,27 @@ defmodule Rss2Nostr.Sources.Source do
   defp option(_, _), do: nil
 
   defp normalize_hashtag_attrs(attrs) when is_map(attrs) do
-    cond do
-      Map.has_key?(attrs, :fixed_hashtags) ->
-        Map.put(attrs, :fixed_hashtags, Event.normalize_hashtags(attrs[:fixed_hashtags]))
+    attrs
+    |> normalize_hashtag_field(:fixed_hashtags)
+    |> normalize_hashtag_field(:excluded_hashtags)
+  end
 
-      Map.has_key?(attrs, "fixed_hashtags") ->
-        Map.put(attrs, "fixed_hashtags", Event.normalize_hashtags(attrs["fixed_hashtags"]))
+  defp normalize_hashtag_attrs(attrs), do: attrs
+
+  defp normalize_hashtag_field(attrs, field) do
+    string = Atom.to_string(field)
+
+    cond do
+      Map.has_key?(attrs, field) ->
+        Map.put(attrs, field, Event.normalize_hashtags(attrs[field]))
+
+      Map.has_key?(attrs, string) ->
+        Map.put(attrs, string, Event.normalize_hashtags(attrs[string]))
 
       true ->
         attrs
     end
   end
-
-  defp normalize_hashtag_attrs(attrs), do: attrs
 
   defp normalize_pubkey(changeset) do
     normalize_hex_pubkey(changeset, :pubkey)

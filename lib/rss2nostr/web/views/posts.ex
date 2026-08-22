@@ -10,7 +10,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
   alias Rss2Nostr.Processing.{Markdown, Processor}
   alias Rss2Nostr.Sources
   alias Rss2Nostr.Sources.Source
-  alias Rss2Nostr.Nostr.{Blossom, Publisher, Relays, Signer}
+  alias Rss2Nostr.Nostr.{Blossom, Event, Publisher, Relays, Signer}
 
   @per_page 20
 
@@ -254,7 +254,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
   end
 
   defp editor_form(post) do
-    hashtags = Enum.join(post.categories || [], ", ")
+    hashtags = Enum.join(published_hashtags(post), ", ")
 
     """
     <form action="/posts/#{post.id}" method="POST" class="form form-wide post-editor">
@@ -269,7 +269,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
       <div class="form-group">
         <label for="hashtags">Hashtags</label>
         <input type="text" id="hashtags" name="hashtags" value="#{escape_attr(hashtags)}" placeholder="comma-separated">
-        <p class="help-text">Stored as categories and published as <code>t</code> tags.</p>
+        <p class="help-text">#{hashtag_help(post)}</p>
       </div>
       <div class="form-group">
         <label for="language">Language</label>
@@ -308,8 +308,50 @@ defmodule Rss2Nostr.Web.Views.Posts do
 
     """
     #{featured_image(post)}
+    #{hashtag_preview(post)}
     #{rendered}
     """
+  end
+
+  defp published_hashtags(post) do
+    Event.merge_hashtags(
+      post.categories,
+      source_hashtags(post, :fixed_hashtags),
+      source_hashtags(post, :excluded_hashtags)
+    )
+  end
+
+  defp omitted_hashtags(post) do
+    skip = MapSet.new(Event.normalize_hashtags(source_hashtags(post, :excluded_hashtags)))
+
+    (post.categories || [])
+    |> Enum.filter(fn tag ->
+      Enum.any?(Event.normalize_hashtags([tag]), &MapSet.member?(skip, &1))
+    end)
+  end
+
+  defp source_hashtags(%{source: %Source{} = source}, field), do: Map.get(source, field) || []
+  defp source_hashtags(_, _), do: []
+
+  defp hashtag_help(post) do
+    case omitted_hashtags(post) do
+      [] ->
+        "Published as <code>t</code> tags."
+
+      omitted ->
+        "Published as <code>t</code> tags. Omitted from the event: #{escape_html(Enum.join(omitted, ", "))}."
+    end
+  end
+
+  defp hashtag_preview(post) do
+    case published_hashtags(post) do
+      [] ->
+        ~s(<p class="compose-preview-meta"><strong>Hashtags:</strong> none</p>)
+
+      tags ->
+        text = Enum.map_join(tags, ", ", &("##{&1}"))
+        ~s(<p class="compose-preview-meta"><strong>Hashtags:</strong> #{escape_html(text)}</p>)
+    end
   end
 
   defp featured_image(post) do

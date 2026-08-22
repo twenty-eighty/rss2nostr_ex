@@ -206,7 +206,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   @spec preview_event(Post.t() | map(), keyword()) :: map()
   def preview_event(post_or_attrs, opts \\ []) do
     source = Keyword.get(opts, :source) || source_of(post_or_attrs)
-    post_or_attrs = ensure_source_if_post(post_or_attrs)
+    post_or_attrs = post_or_attrs |> ensure_source_if_post() |> attach_source(source)
     pubkey = preview_pubkey(source, post_or_attrs)
     parts = build_inner_events(post_or_attrs, pubkey)
     event = List.first(parts)
@@ -630,19 +630,37 @@ defmodule Rss2Nostr.Nostr.Publisher do
   defp preview_relays(_, _), do: Relays.test()
 
   defp publish_hashtags(post) do
-    (fixed_hashtags(post) ++ (field(post, :categories) || []))
-    |> Event.normalize_hashtags()
+    source = source_of(post)
+
+    Event.merge_hashtags(
+      field(post, :categories),
+      hashtag_list(source, :fixed_hashtags),
+      hashtag_list(source, :excluded_hashtags)
+    )
   end
 
-  defp fixed_hashtags(post) do
-    case source_of(post) do
-      %{fixed_hashtags: tags} when is_list(tags) -> tags
+  defp hashtag_list(%{__struct__: _} = source, field) do
+    case Map.get(source, field) do
+      tags when is_list(tags) -> tags
       _ -> []
     end
   end
 
-  defp source_of(%Post{source: %Rss2Nostr.Sources.Source{} = source}), do: source
+  defp hashtag_list(source, field) when is_map(source) do
+    source[field] || source[Atom.to_string(field)] || []
+  end
+
+  defp hashtag_list(_, _), do: []
+
+  defp attach_source(%Post{} = post, %Source{} = source), do: %{post | source: source}
+  defp attach_source(%Post{} = post, _), do: post
+  defp attach_source(attrs, source) when is_map(attrs), do: Map.put(attrs, :source, source)
+  defp attach_source(other, _), do: other
+
+  defp source_of(%Post{source: %Source{} = source}), do: source
   defp source_of(%Post{} = post), do: ensure_source(post).source
+  defp source_of(%{source: %Source{} = source}), do: source
+  defp source_of(%{"source" => %Source{} = source}), do: source
   defp source_of(_), do: nil
 
   defp ensure_source_if_post(%Post{} = post), do: ensure_source(post)

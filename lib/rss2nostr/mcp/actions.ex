@@ -37,7 +37,7 @@ defmodule Rss2Nostr.MCP.Actions do
   end
 
   def preview_compose(args) do
-    params = string_params(args, ~w(url guid type body_selector start_at skip_classes language)a)
+    params = string_params(args, ~w(url guid type body_selector start_at skip_classes excluded_hashtags language)a)
 
     params =
       case arg(args, :source_id) do
@@ -67,7 +67,8 @@ defmodule Rss2Nostr.MCP.Actions do
           :start_published_at,
           :staging_hold_minutes,
           :notify_pubkey,
-          :fixed_hashtags
+          :fixed_hashtags,
+          :excluded_hashtags
         ])
         |> Map.merge(%{"name" => name, "url" => url})
 
@@ -98,7 +99,8 @@ defmodule Rss2Nostr.MCP.Actions do
           :start_published_at,
           :staging_hold_minutes,
           :notify_pubkey,
-          :fixed_hashtags
+          :fixed_hashtags,
+          :excluded_hashtags
         ])
 
       case Sources.update(id, params) do
@@ -302,6 +304,7 @@ defmodule Rss2Nostr.MCP.Actions do
       staging_hold_minutes: source.staging_hold_minutes || 0,
       notify_pubkey: source.notify_pubkey,
       fixed_hashtags: source.fixed_hashtags || [],
+      excluded_hashtags: source.excluded_hashtags || [],
       bunker_configured: present?(source.bunker_connection),
       signing_nsec_configured: Signer.signing_nsec_configured?(source),
       options: source.options || %{}

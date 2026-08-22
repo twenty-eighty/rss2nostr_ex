@@ -209,6 +209,14 @@ defmodule Rss2Nostr.Nostr.EventTest do
       assert Event.normalize_hashtags("#Bitcoin, bitcoin, BITCOIN, ") == ["bitcoin"]
     end
 
+    test "drops excluded hashtags after merging fixed tags" do
+      assert Event.merge_hashtags(
+               ["Haupteintrag", "ROOT", "Politik"],
+               ["RadioMuenchen"],
+               ["ROOT", "#Haupteintrag"]
+             ) == ["radiomuenchen", "politik"]
+    end
+
     test "adds NIP-32 language labels" do
       event = Event.build_long_form(@test_pubkey, "Content", title: "Test", language: "de")
 

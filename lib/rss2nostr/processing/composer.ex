@@ -5,7 +5,7 @@ defmodule Rss2Nostr.Processing.Composer do
   """
 
   alias Rss2Nostr.Import.{FeedFetcher, FeedParser, ItemIdentity}
-  alias Rss2Nostr.Nostr.Publisher
+  alias Rss2Nostr.Nostr.{Event, Publisher}
 
   alias Rss2Nostr.Processing.{
     BodySchema,
@@ -290,7 +290,7 @@ defmodule Rss2Nostr.Processing.Composer do
   def preview(params) when is_map(params) do
     url = params["url"] || params[:url]
     guid = params["guid"] || params[:guid]
-    source = load_source(params)
+    source = params |> load_source() |> apply_excluded_hashtags(params)
     opts = opts_from_params(params)
     language = preview_language(params, source)
     opts = Map.put(opts, :language, language)
@@ -360,6 +360,7 @@ defmodule Rss2Nostr.Processing.Composer do
              start_blocks: BodySchema.start_blocks(extracted, selected: opts.start_at),
              nostr_event: nostr.event,
              nostr_event_json: nostr.json,
+             hashtags: event_hashtags(nostr.event),
              nostr_parts: nostr.parts,
              nostr_parts_json:
                Enum.map(nostr.parts, fn event ->
@@ -387,6 +388,28 @@ defmodule Rss2Nostr.Processing.Composer do
       source
       |> opts_from_source()
       |> Map.get(:conversion_rules, [])
+    end
+  end
+
+  defp event_hashtags(%{tags: tags}) when is_list(tags) do
+    for ["t", tag] <- tags, do: tag
+  end
+
+  defp event_hashtags(_), do: []
+
+  defp apply_excluded_hashtags(source, params) do
+    if Map.has_key?(params, "excluded_hashtags") or Map.has_key?(params, :excluded_hashtags) do
+      tags =
+        Event.normalize_hashtags(
+          params["excluded_hashtags"] || params[:excluded_hashtags]
+        )
+
+      case source do
+        %Source{} = source -> %{source | excluded_hashtags: tags}
+        nil -> %Source{excluded_hashtags: tags}
+      end
+    else
+      source
     end
   end
 
