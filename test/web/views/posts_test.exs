@@ -344,5 +344,35 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       assert html =~ "Revise"
       assert html =~ "/posts/#{post.id}/revise"
     end
+
+    test "backs to the source articles tab by default" do
+      {source, post} = create_test_post()
+      {:ok, post} = Posts.update_post(post, %{status: Post.status_processed(), content: "Body"})
+
+      html = PostsView.show(to_string(post.id))
+
+      assert html =~ ~s(href="/sources/#{source.id}?tab=articles")
+      refute html =~ ~s(href="/posts" class="btn btn-secondary">Back to List)
+    end
+
+    test "backs to an explicit return_to path" do
+      {_source, post} = create_test_post()
+      {:ok, post} = Posts.update_post(post, %{status: Post.status_processed(), content: "Body"})
+
+      html = PostsView.show(to_string(post.id), return_to: "/posts?status=2")
+
+      assert html =~ ~s(href="/posts?status=2")
+      assert html =~ ~s(name="return_to" value="/posts?status=2")
+    end
+
+    test "ignores an external return_to" do
+      {source, post} = create_test_post()
+      {:ok, post} = Posts.update_post(post, %{status: Post.status_processed(), content: "Body"})
+
+      html = PostsView.show(to_string(post.id), return_to: "//evil.example/")
+
+      assert html =~ ~s(href="/sources/#{source.id}?tab=articles")
+      refute html =~ "evil.example"
+    end
   end
 end

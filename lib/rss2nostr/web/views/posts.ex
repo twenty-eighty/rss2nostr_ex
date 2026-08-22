@@ -56,7 +56,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
             ""
           end}
             </td>
-            <td><a href="/posts/#{post.id}">#{escape_html(truncate(post.title, 60))}</a></td>
+            <td><a href="#{post_show_href(post.id, return_to)}">#{escape_html(truncate(post.title, 60))}</a></td>
             <td><span class="badge #{status_class}">#{status_label}</span></td>
             <td>#{escape_html(truncate(post.source_url, 40))}</td>
             <td>#{format_datetime(post.published_at)}</td>
@@ -152,6 +152,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
         status_class = status_to_class(post.status)
         status_label = Post.status_label(post.status)
         editable? = post.status in [Post.status_processed(), Post.status_published()]
+        back = back_path(post, Keyword.get(opts, :return_to))
 
         content = """
         <div class="page-header">
@@ -173,7 +174,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
 
         <div class="post-actions">
           #{show_actions(post)}
-          <a href="/posts" class="btn btn-secondary">Back to List</a>
+          <a href="#{escape_attr(back)}" class="btn btn-secondary">Back to List</a>
         </div>
 
         <div class="compose-tabs" role="tablist" style="margin: 1.25rem 0 1rem">
@@ -183,7 +184,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
         </div>
 
         <div id="post-article-tab">
-          #{if editable?, do: editor_form(post), else: read_only_article(post)}
+          #{if editable?, do: editor_form(post, back), else: read_only_article(post)}
         </div>
 
         <div id="post-preview-tab" hidden>
@@ -253,11 +254,12 @@ defmodule Rss2Nostr.Web.Views.Posts do
     end
   end
 
-  defp editor_form(post) do
+  defp editor_form(post, back) do
     hashtags = Enum.join(published_hashtags(post), ", ")
 
     """
     <form action="/posts/#{post.id}" method="POST" class="form form-wide post-editor">
+      #{return_to_hidden(back)}
       <div class="form-group">
         <label for="title">Title</label>
         <input type="text" id="title" name="title" value="#{escape_attr(post.title)}">
@@ -699,6 +701,34 @@ defmodule Rss2Nostr.Web.Views.Posts do
       _ -> "test"
     end
   end
+
+  defp post_show_href(id, return_to) do
+    "/posts/#{id}?return_to=" <> URI.encode_www_form(return_to)
+  end
+
+  defp back_path(post, return_to) do
+    cond do
+      internal_path?(return_to) -> return_to
+      source_id = source_id_of(post) -> "/sources/#{source_id}?tab=articles"
+      true -> "/posts"
+    end
+  end
+
+  defp source_id_of(%{source: %Source{id: id}}), do: id
+  defp source_id_of(%{source_id: id}) when is_integer(id), do: id
+  defp source_id_of(_), do: nil
+
+  defp return_to_hidden(path) do
+    if internal_path?(path) do
+      ~s(<input type="hidden" name="return_to" value="#{escape_attr(path)}">)
+    else
+      ""
+    end
+  end
+
+  defp internal_path?("//" <> _), do: false
+  defp internal_path?("/" <> _), do: true
+  defp internal_path?(_), do: false
 
   defp posts_path(params) do
     query =

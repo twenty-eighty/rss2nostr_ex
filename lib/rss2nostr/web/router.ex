@@ -280,7 +280,8 @@ defmodule Rss2Nostr.Web.Router do
         html =
           Views.Posts.show(id,
             notice: conn.query_params["notice"],
-            notice_kind: conn.query_params["notice_kind"]
+            notice_kind: conn.query_params["notice_kind"],
+            return_to: conn.query_params["return_to"]
           )
 
         send_html(conn, 200, html)
@@ -359,7 +360,7 @@ defmodule Rss2Nostr.Web.Router do
   post "/posts/:id" do
     case API.Posts.update(id, conn.body_params) do
       {:ok, _post} ->
-        redirect(conn, "/posts/#{id}?notice=#{URI.encode_www_form("Saved")}")
+        redirect(conn, post_show_path(conn, id, "Saved"))
 
       {:error, :not_found} ->
         send_html(conn, 404, Views.Error.not_found())
@@ -368,7 +369,7 @@ defmodule Rss2Nostr.Web.Router do
         send_html(conn, 400, Views.Error.bad_request())
 
       {:error, reason} ->
-        redirect(conn, "/posts/#{id}?notice=#{URI.encode_www_form(format_update_error(reason))}")
+        redirect(conn, post_show_path(conn, id, format_update_error(reason), "error"))
     end
   end
 
@@ -678,6 +679,16 @@ defmodule Rss2Nostr.Web.Router do
   defp with_flash(path, message, kind) do
     sep = if String.contains?(path, "?"), do: "&", else: "?"
     path <> sep <> URI.encode_query(%{"notice" => message, "notice_kind" => kind})
+  end
+
+  defp post_show_path(conn, id, notice, kind \\ "success") do
+    path = with_flash("/posts/#{id}", notice, kind)
+
+    case conn.body_params["return_to"] do
+      "//" <> _ -> path
+      "/" <> _ = from -> path <> "&return_to=" <> URI.encode_www_form(from)
+      _ -> path
+    end
   end
 
   defp format_error(reason) when is_binary(reason), do: reason

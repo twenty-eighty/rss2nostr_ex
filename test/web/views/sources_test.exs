@@ -143,6 +143,32 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert articles =~ "js-upload-images"
     end
 
+    test "preview links return to the articles tab" do
+      {:ok, source} =
+        SourcesContext.create_source(%{
+          name: "Articles Preview Source",
+          url: unique_url(),
+          type: "rss",
+          language: "en"
+        })
+
+      url = "https://example.com/article-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Rss2Nostr.Posts.create_post(%{
+          title: "Preview Return Article",
+          source_url: url,
+          source_url_hash: Rss2Nostr.Posts.Post.generate_url_hash(url),
+          status: 2,
+          source_id: source.id
+        })
+
+      html = Sources.show(source, tab: "articles")
+      expected = URI.encode_www_form("/sources/#{source.id}?tab=articles")
+
+      assert html =~ "/posts/#{post.id}?return_to=#{expected}"
+    end
+
     test "makes the mode badge switch an automated source back to setup" do
       {:ok, source} =
         SourcesContext.create_source(%{

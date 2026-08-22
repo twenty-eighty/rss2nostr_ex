@@ -312,11 +312,11 @@ defmodule Rss2Nostr.Web.Views.Sources do
             ""
           end}
             </td>
-            <td><a href="/posts/#{post.id}">#{escape_html(truncate(post.title, 70))}</a></td>
+            <td><a href="#{post_preview_href(source, post)}">#{escape_html(truncate(post.title, 70))}</a></td>
             <td class="article-status"><span class="badge #{status_class(post.status)}">#{Post.status_label(post.status)}</span></td>
             <td>#{format_datetime(post.published_at)}</td>
             <td class="actions">
-              <a href="/posts/#{post.id}" class="btn btn-small">Preview</a>
+              <a href="#{post_preview_href(source, post)}" class="btn btn-small">Preview</a>
               #{if post.status == Post.status_pending_images() do
             ~s(<button type="submit" class="btn btn-small js-upload-images" form="upload-post-#{post.id}">Upload images</button>)
           end}
@@ -356,6 +356,11 @@ defmodule Rss2Nostr.Web.Views.Sources do
     </form>
     #{articles_upload_script()}
     """
+  end
+
+  defp post_preview_href(source, post) do
+    "/posts/#{post.id}?return_to=" <>
+      URI.encode_www_form("/sources/#{source.id}?tab=articles")
   end
 
   defp upload_forms(source, posts) do
