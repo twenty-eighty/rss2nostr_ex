@@ -53,7 +53,8 @@ defmodule Rss2Nostr.Processing.Composer do
           optional(:title) => String.t() | nil,
           optional(:image) => String.t() | nil,
           optional(:summary) => String.t() | nil,
-          optional(:language) => String.t() | nil
+          optional(:language) => String.t() | nil,
+          optional(:fetch_page_image) => boolean()
         }
 
   @spec body_presets() :: [{String.t(), String.t()}]
@@ -186,7 +187,15 @@ defmodule Rss2Nostr.Processing.Composer do
       {:ok, doc} ->
         %{
           title: meta_content(doc, "meta[property='og:title']") || document_title(doc),
-          image: meta_content(doc, "meta[property='og:image']"),
+          image: meta_content(doc, "meta[property='og:image']") ||
+            meta_content(doc, "meta[property='og:image:url']") ||
+            meta_content(doc, "meta[name='twitter:image']") ||
+            meta_content(doc, "meta[name='twitter:image:src']") ||
+            meta_content(doc, "meta[property='twitter:image']") ||
+            link_href(doc, "link[rel='image_src']") ||
+            first_featured_img(doc, "img.wp-post-image") ||
+            first_featured_img(doc, "figure.wp-block-post-featured-image img") ||
+            first_featured_img(doc, "img[itemprop='image']"),
           summary:
             meta_content(doc, "meta[name='description']") ||
               meta_content(doc, "meta[property='og:description']")
@@ -202,7 +211,7 @@ defmodule Rss2Nostr.Processing.Composer do
     opts = normalize_opts(opts)
     selector = resolve_body_selector(opts, html)
     meta = extract_meta(html)
-    image = opts.image || meta.image
+    image = opts.image || meta.image || page_featured_image(html, opts)
     {body, matched} = extract_body(html, selector)
     body = BodySchema.apply_start_at(body, opts.start_at)
     body = drop_opening_featured_html(body, image)
@@ -306,7 +315,8 @@ defmodule Rss2Nostr.Processing.Composer do
               title: item_field(item, :title),
               image: item_field(item, :image),
               summary: truncate_summary(HtmlToMarkdown.plain_summary(item_field(item, :summary))),
-              language: language
+              language: language,
+              fetch_page_image: true
             })
 
           {extracted, _} = extract_body(html, selector)
@@ -444,7 +454,8 @@ defmodule Rss2Nostr.Processing.Composer do
       title: opts[:title] || opts["title"],
       image: opts[:image] || opts["image"],
       summary: opts[:summary] || opts["summary"],
-      language: blank_to_nil(opts[:language] || opts["language"])
+      language: blank_to_nil(opts[:language] || opts["language"]),
+      fetch_page_image: opts[:fetch_page_image] == true or opts["fetch_page_image"] == true
     }
   end
 
@@ -875,6 +886,67 @@ defmodule Rss2Nostr.Processing.Composer do
     |> List.first()
     |> blank_to_nil()
   end
+
+  defp link_href(doc, selector) do
+    doc
+    |> Floki.find(selector)
+    |> Floki.attribute("href")
+    |> List.first()
+    |> blank_to_nil()
+  end
+
+  defp first_featured_img(doc, selector) do
+    doc
+    |> Floki.find(selector)
+    |> Enum.find_value(fn {_, attrs, _} = node ->
+      if featured_img_node?(node) do
+        attrs |> img_urls() |> List.first() |> blank_to_nil()
+      end
+    end)
+  end
+
+  defp featured_img_node?({_, attrs, _}) do
+    class = html_attr_value(attrs, "class") || ""
+    width = parse_px(html_attr_value(attrs, "width"))
+    height = parse_px(html_attr_value(attrs, "height"))
+
+    not String.match?(class, ~r/\b(thumb|small|avatar|emoji)\b/i) and
+      (is_nil(width) or width >= 50) and
+      (is_nil(height) or height >= 50)
+  end
+
+  defp parse_px(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
+  defp parse_px(_), do: nil
+
+  defp page_featured_image(html, opts) do
+    url = opts.url
+
+    cond do
+      opts.fetch_page_image != true ->
+        nil
+
+      not is_binary(url) or url == "" ->
+        nil
+
+      full_html_document?(html) ->
+        nil
+
+      true ->
+        case FeedFetcher.fetch_article(url) do
+          {:ok, page} -> extract_meta(page).image
+          _ -> nil
+        end
+    end
+  end
+
+  defp full_html_document?(html) when is_binary(html), do: String.match?(html, ~r/<html[\s>]/i)
+  defp full_html_document?(_), do: false
 
   defp document_title(doc) do
     doc

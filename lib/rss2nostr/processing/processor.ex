@@ -136,6 +136,7 @@ defmodule Rss2Nostr.Processing.Processor do
     |> Map.put(:title, post.title)
     |> Map.put(:summary, post.summary)
     |> Map.put(:language, post.language || (source && source.language))
+    |> Map.put(:fetch_page_image, true)
   end
 
   defp feed_url(%{url: url}), do: url

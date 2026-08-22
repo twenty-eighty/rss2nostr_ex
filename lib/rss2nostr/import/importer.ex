@@ -185,7 +185,7 @@ defmodule Rss2Nostr.Import.Importer do
         imported_at: DateTime.utc_now(),
         author_name: item.author,
         summary: truncate_summary(HtmlToMarkdown.plain_summary(item.summary)),
-        image: item.image,
+        image: item.image || Composer.extract_meta(source_html).image,
         language: source.language,
         categories: item.categories || [],
         type: source.default_post_kind,

@@ -53,6 +53,46 @@ defmodule Rss2Nostr.Processing.ComposerTest do
     end
   end
 
+  describe "extract_meta/1" do
+    test "uses og:image when present" do
+      html = """
+      <html><head>
+        <meta property="og:image" content="https://example.com/og.jpg">
+      </head><body>
+        <img class="wp-post-image" src="https://example.com/featured.jpg">
+      </body></html>
+      """
+
+      assert Composer.extract_meta(html).image == "https://example.com/og.jpg"
+    end
+
+    test "falls back to the WordPress featured image" do
+      html = """
+      <html><body>
+        <img class="attachment-bam-large size-bam-large wp-post-image"
+             src="https://kultur-zentner.de/wp-content/uploads/2026/07/cover-1400x800.png">
+        <article><p>No image in the feed body.</p></article>
+        <img class="attachment-bam-thumb size-bam-thumb wp-post-image"
+             src="https://kultur-zentner.de/wp-content/uploads/2026/02/related-445x265.png">
+      </body></html>
+      """
+
+      assert Composer.extract_meta(html).image ==
+               "https://kultur-zentner.de/wp-content/uploads/2026/07/cover-1400x800.png"
+    end
+
+    test "ignores tracking pixels and avatars" do
+      html = """
+      <html><body>
+        <img src="http://vg01.met.vgwort.de/na/abc" width="1" height="1">
+        <img class="avatar photo" src="https://secure.gravatar.com/avatar/abc">
+      </body></html>
+      """
+
+      assert Composer.extract_meta(html).image == nil
+    end
+  end
+
   describe "compose/2" do
     test "converts selected HTML to Markdown and skips configured classes" do
       html = """
@@ -113,6 +153,28 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert result.image == "https://example.com/hero.jpg"
       assert result.markdown =~ "Article"
       refute result.markdown =~ "hero.jpg"
+    end
+
+    test "uses a WordPress featured image outside the article body" do
+      html = """
+      <html>
+        <body>
+          <img class="attachment-bam-large wp-post-image"
+               src="https://kultur-zentner.de/wp-content/uploads/2026/07/cover.png">
+          <div class="entry-content"><p>Exhibition opens in July.</p></div>
+        </body>
+      </html>
+      """
+
+      result =
+        Composer.compose(html, %{
+          body_selector: "div.entry-content",
+          skip_classes: []
+        })
+
+      assert result.image == "https://kultur-zentner.de/wp-content/uploads/2026/07/cover.png"
+      assert result.markdown =~ "Exhibition opens in July"
+      refute result.markdown =~ "cover.png"
     end
 
     test "keeps an existing image and leaves a different leading image in the Markdown" do
