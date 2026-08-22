@@ -725,6 +725,15 @@ defmodule Rss2Nostr.Web.Views.Assets do
       border-radius: 8px;
     }
 
+    .compose-preview-rendered a img[src*="fontawesome"] {
+      height: 1.15em;
+      width: auto;
+      display: inline;
+      vertical-align: -0.15em;
+      margin-right: 0.3em;
+      border-radius: 0;
+    }
+
     .compose-preview-rendered figure {
       margin: 0 0 1.25rem;
     }

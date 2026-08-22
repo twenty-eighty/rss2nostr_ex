@@ -96,6 +96,17 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
     assert html =~ "<li>two</li>"
   end
 
+  test "renders an image inside a link" do
+    html =
+      Markdown.to_html(
+        "[Folgt mir auf Telegram ![](https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg)](https://t.me/kulturzentner)"
+      )
+
+    assert html =~ ~s(<a href="https://t.me/kulturzentner">)
+    assert html =~ ~s(<img src="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg" alt="">)
+    assert html =~ ~r/Folgt mir auf Telegram.*<img /s
+  end
+
   test "renders an image title as a visible caption" do
     html = Markdown.to_html("![](https://example.com/pic.jpg \"Ashot Grigorian\")")
 

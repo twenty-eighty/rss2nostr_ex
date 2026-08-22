@@ -785,18 +785,38 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       """
 
       md = HtmlToMarkdown.convert(html)
+      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
 
-      assert md =~ "[Folgt mir auf Telegram](https://t.me/kulturzentner)"
+      assert md =~ "[Folgt mir auf Telegram ![](#{icon})](https://t.me/kulturzentner)"
       refute md =~ "_Telegram_"
       html_out = Rss2Nostr.Processing.Markdown.to_html(md)
-      assert html_out =~ ~s(<a href="https://t.me/kulturzentner">Folgt mir auf Telegram</a>)
+      assert html_out =~ ~s(<a href="https://t.me/kulturzentner">)
+      assert html_out =~ ~s(<img src="#{icon}" alt="">)
+      assert html_out =~ ~r/Folgt mir auf Telegram.*<img /s
     end
 
     test "labels an icon-only social link from the icon class" do
       html = ~s(<a href="https://t.me/kulturzentner"><i class="fab fa-telegram"></i></a>)
       md = HtmlToMarkdown.convert(html)
+      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
 
-      assert md =~ "[Telegram](https://t.me/kulturzentner)"
+      assert md =~ "[![](#{icon}) Telegram](https://t.me/kulturzentner)"
+    end
+
+    test "keeps text before the icon when the HTML has that order" do
+      html = ~s(<a href="https://t.me/kulturzentner">Telegram <i class="fab fa-telegram"></i></a>)
+      md = HtmlToMarkdown.convert(html)
+      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
+
+      assert md =~ "[Telegram ![](#{icon})](https://t.me/kulturzentner)"
+    end
+
+    test "keeps the icon before text when the HTML has that order" do
+      html = ~s(<a href="https://t.me/kulturzentner"><i class="fab fa-telegram"></i> Telegram</a>)
+      md = HtmlToMarkdown.convert(html)
+      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
+
+      assert md =~ "[![](#{icon}) Telegram](https://t.me/kulturzentner)"
     end
 
     test "drops relative links" do

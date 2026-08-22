@@ -417,12 +417,15 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
     markdown =
       case {links, caption} do
-        {[%{href: href}], caption} when caption != "" ->
-          markdown_media_link(caption, href, nil)
+        {[%{href: href, icon: icon}], caption} when caption != "" ->
+          markdown_icon_link(href, caption, icon, social_bar_icon_order(children))
+
+        {[%{href: href, label: label, icon: icon}], _} ->
+          markdown_icon_link(href, label, icon)
 
         {links, _} ->
-          Enum.map_join(links, " · ", fn %{href: href, label: label} ->
-            markdown_media_link(label, href, nil)
+          Enum.map_join(links, " · ", fn %{href: href, label: label, icon: icon} ->
+            markdown_icon_link(href, label, icon)
           end)
       end
 
@@ -435,7 +438,15 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         href = attrs |> get_attr("href") |> normalize_href()
 
         if is_binary(href) and http_url?(href) and not discard_link?(href) do
-          [%{href: remove_tracking_params(href), label: link_fallback_label(attrs, inner, href)}]
+          label = link_fallback_label(attrs, inner, href)
+
+          [
+            %{
+              href: remove_tracking_params(href),
+              label: label,
+              icon: network_icon_url(inner, label, href)
+            }
+          ]
         else
           []
         end
@@ -476,6 +487,30 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     |> String.trim()
   end
 
+  defp social_bar_icon_order(nodes) do
+    if first_social_signal(nodes) == :caption, do: :label_first, else: :icon_first
+  end
+
+  defp first_social_signal(nodes) do
+    Enum.find_value(List.wrap(nodes), fn
+      {"a", _, _} ->
+        :link
+
+      {tag, _, inner} when tag in ~w(span p) ->
+        text = inner |> Floki.text() |> String.trim()
+        if text == "", do: first_social_signal(inner), else: :caption
+
+      {_, _, inner} ->
+        first_social_signal(inner)
+
+      text when is_binary(text) ->
+        if String.trim(text) == "", do: nil, else: :caption
+
+      _ ->
+        nil
+    end)
+  end
+
   # Process links
   defp process_link(attrs, children) do
     href = attrs |> get_attr("href") |> normalize_href()
@@ -497,7 +532,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         text = process_nodes(children) |> String.trim()
         clean_href = remove_tracking_params(href)
         label = if text == "", do: link_fallback_label(attrs, children, clean_href), else: text
-        markdown_media_link(label, clean_href, get_attr(attrs, "title"))
+        icon = network_icon_url(children, label, clean_href)
+
+        if icon do
+          markdown_icon_link(clean_href, label, icon, link_icon_order(children, text))
+        else
+          markdown_media_link(label, clean_href, get_attr(attrs, "title"))
+        end
     end
   end
 
@@ -1478,6 +1519,91 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     else
       "[#{text}](#{href})"
     end
+  end
+
+  # Font Awesome cannot be shipped as HTML. A markdown image of the SVG
+  # plus visible link text works in NIP-23 clients that render images,
+  # and degrades to the text (or alt) everywhere else.
+  @fa_brand_cdn "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands"
+
+  defp markdown_icon_link(href, label, icon_url, order \\ :icon_first)
+
+  defp markdown_icon_link(href, label, icon_url, order) do
+    cond do
+      not present_title?(icon_url) ->
+        markdown_media_link(label, href, nil)
+
+      present_title?(label) and label != href ->
+        case order do
+          :label_first -> "[#{label} ![](#{icon_url})](#{href})"
+          _ -> "[![](#{icon_url}) #{label}](#{href})"
+        end
+
+      true ->
+        "[![#{label}](#{icon_url})](#{href})"
+    end
+  end
+
+  defp link_icon_order(_nodes, ""), do: :icon_first
+
+  defp link_icon_order(nodes, _text) do
+    case first_link_signal(nodes) do
+      :text -> :label_first
+      _ -> :icon_first
+    end
+  end
+
+  defp first_link_signal(nodes) do
+    Enum.find_value(List.wrap(nodes), fn
+      {tag, attrs, inner} when tag in ~w(i em span) ->
+        cond do
+          icon_class?(get_attr(attrs, "class", "")) ->
+            :icon
+
+          String.trim(Floki.text(inner)) != "" ->
+            :text
+
+          true ->
+            first_link_signal(inner)
+        end
+
+      {_, _, inner} ->
+        first_link_signal(inner)
+
+      text when is_binary(text) ->
+        if String.trim(text) == "", do: nil, else: :text
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp network_icon_url(nodes, _label, _href) do
+    case fa_brand_slug(nodes) do
+      slug when is_binary(slug) and slug != "" ->
+        "#{@fa_brand_cdn}/#{slug}.svg"
+
+      _ ->
+        nil
+    end
+  end
+
+  defp fa_brand_slug(nodes) do
+    skip = MapSet.new(~w(lg sm xs 2x 3x 4x 5x fw spin pulse border))
+
+    nodes
+    |> element_classes()
+    |> Enum.find_value(fn
+      "fa-" <> rest when rest != "" ->
+        cond do
+          rest in skip -> nil
+          String.contains?(rest, "telegram") -> "telegram"
+          true -> rest
+        end
+
+      _ ->
+        nil
+    end)
   end
 
   defp normalize_href(href) when is_binary(href) do
