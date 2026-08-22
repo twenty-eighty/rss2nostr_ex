@@ -25,6 +25,7 @@ erl_crash.dump
 # ignore secrets
 /config/*.secret.exs
 .env
+.env.test
 .env.*.local
 .secret_key_base
 

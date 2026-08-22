@@ -146,7 +146,6 @@ defmodule Rss2Nostr.Web.API.Posts do
       )
     else
       {:error, :no_app_private_key} -> {:error, "NOSTR_NSEC not configured"}
-      {:error, :cannot_encrypt_draft} -> {:error, "NOSTR_NSEC is required to encrypt drafts"}
       {:error, :no_source_signer} -> {:error, "Source has no signing key or bunker URL"}
       other -> other
     end
@@ -163,7 +162,6 @@ defmodule Rss2Nostr.Web.API.Posts do
       nil -> {:error, :not_found}
       {:error, :invalid_id} -> {:error, :invalid_id}
       {:error, :not_editable} -> {:error, "Post cannot be edited in this status"}
-      other -> other
     end
   end
 

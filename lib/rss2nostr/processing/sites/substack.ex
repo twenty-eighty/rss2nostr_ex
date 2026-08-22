@@ -258,7 +258,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
   defp tweet_paragraph(attrs, children) do
     case tweet_url(attrs, children) do
-      url when is_binary(url) -> {"p", [], [{"a", [{"href", url}], []}]}
+      url when is_binary(url) -> {"p", [], [url]}
       _ -> {"p", [], []}
     end
   end

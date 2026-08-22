@@ -301,7 +301,6 @@ defmodule Rss2Nostr.Scheduler do
 
   defp summarize_result({:ok, stats}) when is_map(stats), do: stats
   defp summarize_result({:error, reason}), do: %{error: inspect(reason)}
-  defp summarize_result(other), do: %{result: inspect(other)}
 
   defp format_intervals(intervals) do
     Enum.map(intervals, fn {task, ms} ->

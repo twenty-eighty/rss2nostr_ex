@@ -146,6 +146,15 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert result.markdown =~ "[Auf SoundCloud anhören](https://soundcloud.com/a/b)"
     end
 
+    test "copies the SoundCloud iframe color onto the listen link" do
+      html =
+        ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b&amp;color=%23ffd400"></iframe>)
+
+      result = Composer.compose(html, %{skip_classes: []})
+
+      assert result.markdown =~ "[Listen on SoundCloud](https://soundcloud.com/a/b?color=%23ffd400)"
+    end
+
     test "uses SoundCloud oEmbed artwork when the article has no image" do
       html = """
       <div itemprop="articleBody">

@@ -13,6 +13,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   require Logger
 
   alias Rss2Nostr.Processing.{ImageExtractor, Labels, Youtube}
+  alias Rss2Nostr.Processing.HtmlToMarkdown.{EmbedUrls, SoundcloudPermalink}
 
   # Tracking parameters to remove from URLs
   @tracking_params ~w(
@@ -56,10 +57,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     rules = Keyword.get(opts, :conversion_rules, [])
     language = Labels.normalize(Keyword.get(opts, :language))
     permalink = soundcloud_permalink(html)
+    color = SoundcloudPermalink.player_color(html)
+
     Process.put({__MODULE__, :skip_classes}, normalize_skip_classes(skip))
     Process.put({__MODULE__, :conversion_rules}, rules)
     Process.put({__MODULE__, :language}, language)
     Process.put({__MODULE__, :soundcloud_permalink}, permalink)
+    Process.put({__MODULE__, :soundcloud_color}, color)
 
     try do
       html
@@ -73,6 +77,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       Process.delete({__MODULE__, :conversion_rules})
       Process.delete({__MODULE__, :language})
       Process.delete({__MODULE__, :soundcloud_permalink})
+      Process.delete({__MODULE__, :soundcloud_color})
     end
   rescue
     e ->
@@ -90,12 +95,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   query (often `api.soundcloud.com/tracks/...`).
   """
   @spec soundcloud_permalink(String.t()) :: String.t() | nil
-  def soundcloud_permalink(html) when is_binary(html) do
-    hydration_permalink(html) ||
-      List.first(track_permalinks_in_html(html)) ||
-      player_inner_url(html)
-  end
-
+  def soundcloud_permalink(html) when is_binary(html), do: SoundcloudPermalink.permalink(html)
   def soundcloud_permalink(_), do: nil
 
   @doc """
@@ -183,82 +183,82 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp process_node(_), do: ""
 
   defp process_tag(tag, attrs, children) do
-    case tag do
-      # Skip elements
-      "script" -> ""
-      "style" -> ""
-      "nav" -> ""
-      "header" -> ""
-      "footer" -> ""
-      "noscript" -> ""
-      "button" -> ""
-      "form" -> ""
-      # Block elements
-      "p" -> process_block("p", attrs, children)
-      "div" -> process_block("div", attrs, children)
-      "li" -> process_block("li", attrs, children)
-      "section" -> process_block("section", attrs, children)
-      # CommonMark hard break (two trailing spaces). A lone newline is
-      # a space; `\` and `\n\n` show a backslash or a blank line.
-      "br" -> "  \n"
-      "hr" -> "\n\n---\n\n"
-      # Headings
-      "h1" -> "\n\n# #{process_nodes(children)}\n\n"
-      "h2" -> "\n\n## #{process_nodes(children)}\n\n"
-      "h3" -> "\n\n### #{process_nodes(children)}\n\n"
-      "h4" -> "\n\n#### #{process_nodes(children)}\n\n"
-      "h5" -> "\n\n##### #{process_nodes(children)}\n\n"
-      "h6" -> "\n\n###### #{process_nodes(children)}\n\n"
-      # Inline formatting
-      "strong" -> wrap_inline(process_nodes(unwrap_same_role(children, :strong)), "**")
-      "b" -> wrap_inline(process_nodes(unwrap_same_role(children, :strong)), "**")
-      # Underscores so italic next to `**bold**` does not emit `***`,
-      # which CommonMark treats as one delimiter run. Nested <em><i>
-      # is the same role; wrapping twice emits `__text__` (bold).
-      "em" ->
-        if icon_class?(get_attr(attrs, "class", "")) do
-          process_nodes(children)
-        else
-          wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
-        end
-
-      "i" ->
-        if icon_class?(get_attr(attrs, "class", "")) do
-          process_nodes(children)
-        else
-          wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
-        end
-      "u" -> wrap_inline(process_nodes(children), "_")
-      "code" -> "`#{process_nodes(children)}`"
-      "pre" -> "\n\n```\n#{Floki.text(children)}\n```\n\n"
-      "mark" -> wrap_inline(process_nodes(children), "==")
-      # Links
-      "a" -> process_link(attrs, children)
-      # Images
-      "img" -> process_image(attrs)
-      "figure" -> process_figure(attrs, children)
-      "picture" -> process_picture(children)
-      # Lists
-      "ul" -> "\n\n#{process_list(children, :unordered)}\n\n"
-      "ol" -> "\n\n#{process_list(children, :ordered)}\n\n"
-      # Blockquote
-      "blockquote" -> process_blockquote(children)
-      # Table (simplified)
-      "table" -> process_table(children)
-      # Iframes (for embeds)
-      "iframe" -> process_iframe(attrs)
-      # Audio/Video
-      "audio" -> process_audio(attrs, children)
-      "video" -> process_video(attrs, children)
-      # Inline elements - just process children
-      "span" -> process_nodes(children)
-      "article" -> process_nodes(children)
-      "main" -> process_nodes(children)
-      "aside" -> process_nodes(children)
-      # Unknown - process children
-      _ -> process_nodes(children)
+    cond do
+      skipped_tag?(tag) -> ""
+      heading_tag?(tag) -> process_heading_tag(tag, children)
+      emphasis_tag?(tag) -> process_emphasis_tag(tag, attrs, children)
+      tag in ~w(a img figure picture ul ol blockquote table iframe audio video) ->
+        process_media_tag(tag, attrs, children)
+      tag in ~w(p div li section) -> process_block(tag, attrs, children)
+      tag == "br" -> "  \n"
+      tag == "hr" -> "\n\n---\n\n"
+      tag in ~w(span article main aside) -> process_nodes(children)
+      true -> process_nodes(children)
     end
   end
+
+  defp skipped_tag?(tag), do: tag in ~w(script style nav header footer noscript button form)
+
+  defp heading_tag?(tag), do: tag in ~w(h1 h2 h3 h4 h5 h6)
+
+  defp emphasis_tag?(tag),
+    do: tag in ~w(strong b em i u code pre mark)
+
+  defp process_heading_tag(tag, children) do
+    level = String.slice(tag, 1, 1)
+    prefix = String.duplicate("#", String.to_integer(level))
+    "\n\n#{prefix} #{process_nodes(children)}\n\n"
+  end
+
+  defp process_emphasis_tag("strong", _attrs, children),
+    do: wrap_inline(process_nodes(unwrap_same_role(children, :strong)), "**")
+
+  defp process_emphasis_tag("b", _attrs, children),
+    do: wrap_inline(process_nodes(unwrap_same_role(children, :strong)), "**")
+
+  defp process_emphasis_tag("em", attrs, children) do
+    if icon_class?(get_attr(attrs, "class", "")) do
+      process_nodes(children)
+    else
+      wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
+    end
+  end
+
+  defp process_emphasis_tag("i", attrs, children) do
+    if icon_class?(get_attr(attrs, "class", "")) do
+      process_nodes(children)
+    else
+      wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
+    end
+  end
+
+  defp process_emphasis_tag("u", _attrs, children),
+    do: wrap_inline(process_nodes(children), "_")
+
+  defp process_emphasis_tag("code", _attrs, children),
+    do: "`#{process_nodes(children)}`"
+
+  defp process_emphasis_tag("pre", _attrs, children),
+    do: "\n\n```\n#{Floki.text(children)}\n```\n\n"
+
+  defp process_emphasis_tag("mark", _attrs, children),
+    do: wrap_inline(process_nodes(children), "==")
+
+  defp process_media_tag("a", attrs, children), do: process_link(attrs, children)
+  defp process_media_tag("img", attrs, _), do: process_image(attrs)
+  defp process_media_tag("figure", attrs, children), do: process_figure(attrs, children)
+  defp process_media_tag("picture", _attrs, children), do: process_picture(children)
+  defp process_media_tag("ul", _attrs, children),
+    do: "\n\n#{process_list(children, :unordered)}\n\n"
+
+  defp process_media_tag("ol", _attrs, children),
+    do: "\n\n#{process_list(children, :ordered)}\n\n"
+
+  defp process_media_tag("blockquote", _attrs, children), do: process_blockquote(children)
+  defp process_media_tag("table", _attrs, children), do: process_table(children)
+  defp process_media_tag("iframe", attrs, _), do: process_iframe(attrs)
+  defp process_media_tag("audio", attrs, children), do: process_audio(attrs, children)
+  defp process_media_tag("video", attrs, children), do: process_video(attrs, children)
 
   defp process_block(tag, attrs, children) do
     case matching_conversion({tag, attrs, children}) do
@@ -535,9 +535,19 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
       true ->
         text = process_link_children(children) |> String.trim()
-        clean_href = href |> ensure_absolute_url() |> remove_tracking_params()
+        clean_href =
+          href
+          |> ensure_absolute_url()
+          |> remove_tracking_params()
+          |> with_soundcloud_params()
         label = link_display_label(attrs, children, text, clean_href)
-        icon = network_icon_url(children, label, clean_href)
+
+        icon =
+          if tweet_status_link?(clean_href) and text != "" and not url_like_label?(text, clean_href) do
+            nil
+          else
+            network_icon_url(children, label, clean_href)
+          end
 
         if icon do
           markdown_icon_link(clean_href, label, icon, link_icon_order(children, text))
@@ -929,13 +939,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       String.contains?(src, "soundcloud.com") ->
         url =
           Process.get({__MODULE__, :soundcloud_permalink}) ||
-            permalink_from_player(src) ||
+            SoundcloudPermalink.player_permalink(src) ||
             src
 
         soundcloud_listen_markdown(url)
 
-      watch = embed_watch_url(src) ->
-        "\n\n[#{watch_on(platform_label(watch))}](#{watch})\n\n"
+      watch = EmbedUrls.embed_watch_url(src) ->
+        "\n\n[#{watch_on(EmbedUrls.platform_name(watch))}](#{watch})\n\n"
 
       true ->
         ""
@@ -947,187 +957,20 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   YouTube is handled separately via `iframe_watch_url/1`.
   """
   @spec embed_watch_url(String.t() | nil) :: String.t() | nil
-  def embed_watch_url(src) when is_binary(src) and src != "" do
-    decoded = safe_decode_uri(src)
-    uri = URI.parse(decoded)
-    host = uri.host |> to_string() |> String.downcase()
-    path = uri.path || ""
-
-    cond do
-      String.contains?(host, "odysee.com") ->
-        odysee_watch_url(uri, path)
-
-      String.contains?(host, "bitchute.com") ->
-        bitchute_watch_url(uri, path)
-
-      String.contains?(host, "rumble.com") ->
-        rumble_watch_url(uri, path)
-
-      String.contains?(host, "archive.org") ->
-        archive_watch_url(uri, path)
-
-      String.contains?(host, "rokfin.com") ->
-        rokfin_watch_url(uri, path)
-
-      true ->
-        nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  def embed_watch_url(_), do: nil
+  def embed_watch_url(src), do: EmbedUrls.embed_watch_url(src)
 
   @doc """
   Watch-page URL for an iframe `src`, including YouTube.
   """
   @spec iframe_watch_url(String.t() | nil) :: String.t() | nil
-  def iframe_watch_url(src) when is_binary(src) do
-    cond do
-      id = Youtube.video_id(src) -> "https://www.youtube.com/watch?v=#{id}"
-      watch = embed_watch_url(src) -> watch
-      true -> nil
-    end
-  end
-
-  def iframe_watch_url(_), do: nil
+  def iframe_watch_url(src), do: EmbedUrls.iframe_watch_url(src)
 
   @doc """
   True when two URLs likely point at the same video (same host and
-  video id / last path token). Used to drop WATCH ON links that
-  duplicate an iframe already converted to a watch URL.
+  video id / last path token).
   """
   @spec same_video?(String.t() | nil, String.t() | nil) :: boolean()
-  def same_video?(a, b) when is_binary(a) and is_binary(b) do
-    case {video_key(a), video_key(b)} do
-      {{host, id}, {host, id}} when is_binary(id) and id != "" -> true
-      _ -> false
-    end
-  end
-
-  def same_video?(_, _), do: false
-
-  defp video_key(url) do
-    watch = iframe_watch_url(url) || url
-    uri = URI.parse(watch)
-    host = normalize_video_host(uri.host)
-    id = video_id_token(uri, watch)
-
-    if host != "" and is_binary(id) and id != "", do: {host, id}, else: nil
-  rescue
-    _ -> nil
-  end
-
-  defp video_id_token(uri, url) do
-    case Youtube.video_id(url) do
-      id when is_binary(id) -> String.downcase(id)
-      _ -> last_significant_token(uri)
-    end
-  end
-
-  defp last_significant_token(uri) do
-    (uri.path || "")
-    |> String.split("/", trim: true)
-    |> Enum.reject(&(String.downcase(&1) in ~w($ embed video details watch post v)))
-    |> List.last()
-    |> case do
-      nil ->
-        nil
-
-      seg ->
-        seg
-        |> URI.decode()
-        |> String.trim_leading("@")
-        |> String.split(":")
-        |> hd()
-        |> String.downcase()
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp normalize_video_host(host) do
-    host
-    |> to_string()
-    |> String.downcase()
-    |> String.replace_prefix("www.", "")
-    |> String.replace_prefix("old.", "")
-    |> String.replace_prefix("m.", "")
-  end
-
-  defp odysee_watch_url(uri, path) do
-    rest =
-      cond do
-        String.starts_with?(path, "/$/embed/") -> String.replace_prefix(path, "/$/embed/", "")
-        String.starts_with?(path, "/embed/") -> String.replace_prefix(path, "/embed/", "")
-        true -> nil
-      end
-
-    cond do
-      is_binary(rest) and rest != "" ->
-        uri_watch(uri, "/" <> rest)
-
-      path not in [nil, "", "/"] ->
-        uri_watch(uri, path)
-
-      true ->
-        nil
-    end
-  end
-
-  defp bitchute_watch_url(uri, path) do
-    case Regex.run(~r{/embed/([^/]+)/?}, path) do
-      [_, id] -> uri_watch(uri, "/video/#{id}/")
-      _ -> uri_watch(uri, path)
-    end
-  end
-
-  defp rumble_watch_url(uri, path) do
-    case Regex.run(~r{/embed/([^/]+)/?}, path) do
-      [_, id] -> uri_watch(uri, "/embed/#{id}")
-      _ -> uri_watch(uri, path)
-    end
-  end
-
-  defp archive_watch_url(uri, path) do
-    case Regex.run(~r{/embed/([^/]+)/?}, path) do
-      [_, id] -> uri_watch(uri, "/details/#{id}")
-      _ -> uri_watch(uri, path)
-    end
-  end
-
-  defp rokfin_watch_url(uri, path) do
-    case Regex.run(~r{/embed/(?:post/)?([^/]+)/?}, path) do
-      [_, id] -> uri_watch(uri, "/post/#{id}")
-      _ -> uri_watch(uri, path)
-    end
-  end
-
-  defp uri_watch(uri, path) do
-    URI.to_string(%{uri | path: path, query: nil, fragment: nil})
-  end
-
-  defp safe_decode_uri(url) do
-    decoded = URI.decode(url)
-    if decoded == url, do: url, else: safe_decode_uri(decoded)
-  rescue
-    _ -> url
-  end
-
-  defp platform_label(url) do
-    host = url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
-
-    cond do
-      String.contains?(host, "odysee.com") -> "Odysee"
-      String.contains?(host, "bitchute.com") -> "Bitchute"
-      String.contains?(host, "rumble.com") -> "Rumble"
-      String.contains?(host, "archive.org") -> "Archive.org"
-      String.contains?(host, "rokfin.com") -> "Rokfin"
-      true -> "video"
-    end
-  rescue
-    _ -> "video"
-  end
+  def same_video?(a, b), do: EmbedUrls.same_video?(a, b)
 
   defp youtube_markdown(url, title) do
     case Youtube.video_id(url) do
@@ -1143,7 +986,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   # Pareto iframes www.podbean.com/ep/pb-{id} (LinkPreview.parsePodbeanUrl).
   # WordPress often lazy-loads the player as data-src with i={id}-pb.
   defp process_podbean_iframe(src) do
-    case podbean_episode_url(src) do
+    case EmbedUrls.podbean_episode_url(src) do
       url when is_binary(url) ->
         "\n\n[#{listen_on("Podbean")}](#{url})\n\n"
 
@@ -1151,48 +994,6 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         "\n\n[#{listen_on("Podbean")}](#{src})\n\n"
     end
   end
-
-  defp podbean_episode_url(src) when is_binary(src) do
-    decoded = unescape_attr(src)
-    uri = URI.parse(decoded)
-    query = uri.query || ""
-
-    cond do
-      id = podbean_player_id(query) ->
-        "https://www.podbean.com/ep/pb-#{id}"
-
-      id = podbean_path_id(uri.path) ->
-        "https://www.podbean.com/ep/pb-#{id}"
-
-      true ->
-        nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp podbean_episode_url(_), do: nil
-
-  defp podbean_player_id(query) do
-    id =
-      query
-      |> URI.decode_query()
-      |> Map.get("i")
-
-    cond do
-      is_binary(id) and id != "" -> String.replace_suffix(id, "-pb", "")
-      true -> nil
-    end
-  end
-
-  defp podbean_path_id(path) when is_binary(path) do
-    case Regex.run(~r{(?:^|/)pb-([A-Za-z0-9]+-[A-Za-z0-9]+)(?:/|$)}, path) do
-      [_, id] -> id
-      _ -> nil
-    end
-  end
-
-  defp podbean_path_id(_), do: nil
 
   defp iframe_src(attrs) do
     [get_attr(attrs, "src"), get_attr(attrs, "data-src")]
@@ -1213,116 +1014,22 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp unescape_attr(_), do: ""
 
   defp soundcloud_listen_markdown(url) when is_binary(url) and url != "" do
-    "\n\n[#{listen_on("SoundCloud")}](#{url})\n\n"
+    "\n\n[#{listen_on("SoundCloud")}](#{with_soundcloud_params(url)})\n\n"
   end
 
   defp soundcloud_listen_markdown(_), do: ""
 
   defp maybe_prepend_soundcloud(markdown, permalink) when is_binary(permalink) do
-    if String.contains?(markdown, permalink) do
+    href = with_soundcloud_params(permalink)
+
+    if String.contains?(markdown, permalink) or String.contains?(markdown, href) do
       markdown
     else
-      "[#{listen_on("SoundCloud")}](#{permalink})\n\n" <> markdown
+      "[#{listen_on("SoundCloud")}](#{href})\n\n" <> markdown
     end
   end
 
   defp maybe_prepend_soundcloud(markdown, _), do: markdown
-
-  defp hydration_permalink(html) do
-    case Regex.run(~r/window\.__sc_hydration\s*=\s*(\[.*?\])\s*;?/s, html) do
-      [_, json] ->
-        case Jason.decode(json) do
-          {:ok, entries} when is_list(entries) ->
-            Enum.find_value(entries, &hydration_sound_url/1)
-
-          _ ->
-            nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp hydration_sound_url(%{"hydratable" => "sound", "data" => %{"permalink_url" => url}})
-       when is_binary(url) and url != "" do
-    url
-  end
-
-  defp hydration_sound_url(_), do: nil
-
-  defp track_permalinks_in_html(html) do
-    ~r/https?:\/\/(?:www\.)?soundcloud\.com\/[^\s"'<>]+/i
-    |> Regex.scan(html)
-    |> List.flatten()
-    |> Enum.map(&trim_url_punct/1)
-    |> Enum.filter(&track_permalink?/1)
-    |> Enum.uniq()
-  end
-
-  defp player_inner_url(html) do
-    html
-    |> soundcloud_player_srcs()
-    |> Enum.find_value(&permalink_from_player/1)
-  end
-
-  defp soundcloud_player_srcs(html) do
-    case Floki.parse_document(html) do
-      {:ok, doc} ->
-        doc
-        |> Floki.find("iframe")
-        |> Enum.flat_map(fn iframe ->
-          [
-            iframe |> Floki.attribute("src") |> List.first(),
-            iframe |> Floki.attribute("data-src") |> List.first()
-          ]
-        end)
-        |> Enum.filter(&(is_binary(&1) and String.contains?(&1, "w.soundcloud.com/player")))
-
-      _ ->
-        []
-    end
-  end
-
-  defp permalink_from_player(src) when is_binary(src) do
-    src = String.replace(src, "&amp;", "&")
-
-    query =
-      src
-      |> URI.parse()
-      |> Map.get(:query)
-      |> to_string()
-      |> URI.decode_query()
-
-    case query["url"] do
-      url when is_binary(url) and url != "" ->
-        if soundcloud_host?(url), do: url
-
-      _ ->
-        nil
-    end
-  end
-
-  defp permalink_from_player(_), do: nil
-
-  defp track_permalink?(url) when is_binary(url) do
-    uri = URI.parse(url)
-    host = uri.host |> to_string() |> String.downcase()
-    segments = (uri.path || "") |> String.split("/", trim: true)
-
-    host in ["soundcloud.com", "www.soundcloud.com"] and
-      length(segments) >= 2 and
-      hd(segments) not in ~w(you pages discover stream search groups signin login)
-  end
-
-  defp track_permalink?(_), do: false
-
-  defp soundcloud_host?(url) when is_binary(url) do
-    host = url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
-    host == "soundcloud.com" or String.ends_with?(host, ".soundcloud.com")
-  end
-
-  defp soundcloud_host?(_), do: false
 
   defp soundcloud_widget_chrome?(href) do
     case Process.get({__MODULE__, :soundcloud_permalink}) do
@@ -1374,8 +1081,30 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     "https://#{host}#{path}"
   end
 
-  defp trim_url_punct(url) do
-    String.replace(url, ~r/[\.,;:)\]]+$/, "")
+  defp soundcloud_host?(url), do: SoundcloudPermalink.host?(url)
+
+  defp with_soundcloud_params(url) when is_binary(url) do
+    case Process.get({__MODULE__, :soundcloud_color}) do
+      color when is_binary(color) -> put_soundcloud_query(url, "color", color)
+      _ -> url
+    end
+  end
+
+  defp with_soundcloud_params(url), do: url
+
+  defp put_soundcloud_query(url, key, value) do
+    if soundcloud_host?(url) do
+      uri = URI.parse(url)
+
+      query =
+        (uri.query || "")
+        |> URI.decode_query()
+        |> Map.put(key, value)
+
+      URI.to_string(%{uri | query: URI.encode_query(query)})
+    else
+      url
+    end
   end
 
   # Process YouTube div with data-attrs
@@ -1672,8 +1401,6 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     |> String.trim_trailing("/")
   end
 
-  defp strip_url_noise(_), do: ""
-
   defp link_fallback_label(attrs, children, href) do
     aria = get_attr(attrs, "aria-label")
     title = get_attr(attrs, "title")
@@ -1724,17 +1451,30 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   ]
 
   @platform_url_re ~r{(?:https?://)?(?:www\.)?(?:facebook\.com|fb\.com|instagram\.com|twitter\.com|x\.com|t\.me|telegram\.me)/[^\s<>\]\)]+}i
+  @tweet_status_url_re ~r{\Ahttps?://(?:www\.|mobile\.)?(?:x\.com|twitter\.com)/[^/\s]+/status/\d+\z}i
+
+  defp tweet_status_link?(href) when is_binary(href) do
+    Regex.match?(@tweet_status_url_re, String.trim(href))
+  end
+
+  defp tweet_status_link?(_), do: false
 
   defp autolink_platform_urls(text) do
-    Regex.replace(@platform_url_re, text, fn url ->
-      {bare, trail} = split_url_trail(url)
-      href = ensure_absolute_url(bare)
+    trimmed = String.trim(text)
 
-      case platform_for_href(href) do
-        {label, slug} -> markdown_icon_link(href, label, fa_brand_url(slug)) <> trail
-        _ -> url
-      end
-    end)
+    if Regex.match?(@tweet_status_url_re, trimmed) do
+      trimmed
+    else
+      Regex.replace(@platform_url_re, text, fn url ->
+        {bare, trail} = split_url_trail(url)
+        href = ensure_absolute_url(bare)
+
+        case platform_for_href(href) do
+          {label, slug} -> markdown_icon_link(href, label, fa_brand_url(slug)) <> trail
+          _ -> url
+        end
+      end)
+    end
   end
 
   defp split_url_trail(url) do
@@ -1992,7 +1732,6 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     |> String.trim()
   end
 
-  defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 
   defp blank_to_nil(value) when is_binary(value) do

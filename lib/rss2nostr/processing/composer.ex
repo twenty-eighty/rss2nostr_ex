@@ -59,6 +59,45 @@ defmodule Rss2Nostr.Processing.Composer do
           optional(:soundcloud_artwork) => (String.t() -> String.t() | nil) | false | nil
         }
 
+  @type preview_context :: %{
+          url: String.t() | nil,
+          guid: String.t() | nil,
+          source: Source.t() | nil,
+          opts: compose_opts(),
+          params: map(),
+          rules: [map()],
+          language: String.t() | nil
+        }
+
+  @type preview_result :: %{
+          title: term(),
+          summary: String.t() | nil,
+          image: String.t() | nil,
+          markdown: String.t() | nil,
+          html: String.t(),
+          html_source: String.t(),
+          selector_matched: boolean(),
+          guid: term(),
+          link: term(),
+          link_groups: [map()],
+          body_selector: String.t(),
+          start_at: String.t() | nil,
+          body_regions: list(),
+          start_blocks: [map()],
+          nostr_event: map(),
+          nostr_event_json: String.t(),
+          hashtags: [String.t()],
+          nostr_parts: [map()],
+          nostr_parts_json: [String.t()],
+          nostr_parts_preview: [map()],
+          nostr_inner: nil,
+          nostr_inner_json: nil,
+          nostr_encrypted: false,
+          nostr_draft: boolean(),
+          nostr_plain_draft: boolean(),
+          nostr_relays: [String.t()]
+        }
+
   @spec body_presets() :: [{String.t(), String.t()}]
   def body_presets, do: @body_presets
 
@@ -224,7 +263,7 @@ defmodule Rss2Nostr.Processing.Composer do
         body_selector: selector
       )
 
-    rules = opts.conversion_rules || []
+    rules = opts.conversion_rules
 
     markdown =
       body
@@ -286,99 +325,130 @@ defmodule Rss2Nostr.Processing.Composer do
   @doc """
   Fetches a feed article and returns a Markdown preview of the Nostr event.
   """
-  @spec preview(map()) :: {:ok, map()} | {:error, String.t()}
+  @spec preview(map()) :: {:ok, preview_result()} | {:error, String.t()}
   def preview(params) when is_map(params) do
-    url = params["url"] || params[:url]
-    guid = params["guid"] || params[:guid]
+    with {:ok, context} <- build_preview_context(params),
+         {:ok, item} <- fetch_preview_item(context) do
+      preview_item(item, context)
+    end
+  end
+
+  @spec build_preview_context(map()) :: {:ok, preview_context()}
+  defp build_preview_context(params) do
     source = params |> load_source() |> apply_excluded_hashtags(params)
     opts = opts_from_params(params)
     language = preview_language(params, source)
-    opts = Map.put(opts, :language, language)
-    rules = preview_conversion_rules(params, source, opts)
 
+    {:ok,
+     %{
+       url: params["url"] || params[:url],
+       guid: params["guid"] || params[:guid],
+       source: source,
+       opts: Map.put(opts, :language, language),
+       params: params,
+       rules: preview_conversion_rules(params, source, opts),
+       language: language
+     }}
+  end
+
+  @spec fetch_preview_item(preview_context()) :: {:ok, map()} | {:error, String.t()}
+  defp fetch_preview_item(%{url: url, guid: guid, params: params}) do
     with {:ok, body} <- fetch_feed(url),
          type <- FeedParser.detect_feed_type(body) || params["type"] || params[:type],
          {:ok, items} <- parse_items(body, type),
          {:ok, item} <- find_item(items, guid) do
-      case html_for_item(item, opts) do
-        {:ok, html, html_source} ->
-          article_url =
-            ItemIdentity.page_url(item) || item_field(item, :enclosure_url) ||
-              item_field(item, :link) || url
-          selector = preview_selector(opts, params, article_url, html)
-
-          composed =
-            compose(html, %{
-              body_selector: selector,
-              body_selector_auto: auto_body_selector?(params),
-              start_at: opts.start_at,
-              skip_classes: opts.skip_classes,
-              conversion_rules: rules,
-              url: article_url,
-              title: item_field(item, :title),
-              image: item_field(item, :image),
-              summary: truncate_summary(HtmlToMarkdown.plain_summary(item_field(item, :summary))),
-              language: language,
-              fetch_page_image: true
-            })
-
-          {extracted, _} = extract_body(html, selector)
-
-          nostr =
-            Publisher.preview_event(
-              %{
-                title: composed.title,
-                content: composed.markdown,
-                summary: composed.summary,
-                image: composed.image,
-                source_url: article_url,
-                published_at: item_field(item, :published_at),
-                language: language || (source && source.language),
-                categories: item_field(item, :categories) || [],
-                type: source && source.default_post_kind,
-                pubkey: source && source.pubkey
-              },
-              source: source
-            )
-
-          {:ok,
-           %{
-             title: composed.title,
-             summary: composed.summary,
-             image: composed.image,
-             markdown: composed.markdown,
-             html: composed.html,
-             html_source: html_source,
-             selector_matched: composed.selector_matched,
-             guid: item_field(item, :guid),
-             link: item_field(item, :link),
-             link_groups: composed.link_groups,
-             body_selector: selector || "",
-             start_at: opts.start_at,
-             body_regions:
-               BodySchema.candidates(html, url: article_url, selected: selector || ""),
-             start_blocks: BodySchema.start_blocks(extracted, selected: opts.start_at),
-             nostr_event: nostr.event,
-             nostr_event_json: nostr.json,
-             hashtags: event_hashtags(nostr.event),
-             nostr_parts: nostr.parts,
-             nostr_parts_json:
-               Enum.map(nostr.parts, fn event ->
-                 Jason.encode!(["EVENT", event], pretty: true)
-               end),
-             nostr_parts_preview: preview_parts(nostr.parts),
-             nostr_inner: nil,
-             nostr_inner_json: nil,
-             nostr_encrypted: false,
-             nostr_draft: nostr.draft,
-             nostr_plain_draft: nostr.plain_draft,
-             nostr_relays: nostr.relays
-           }}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      {:ok, item}
     end
+  end
+
+  @spec preview_item(map(), preview_context()) :: {:ok, preview_result()} | {:error, String.t()}
+  defp preview_item(item, context) do
+    case html_for_item(item, context.opts) do
+      {:ok, html, html_source} ->
+        {:ok, build_preview_result(item, html, html_source, context)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec build_preview_result(map(), String.t(), String.t(), preview_context()) :: preview_result()
+  defp build_preview_result(item, html, html_source, context) do
+    %{url: feed_url, source: source, opts: opts, params: params, rules: rules, language: language} =
+      context
+
+    article_url =
+      ItemIdentity.page_url(item) || item_field(item, :enclosure_url) ||
+        item_field(item, :link) || feed_url
+
+    selector = preview_selector(opts, params, article_url, html)
+
+    composed =
+      compose(html, %{
+        body_selector: selector,
+        body_selector_auto: auto_body_selector?(params),
+        start_at: opts.start_at,
+        skip_classes: opts.skip_classes,
+        conversion_rules: rules,
+        url: article_url,
+        title: item_field(item, :title),
+        image: item_field(item, :image),
+        summary:
+          truncate_summary(HtmlToMarkdown.plain_summary(item_field(item, :summary))),
+        language: language,
+        fetch_page_image: true
+      })
+
+    {extracted, _} = extract_body(html, selector)
+
+    nostr =
+      Publisher.preview_event(
+        %{
+          title: composed.title,
+          content: composed.markdown,
+          summary: composed.summary,
+          image: composed.image,
+          source_url: article_url,
+          published_at: item_field(item, :published_at),
+          language: language || (source && source.language),
+          categories: item_field(item, :categories) || [],
+          type: source && source.default_post_kind,
+          pubkey: source && source.pubkey
+        },
+        source: source
+      )
+
+    %{
+      title: composed.title,
+      summary: composed.summary,
+      image: composed.image,
+      markdown: composed.markdown,
+      html: composed.html,
+      html_source: html_source,
+      selector_matched: composed.selector_matched,
+      guid: item_field(item, :guid),
+      link: item_field(item, :link),
+      link_groups: composed.link_groups,
+      body_selector: selector || "",
+      start_at: opts.start_at,
+      body_regions: BodySchema.candidates(html, url: article_url, selected: selector || ""),
+      start_blocks: BodySchema.start_blocks(extracted, selected: opts.start_at),
+      nostr_event: nostr.event,
+      nostr_event_json: nostr.json,
+      hashtags: event_hashtags(nostr.event),
+      nostr_parts: nostr.parts,
+      nostr_parts_json:
+        Enum.map(nostr.parts, fn event ->
+          Jason.encode!(["EVENT", event], pretty: true)
+        end),
+      nostr_parts_preview: preview_parts(nostr.parts),
+      nostr_inner: nil,
+      nostr_inner_json: nil,
+      nostr_encrypted: false,
+      nostr_draft: nostr.draft,
+      nostr_plain_draft: nostr.plain_draft,
+      nostr_relays: nostr.relays
+    }
   end
 
   defp preview_conversion_rules(params, source, opts) do
@@ -653,8 +723,6 @@ defmodule Rss2Nostr.Processing.Composer do
       _ -> nil
     end
   end
-
-  defp substack_media_id(_), do: nil
 
   defp drop_opening_featured_html(html, image)
        when is_binary(html) and is_binary(image) and image != "" do

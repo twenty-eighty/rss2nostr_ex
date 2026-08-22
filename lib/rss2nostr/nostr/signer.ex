@@ -130,8 +130,6 @@ defmodule Rss2Nostr.Nostr.Signer do
     _ -> :ok
   end
 
-  defp close(_), do: :ok
-
   defp normalize_signed_event(signed, event) when is_map(signed) do
     {:ok,
      %{

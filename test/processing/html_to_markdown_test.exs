@@ -571,7 +571,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       md = HtmlToMarkdown.convert(html)
 
       assert md =~ "Intro text"
-      assert md =~ "[Listen on SoundCloud](https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI)"
+      assert md =~ "[Listen on SoundCloud](https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI?color=%23ffd400)"
       refute md =~ "w.soundcloud.com"
       refute md =~ "api.soundcloud.com"
       refute md =~ "[Radio München]"
@@ -612,6 +612,25 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "[Auf SoundCloud anhören](https://soundcloud.com/a/b)"
       assert md =~ "[Auf YouTube ansehen](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
       assert md =~ "[Auf Podbean anhören](https://www.podbean.com/ep/pb-rwwyx-1b3e4d9)"
+    end
+
+    test "copies the SoundCloud iframe color onto the listen link" do
+      html = """
+      <p>Intro</p>
+      <iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b&amp;color=%23ffd400"></iframe>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Listen on SoundCloud](https://soundcloud.com/a/b?color=%23ffd400)"
+    end
+
+    test "leaves SoundCloud permalinks unchanged when the iframe has no color" do
+      html = ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>)
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Listen on SoundCloud](https://soundcloud.com/a/b)"
+      refute md =~ "color="
     end
 
     test "plain_summary strips RSS description HTML and SoundCloud chrome" do
