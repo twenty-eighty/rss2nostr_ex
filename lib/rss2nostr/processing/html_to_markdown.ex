@@ -12,7 +12,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   require Logger
 
-  alias Rss2Nostr.Processing.{ImageExtractor, Youtube}
+  alias Rss2Nostr.Processing.{ImageExtractor, Labels, Youtube}
 
   # Tracking parameters to remove from URLs
   @tracking_params ~w(
@@ -43,6 +43,8 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       `default_skip_classes/0`. Pass `[]` to keep every class.
     * `:conversion_rules` — visual XPath rules. Only matching elements
       are rewritten (for example, one Markdown line per link).
+    * `:language` — ISO 639-1 feed language for generated labels
+      (`Listen on SoundCloud`, `Watch on YouTube`, …). Defaults to English.
   """
   @spec convert(String.t() | nil, keyword()) :: String.t() | nil
   def convert(html, opts \\ [])
@@ -52,9 +54,11 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   def convert(html, opts) when is_binary(html) do
     skip = Keyword.get(opts, :skip_classes, @default_skip_classes)
     rules = Keyword.get(opts, :conversion_rules, [])
+    language = Labels.normalize(Keyword.get(opts, :language))
     permalink = soundcloud_permalink(html)
     Process.put({__MODULE__, :skip_classes}, normalize_skip_classes(skip))
     Process.put({__MODULE__, :conversion_rules}, rules)
+    Process.put({__MODULE__, :language}, language)
     Process.put({__MODULE__, :soundcloud_permalink}, permalink)
 
     try do
@@ -67,6 +71,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     after
       Process.delete({__MODULE__, :skip_classes})
       Process.delete({__MODULE__, :conversion_rules})
+      Process.delete({__MODULE__, :language})
       Process.delete({__MODULE__, :soundcloud_permalink})
     end
   rescue
@@ -728,7 +733,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         soundcloud_listen_markdown(url)
 
       watch = embed_watch_url(src) ->
-        "\n\n[Watch on #{platform_label(watch)}](#{watch})\n\n"
+        "\n\n[#{watch_on(platform_label(watch))}](#{watch})\n\n"
 
       true ->
         ""
@@ -928,7 +933,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         ""
 
       video_id ->
-        text = Youtube.meaningful_title(title) || "Watch on YouTube"
+        text = Youtube.meaningful_title(title) || watch_on("YouTube")
         "\n\n[#{text}](https://www.youtube.com/watch?v=#{video_id})\n\n"
     end
   end
@@ -938,10 +943,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp process_podbean_iframe(src) do
     case podbean_episode_url(src) do
       url when is_binary(url) ->
-        "\n\n[Listen on Podbean](#{url})\n\n"
+        "\n\n[#{listen_on("Podbean")}](#{url})\n\n"
 
       _ ->
-        "\n\n[Listen on Podbean](#{src})\n\n"
+        "\n\n[#{listen_on("Podbean")}](#{src})\n\n"
     end
   end
 
@@ -1006,7 +1011,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp unescape_attr(_), do: ""
 
   defp soundcloud_listen_markdown(url) when is_binary(url) and url != "" do
-    "\n\n[Listen on SoundCloud](#{url})\n\n"
+    "\n\n[#{listen_on("SoundCloud")}](#{url})\n\n"
   end
 
   defp soundcloud_listen_markdown(_), do: ""
@@ -1015,7 +1020,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     if String.contains?(markdown, permalink) do
       markdown
     else
-      "[Listen on SoundCloud](#{permalink})\n\n" <> markdown
+      "[#{listen_on("SoundCloud")}](#{permalink})\n\n" <> markdown
     end
   end
 
@@ -1180,7 +1185,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       case Jason.decode(data_attrs) do
         {:ok, %{"videoId" => video_id} = data} ->
           text =
-            Youtube.meaningful_title(data["title"] || data["videoTitle"]) || "Watch on YouTube"
+            Youtube.meaningful_title(data["title"] || data["videoTitle"]) || watch_on("YouTube")
 
           "\n\n[#{text}](https://www.youtube.com/watch?v=#{video_id})\n\n"
 
@@ -1207,7 +1212,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
     if src do
       clean_src = remove_tracking_params(src)
-      "\n\n[Audio](#{clean_src})\n\n"
+      "\n\n[#{audio_label()}](#{clean_src})\n\n"
     else
       ""
     end
@@ -1228,7 +1233,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
     if src do
       clean_src = remove_tracking_params(src)
-      "\n\n[Audio](#{clean_src})\n\n"
+      "\n\n[#{audio_label()}](#{clean_src})\n\n"
     else
       ""
     end
@@ -1240,7 +1245,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
     if src do
       clean_src = remove_tracking_params(src)
-      "\n\n[Video](#{clean_src})\n\n"
+      "\n\n[#{video_label()}](#{clean_src})\n\n"
     else
       ""
     end
@@ -1311,6 +1316,15 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   end
 
   defp normalize_skip_classes(_), do: @default_skip_classes
+
+  defp language do
+    Process.get({__MODULE__, :language}, "en")
+  end
+
+  defp listen_on(platform), do: Labels.t(:listen_on, language(), platform: platform)
+  defp watch_on(platform), do: Labels.t(:watch_on, language(), platform: platform)
+  defp audio_label, do: Labels.t(:audio, language())
+  defp video_label, do: Labels.t(:video, language())
 
   defp markdown_media_link(text, href, title) do
     if media_file_url?(href) and present_title?(title) do

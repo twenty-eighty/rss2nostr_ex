@@ -27,6 +27,8 @@ defmodule Rss2Nostr.Processing.BodySchemaTest do
     test "recognizes site presets" do
       assert BodySchema.known_selector?(".body.markup")
       assert BodySchema.known_selector?("div.et_pb_column_0_tb_body")
+      assert BodySchema.known_selector?("div.wpb_wrapper")
+      assert BodySchema.known_selector?(".vc_column-inner > .wpb_wrapper")
       refute BodySchema.known_selector?("div.custom-body")
       refute BodySchema.known_selector?("")
     end
@@ -58,6 +60,58 @@ defmodule Rss2Nostr.Processing.BodySchemaTest do
       regions = BodySchema.candidates(html, url: "https://example.com/a")
 
       assert Enum.any?(regions, &(&1.selector == "" and &1.label == "Whole page"))
+    end
+
+    test "offers WPBakery regions and prefers them over articleBody" do
+      story =
+        Enum.map_join(1..100, " ", fn i -> "Storyword#{i}" end)
+
+      html = """
+      <nav>Menu chrome</nav>
+      <section class="post_content" itemprop="articleBody">
+        <div class="vc_row wpb_row vc_row-fluid">
+          <div class="wpb_column">
+            <div class="vc_column-inner">
+              <div class="wpb_wrapper">
+                <div class="wpb_text_column">
+                  <div class="wpb_wrapper"><p>#{story}</p></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="vc_row wpb_row vc_row-has-fill">
+          <div class="wpb_column">
+            <div class="vc_column-inner">
+              <div class="wpb_wrapper">
+                <h3>Keine neuen Texte verpassen</h3>
+                <p>Newsletter signup</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="related_wrap"><h3>Related Posts</h3></section>
+      """
+
+      regions = BodySchema.candidates(html, url: "https://example.com/article")
+      selectors = Enum.map(regions, & &1.selector)
+      recommended = Enum.find(regions, & &1.recommended)
+      article_body = Enum.find(regions, &(&1.selector == "[itemprop='articleBody']"))
+
+      assert "" in selectors
+      assert article_body
+      assert ".vc_column-inner > .wpb_wrapper" in selectors
+      assert "div.wpb_wrapper" in selectors
+      assert recommended.selector in [
+               ".vc_column-inner > .wpb_wrapper",
+               "div.wpb_wrapper",
+               "div.wpb_text_column"
+             ]
+      assert recommended.label =~ "WPBakery"
+      assert recommended.word_count < article_body.word_count
+      refute recommended.first_line =~ "Keine neuen Texte"
+      refute recommended.first_line =~ "Related Posts"
     end
   end
 

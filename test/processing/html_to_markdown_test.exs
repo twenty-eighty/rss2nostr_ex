@@ -579,6 +579,20 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       refute md =~ " ·"
     end
 
+    test "translates generated embed labels to the feed language" do
+      html = """
+      <iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>
+      <iframe src="https://www.youtube.com/embed/bLA0a0xiy_g" title="YouTube video player"></iframe>
+      <iframe data-src="https://www.podbean.com/player-v2/?i=rwwyx-1b3e4d9-pb" class="lazyload"></iframe>
+      """
+
+      md = HtmlToMarkdown.convert(html, language: "de")
+
+      assert md =~ "[Auf SoundCloud anhören](https://soundcloud.com/a/b)"
+      assert md =~ "[Auf YouTube ansehen](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
+      assert md =~ "[Auf Podbean anhören](https://www.podbean.com/ep/pb-rwwyx-1b3e4d9)"
+    end
+
     test "plain_summary strips RSS description HTML and SoundCloud chrome" do
       html = """
       <div class="feed-description"><p>Die Radio München-Redaktion macht SOMMER-PAUSE. Wir hören uns im September wieder. Nutzen Sie doch mal die Gelegenheit und genießen Sie bis dahin unser Musikprogramm ... so vielfältig wie die Stadt!</p>

@@ -12,6 +12,7 @@ defmodule Rss2Nostr.Processing.Composer do
     Conversion,
     HtmlToMarkdown,
     ImageExtractor,
+    Labels,
     Sites,
     Youtube
   }
@@ -29,7 +30,16 @@ defmodule Rss2Nostr.Processing.Composer do
     {"Multipolar", "div.blog-list-content"},
     {"Freie Medienakademie", ".medienplus-article"},
     {"Substack (body markup)", ".body.markup"},
-    {"Generic post-content", ".post-content"}
+    {"Generic post-content", ".post-content"},
+    {"HTML main", "main"},
+    {"Article body (itemprop)", "[itemprop='articleBody']"},
+    {"WPBakery column", ".vc_column-inner > .wpb_wrapper"},
+    {"WPBakery wrapper", "div.wpb_wrapper"},
+    {"WPBakery text", "div.wpb_text_column"},
+    {"Elementor post content", ".elementor-widget-theme-post-content"},
+    {"Divi post content", ".et_pb_post_content"},
+    {"Beaver Builder post", ".fl-post-content"},
+    {"Gutenberg post content", ".wp-block-post-content"}
   ]
 
   @type compose_opts :: %{
@@ -42,7 +52,8 @@ defmodule Rss2Nostr.Processing.Composer do
           optional(:body_selector_auto) => boolean(),
           optional(:title) => String.t() | nil,
           optional(:image) => String.t() | nil,
-          optional(:summary) => String.t() | nil
+          optional(:summary) => String.t() | nil,
+          optional(:language) => String.t() | nil
         }
 
   @spec body_presets() :: [{String.t(), String.t()}]
@@ -82,7 +93,8 @@ defmodule Rss2Nostr.Processing.Composer do
       start_at: nil,
       skip_classes: default_skip_classes(),
       conversion_rules: [],
-      url: nil
+      url: nil,
+      language: nil
     }
   end
 
@@ -96,7 +108,8 @@ defmodule Rss2Nostr.Processing.Composer do
       skip_classes: parse_skip_classes(options["skip_classes"] || options[:skip_classes]),
       conversion_rules:
         Conversion.parse_rules(options["conversion_rules"] || options[:conversion_rules]),
-      url: blank_to_nil(source.url)
+      url: blank_to_nil(source.url),
+      language: blank_to_nil(source.language)
     }
   end
 
@@ -109,7 +122,8 @@ defmodule Rss2Nostr.Processing.Composer do
       skip_classes: parse_skip_classes(params["skip_classes"] || params[:skip_classes]),
       conversion_rules:
         Conversion.parse_rules(params["conversion_rules"] || params[:conversion_rules]),
-      url: blank_to_nil(params["url"] || params[:url])
+      url: blank_to_nil(params["url"] || params[:url]),
+      language: blank_to_nil(params["language"] || params[:language])
     }
   end
 
@@ -140,7 +154,7 @@ defmodule Rss2Nostr.Processing.Composer do
           {:error, "Article has no URL or feed content"}
       end
 
-    with_enclosure_html(result, item)
+    with_enclosure_html(result, item, opts.language)
   end
 
   @doc """
@@ -152,20 +166,10 @@ defmodule Rss2Nostr.Processing.Composer do
   def extract_body(html, selector) when selector in [nil, ""], do: {html, false}
 
   def extract_body(html, selector) when is_binary(html) and is_binary(selector) do
-    html = HtmlToMarkdown.preserve_inline_spaces(html)
-
-    case Floki.parse_document(html) do
-      {:ok, doc} ->
-        case Floki.find(doc, selector) do
-          [] -> {html, false}
-          found -> {Floki.raw_html(found), true}
-        end
-
-      _ ->
-        {html, false}
+    case BodySchema.extract(html, selector) do
+      nil -> {html, false}
+      extracted -> {extracted, true}
     end
-  rescue
-    _ -> {html, false}
   end
 
   @spec extract_meta(String.t() | nil) :: %{
@@ -196,7 +200,7 @@ defmodule Rss2Nostr.Processing.Composer do
   @spec compose(String.t() | nil, compose_opts() | keyword() | map()) :: map()
   def compose(html, opts \\ %{}) do
     opts = normalize_opts(opts)
-    selector = resolve_body_selector(opts)
+    selector = resolve_body_selector(opts, html)
     meta = extract_meta(html)
     image = opts.image || meta.image
     {body, matched} = extract_body(html, selector)
@@ -215,7 +219,8 @@ defmodule Rss2Nostr.Processing.Composer do
       body
       |> HtmlToMarkdown.convert(
         skip_classes: opts.skip_classes,
-        conversion_rules: rules
+        conversion_rules: rules,
+        language: opts.language
       )
       |> Youtube.enrich_markdown()
 
@@ -275,6 +280,8 @@ defmodule Rss2Nostr.Processing.Composer do
     guid = params["guid"] || params[:guid]
     source = load_source(params)
     opts = opts_from_params(params)
+    language = preview_language(params, source)
+    opts = Map.put(opts, :language, language)
     rules = preview_conversion_rules(params, source, opts)
 
     with {:ok, body} <- fetch_feed(url),
@@ -286,7 +293,7 @@ defmodule Rss2Nostr.Processing.Composer do
           article_url =
             ItemIdentity.page_url(item) || item_field(item, :enclosure_url) ||
               item_field(item, :link) || url
-          selector = preview_selector(opts, params, article_url)
+          selector = preview_selector(opts, params, article_url, html)
 
           composed =
             compose(html, %{
@@ -298,7 +305,8 @@ defmodule Rss2Nostr.Processing.Composer do
               url: article_url,
               title: item_field(item, :title),
               image: item_field(item, :image),
-              summary: truncate_summary(HtmlToMarkdown.plain_summary(item_field(item, :summary)))
+              summary: truncate_summary(HtmlToMarkdown.plain_summary(item_field(item, :summary))),
+              language: language
             })
 
           {extracted, _} = extract_body(html, selector)
@@ -312,7 +320,7 @@ defmodule Rss2Nostr.Processing.Composer do
                 image: composed.image,
                 source_url: article_url,
                 published_at: item_field(item, :published_at),
-                language: source && source.language,
+                language: language || (source && source.language),
                 categories: item_field(item, :categories) || [],
                 type: source && source.default_post_kind,
                 pubkey: source && source.pubkey
@@ -435,7 +443,8 @@ defmodule Rss2Nostr.Processing.Composer do
       body_selector_auto: body_selector_auto?(opts),
       title: opts[:title] || opts["title"],
       image: opts[:image] || opts["image"],
-      summary: opts[:summary] || opts["summary"]
+      summary: opts[:summary] || opts["summary"],
+      language: blank_to_nil(opts[:language] || opts["language"])
     }
   end
 
@@ -448,7 +457,7 @@ defmodule Rss2Nostr.Processing.Composer do
   defp fetch_mode("content"), do: "content"
   defp fetch_mode(_), do: "fetch_from_url"
 
-  defp resolve_body_selector(opts) do
+  defp resolve_body_selector(opts, html) do
     cond do
       is_binary(opts.body_selector) and opts.body_selector != "" ->
         opts.body_selector
@@ -457,7 +466,7 @@ defmodule Rss2Nostr.Processing.Composer do
         nil
 
       true ->
-        BodySchema.selector_for_url(opts.url)
+        BodySchema.preferred_selector(html, opts.url)
     end
   end
 
@@ -465,11 +474,21 @@ defmodule Rss2Nostr.Processing.Composer do
     auto_body_selector?(opts)
   end
 
-  defp preview_selector(opts, params, article_url) do
+  defp preview_language(params, source) do
+    blank_to_nil(params["language"] || params[:language]) ||
+      (source && blank_to_nil(source.language))
+  end
+
+  defp preview_selector(opts, params, article_url, html) do
     cond do
-      is_binary(opts.body_selector) -> opts.body_selector
-      auto_body_selector?(params) -> BodySchema.selector_for_url(article_url)
-      true -> nil
+      is_binary(opts.body_selector) and opts.body_selector != "" ->
+        opts.body_selector
+
+      auto_body_selector?(params) ->
+        BodySchema.preferred_selector(html, article_url)
+
+      true ->
+        nil
     end
   end
 
@@ -481,13 +500,13 @@ defmodule Rss2Nostr.Processing.Composer do
     end
   end
 
-  defp with_enclosure_html({:ok, html, source}, item) do
-    {:ok, enclosure_prefix(item, html) <> to_string(html || ""), source}
+  defp with_enclosure_html({:ok, html, source}, item, language) do
+    {:ok, enclosure_prefix(item, html, language) <> to_string(html || ""), source}
   end
 
-  defp with_enclosure_html(other, _item), do: other
+  defp with_enclosure_html(other, _item, _language), do: other
 
-  defp enclosure_prefix(item, html) do
+  defp enclosure_prefix(item, html, language) do
     url = item_field(item, :enclosure_url)
     html = to_string(html || "")
 
@@ -504,12 +523,12 @@ defmodule Rss2Nostr.Processing.Composer do
       ImageExtractor.video_url?(url) ->
         title = enclosure_title(item)
         title_attr = if title, do: ~s( title="#{html_attr(title)}"), else: ""
-        ~s(<p><a href="#{html_attr(url)}"#{title_attr}>Video</a></p>\n)
+        ~s(<p><a href="#{html_attr(url)}"#{title_attr}>#{Labels.t(:video, language)}</a></p>\n)
 
       ImageExtractor.audio_url?(url) ->
         title = enclosure_title(item)
         title_attr = if title, do: ~s( title="#{html_attr(title)}"), else: ""
-        ~s(<p><a href="#{html_attr(url)}"#{title_attr}>Audio</a></p>\n)
+        ~s(<p><a href="#{html_attr(url)}"#{title_attr}>#{Labels.t(:audio, language)}</a></p>\n)
 
       true ->
         ""

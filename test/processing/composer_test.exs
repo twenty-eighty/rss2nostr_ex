@@ -30,6 +30,27 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       {extracted, false} = Composer.extract_body(html, "article.missing")
       assert extracted == html
     end
+
+    test "keeps substantial same-class wrappers and drops a tiny sibling" do
+      story = Enum.map_join(1..100, " ", fn i -> "Storyword#{i}" end)
+
+      html = """
+      <section class="post_content" itemprop="articleBody">
+        <div class="vc_column-inner">
+          <div class="wpb_wrapper">
+            <div class="wpb_text_column"><div class="wpb_wrapper"><p>#{story}</p></div></div>
+          </div>
+        </div>
+        <div class="vc_column-inner">
+          <div class="wpb_wrapper"><p>Keine neuen Texte verpassen</p></div>
+        </div>
+      </section>
+      """
+
+      {extracted, true} = Composer.extract_body(html, "div.wpb_wrapper")
+      assert extracted =~ "Storyword1"
+      refute extracted =~ "Keine neuen Texte"
+    end
   end
 
   describe "compose/2" do
@@ -75,6 +96,14 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert result.markdown =~ "Intro."
       assert result.markdown =~ "[Talk](https://www.youtube.com/watch?v=4pQ8boPNzpY)"
       assert result.markdown =~ "Outro."
+    end
+
+    test "translates generated labels using the compose language" do
+      html = ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>)
+
+      result = Composer.compose(html, %{skip_classes: [], language: "de"})
+
+      assert result.markdown =~ "[Auf SoundCloud anhören](https://soundcloud.com/a/b)"
     end
 
     test "promotes a leading image when none is provided" do
@@ -388,6 +417,20 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert {:ok, html, "feed"} = Composer.html_for_item(item, %{fetch_source_from: "content"})
       assert html =~ ~s(<a href="https://www.corbettreport.com/mp3/flnwo03.mp3" title="45:12 49600123">Audio</a>)
       assert html =~ "Episode notes."
+    end
+
+    test "translates enclosure labels to the source language" do
+      item = %{
+        content: nil,
+        summary: "<p>Заметки.</p>",
+        link: nil,
+        enclosure_url: "https://www.corbettreport.com/mp3/flnwo03.mp3"
+      }
+
+      source = %Source{fetch_source_from: "content", language: "ru", options: %{}}
+
+      assert {:ok, html, "feed"} = Composer.html_for_item(item, source)
+      assert html =~ ">Аудио</a>"
     end
   end
 

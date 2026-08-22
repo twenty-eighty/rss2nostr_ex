@@ -8,6 +8,7 @@ defmodule Rss2Nostr.Processing.Youtube do
   require Logger
 
   alias Rss2Nostr.HTTP
+  alias Rss2Nostr.Processing.Labels
 
   @generic_labels MapSet.new([
                     "",
@@ -52,7 +53,7 @@ defmodule Rss2Nostr.Processing.Youtube do
       |> String.replace(~r/[^a-z0-9]+/u, " ")
       |> String.trim()
 
-    MapSet.member?(@generic_labels, normalized)
+    MapSet.member?(@generic_labels, normalized) or Labels.generic_watch_on_youtube?(text)
   end
 
   def generic_label?(_), do: true

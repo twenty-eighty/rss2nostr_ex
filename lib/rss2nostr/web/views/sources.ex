@@ -1016,6 +1016,7 @@ defmodule Rss2Nostr.Web.Views.Sources do
           languageSelect.appendChild(option);
         }
         languageSelect.value = value;
+        if (window.rss2nostrScheduleComposePreview) window.rss2nostrScheduleComposePreview();
       }
 
       function languageFrom(body) {
@@ -1385,7 +1386,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
           body_selector_auto: bodyChosen ? "false" : "true",
           start_at: startAt ? startAt.value : "",
           skip_classes: skip ? skip.value : "",
-          source_id: sourceId ? sourceId.value : ""
+          source_id: sourceId ? sourceId.value : "",
+          language: (document.getElementById("language") || {}).value || ""
         };
       }
 
@@ -1752,6 +1754,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
       fetchRadios.forEach(function (radio) {
         radio.addEventListener("change", schedulePreview);
       });
+      const languageSelect = document.getElementById("language");
+      if (languageSelect) languageSelect.addEventListener("change", schedulePreview);
       if (articleSelect && articleSelect.id === "preview_article") {
         articleSelect.addEventListener("change", function () {
           setOriginalArticle(selectedArticleLink());

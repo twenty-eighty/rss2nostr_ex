@@ -49,6 +49,7 @@ defmodule Rss2Nostr.MCP.Server do
     param(:body_selector, :string, description: "CSS selector for the article body")
     param(:start_at, :string, description: "Skip content before this marker")
     param(:skip_classes, :string, description: "Comma-separated CSS class fragments to drop")
+    param(:language, :string, description: "ISO 639-1 feed language for generated labels")
     run(fn args, state -> reply(Actions.preview_compose(args), state) end)
   end
 

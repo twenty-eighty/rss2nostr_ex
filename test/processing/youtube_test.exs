@@ -56,5 +56,17 @@ defmodule Rss2Nostr.Processing.YoutubeTest do
 
       assert Youtube.enrich_markdown(markdown, enabled: true, fetch: fn _ -> nil end) == markdown
     end
+
+    test "replaces a translated generic YouTube label with the video title" do
+      markdown = "[Auf YouTube ansehen](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
+
+      enriched =
+        Youtube.enrich_markdown(markdown,
+          enabled: true,
+          fetch: fn "bLA0a0xiy_g" -> "The Real Video Title" end
+        )
+
+      assert enriched == "[The Real Video Title](https://www.youtube.com/watch?v=bLA0a0xiy_g)"
+    end
   end
 end

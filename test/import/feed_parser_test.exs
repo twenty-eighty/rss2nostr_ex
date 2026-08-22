@@ -130,6 +130,33 @@ defmodule Rss2Nostr.Import.FeedParserTest do
       assert first.duration == "23:43"
     end
 
+    test "reads CDATA RSS category tags as article hashtags" do
+      xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <rss version="2.0">
+        <channel>
+          <item>
+            <title>Früher war alles besser</title>
+            <link>https://www.thomas-eisinger.de/frueher-war-alles-besser-2/</link>
+            <category><![CDATA[Aktuelles]]></category>
+            <category><![CDATA[Gesellschaft]]></category>
+            <category><![CDATA[Schwarzer Schwan]]></category>
+            <category><![CDATA[UnsereDemokratie]]></category>
+          </item>
+        </channel>
+      </rss>
+      """
+
+      {:ok, [item]} = FeedParser.parse(xml, "rss")
+
+      assert item.categories == [
+               "Aktuelles",
+               "Gesellschaft",
+               "Schwarzer Schwan",
+               "UnsereDemokratie"
+             ]
+    end
+
     test "parses RSS item without optional fields" do
       {:ok, items} = FeedParser.parse(@rss_feed, "rss")
 

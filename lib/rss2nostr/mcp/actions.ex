@@ -37,7 +37,7 @@ defmodule Rss2Nostr.MCP.Actions do
   end
 
   def preview_compose(args) do
-    params = string_params(args, ~w(url guid type body_selector start_at skip_classes)a)
+    params = string_params(args, ~w(url guid type body_selector start_at skip_classes language)a)
 
     params =
       case arg(args, :source_id) do
