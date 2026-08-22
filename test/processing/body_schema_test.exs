@@ -113,6 +113,41 @@ defmodule Rss2Nostr.Processing.BodySchemaTest do
       refute recommended.first_line =~ "Keine neuen Texte"
       refute recommended.first_line =~ "Related Posts"
     end
+
+    test "prefers WordPress entry-content over a sidebar tab-content widget" do
+      story = Enum.map_join(1..80, " ", fn i -> "Storyword#{i}" end)
+
+      popular =
+        Enum.map_join(1..40, " ", fn i ->
+          "PopularTitle#{i} 2. September 2021"
+        end)
+
+      html = """
+      <div id="content">
+        <main>
+          <article>
+            <div class="entry-content"><p>#{story}</p></div>
+          </article>
+        </main>
+        <aside>
+          <div class="tab-content clearfix">
+            <div id="bam-popular"><p>#{popular}</p></div>
+          </div>
+        </aside>
+      </div>
+      """
+
+      regions = BodySchema.candidates(html, url: "https://example.com/article")
+      recommended = Enum.find(regions, & &1.recommended)
+      selectors = Enum.map(regions, & &1.selector)
+
+      assert "div.entry-content" in selectors
+      refute "div.tab-content" in selectors
+      assert recommended.selector == "div.entry-content"
+      assert recommended.label == "WordPress article"
+      assert recommended.first_line =~ "Storyword1"
+      refute recommended.first_line =~ "PopularTitle"
+    end
   end
 
   describe "apply_start_at/2" do

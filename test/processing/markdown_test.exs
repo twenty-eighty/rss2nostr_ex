@@ -134,4 +134,18 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
     assert html =~ "Merz made similar arrangements."
     refute html =~ "[^43]"
   end
+
+  test "renders blank lines inside a blockquote as separate paragraphs" do
+    html =
+      Markdown.to_html("""
+      > IBAN: DE85  
+      > _Verwendungszweck: Spende_
+      >
+      > [Spende via Paypal](https://paypal.me/eugenzentner)
+      """)
+
+    assert html =~ "<blockquote>"
+    assert html =~ "<p>IBAN: DE85<br>\n<em>Verwendungszweck: Spende</em></p>"
+    assert html =~ ~s(<p><a href="https://paypal.me/eugenzentner">Spende via Paypal</a></p>)
+  end
 end

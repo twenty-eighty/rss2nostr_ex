@@ -123,13 +123,17 @@ defmodule Rss2Nostr.Processing.Markdown do
   end
 
   defp quote_html(lines) do
-    text =
+    paragraphs =
       lines
       |> Enum.map(&String.replace(&1, ~r/^\s*>\s?/, ""))
       |> Enum.join("\n")
       |> String.trim()
+      |> String.split(~r/\n{2,}/)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.map_join("", fn para -> "<p>#{inline(para)}</p>" end)
 
-    "<blockquote><p>#{inline(text)}</p></blockquote>"
+    "<blockquote>#{paragraphs}</blockquote>"
   end
 
   defp list_html(lines) do

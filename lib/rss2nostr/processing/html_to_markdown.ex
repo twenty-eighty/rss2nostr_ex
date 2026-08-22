@@ -212,6 +212,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       # is the same role; wrapping twice emits `__text__` (bold).
       "em" -> wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
       "i" -> wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
+      "u" -> wrap_inline(process_nodes(children), "_")
       "code" -> "`#{process_nodes(children)}`"
       "pre" -> "\n\n```\n#{Floki.text(children)}\n```\n\n"
       "mark" -> wrap_inline(process_nodes(children), "==")
@@ -372,6 +373,11 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
       String.contains?(String.downcase(class), "pullquote") ->
         process_blockquote(children)
+
+      callout_div?(class) ->
+        children
+        |> blockify_callout_children()
+        |> process_blockquote()
 
       soundcloud_widget_div?(children) ->
         ""
@@ -671,9 +677,64 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   # Process blockquote
   defp process_blockquote(children) do
     content = process_nodes(children)
-    lines = content |> String.trim() |> String.split("\n")
-    quoted = Enum.map_join(lines, "\n", &("> " <> &1))
+
+    quoted =
+      content
+      |> String.trim()
+      |> String.split("\n")
+      |> Enum.map(&("> " <> &1))
+      |> collapse_blank_quote_lines()
+      |> Enum.join("\n")
+
     "\n\n#{quoted}\n\n"
+  end
+
+  defp collapse_blank_quote_lines(lines) do
+    {kept, _} =
+      Enum.reduce(lines, {[], false}, fn line, {acc, skipping} ->
+        blank? = String.trim(line) in [">", ""]
+
+        cond do
+          blank? and skipping ->
+            {acc, true}
+
+          true ->
+            {acc ++ [line], blank?}
+        end
+      end)
+
+    kept
+  end
+
+  defp callout_div?(class) when is_binary(class) do
+    class
+    |> String.downcase()
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.any?(&callout_class?/1)
+  end
+
+  defp callout_class?(token) do
+    token in ~w(message notice alert callout infobox) or
+      String.starts_with?(token, "message--") or
+      String.starts_with?(token, "alert-") or
+      String.starts_with?(token, "notice-")
+  end
+
+  # Spans and loose links in notice boxes are labels/actions, not inline text.
+  defp blockify_callout_children(children) do
+    Enum.flat_map(List.wrap(children), fn
+      {"span", attrs, inner} ->
+        [{"p", attrs, inner}]
+
+      {"a", attrs, inner} ->
+        [{"p", [], [{"a", attrs, inner}]}]
+
+      text when is_binary(text) ->
+        if String.trim(text) == "", do: [], else: [{"p", [], [text]}]
+
+      other ->
+        [other]
+    end)
   end
 
   # Process table (simplified)

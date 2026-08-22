@@ -741,6 +741,35 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "> Hello"
     end
 
+    test "formats message boxes as blockquotes" do
+      html = """
+      <div class="message  message--success">
+        <span>Kulturjournalismus braucht deine Hilfe!</span>
+        <p>Wer meine Arbeit unterstützen möchte, kann es via Überweisung oder <a href="https://paypal.me/eugenzentner?locale.x=de_DE" class="message-link" target="_blank" rel="noopener">Paypal</a> tun. Herzlichen Dank!</p>
+        <span>Überweisung:</span>
+        <p>IBAN: DE85 1203 0000 1033 9733 04<br>
+         <u>Verwendungszweck: Spende</u>
+        </p>
+        <a href="https://paypal.me/eugenzentner?locale.x=de_DE" class="message-link" target="_blank" rel="noopener">Spende via Paypal</a>
+      </div>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "> Kulturjournalismus braucht deine Hilfe!"
+      assert md =~ "> Wer meine Arbeit unterstützen möchte"
+      assert md =~ "[Paypal](https://paypal.me/eugenzentner?locale.x=de_DE)"
+      assert md =~ "> Überweisung:"
+      assert md =~ "> IBAN: DE85 1203 0000 1033 9733 04"
+      assert md =~ "_Verwendungszweck: Spende_"
+      assert md =~ ~r/_Verwendungszweck: Spende_\n>\n> \[Spende via Paypal\]/
+      refute md =~ "message--success"
+
+      html_out = Rss2Nostr.Processing.Markdown.to_html(md)
+      assert html_out =~ ~s(<p><a href="https://paypal.me/eugenzentner?locale.x=de_DE">Spende via Paypal</a></p>)
+      refute html_out =~ ~r/<p>IBAN:[^<]*Spende via Paypal/
+    end
+
     test "drops relative links" do
       html =
         ~s(<p>See <a href="/local-page">this</a> and <a href="https://example.com">that</a>.</p>)

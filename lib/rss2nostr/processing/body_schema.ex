@@ -50,11 +50,24 @@ defmodule Rss2Nostr.Processing.BodySchema do
 
   @page_builder_selectors Enum.map(@page_builders, &elem(&1, 0))
 
+  # Prefer these over discovered wrappers (sidebars, tabs, #content, …).
+  @article_selectors [
+    "div.entry-content",
+    ".wp-block-post-content",
+    ".post-content",
+    ".post_content",
+    "[itemprop='articleBody']",
+    "div.article-content",
+    "article"
+  ]
+
   @skip_classes MapSet.new(~w(
     row col column columns container grid flex
     inner outer wrap wrapper
     clearfix hidden visible active open
   ))
+
+  @skip_discover_class ~r/(^|[-_])(tab|tabs|sidebar|related|comment|comments|comm|widget|menu|nav|footer|header|share|social|popular|breadcrumb|pagination)s?([-_]|$)/i
 
   @type schema :: %{selector: String.t(), label: String.t()}
   @type region :: %{
@@ -288,6 +301,7 @@ defmodule Rss2Nostr.Processing.BodySchema do
     String.match?(class, ~r/^[A-Za-z][A-Za-z0-9_-]{3,}$/) and
       not MapSet.member?(@skip_classes, String.downcase(class)) and
       not String.match?(class, ~r/^(col|span)[-_]/i) and
+      not String.match?(class, @skip_discover_class) and
       String.match?(class, @discover_class)
   end
 
@@ -430,6 +444,9 @@ defmodule Rss2Nostr.Processing.BodySchema do
         plugin = page_builder_selector(regions) ->
           plugin
 
+        article = article_selector(regions) ->
+          article
+
         true ->
           tightest_content_selector(regions)
       end
@@ -444,6 +461,15 @@ defmodule Rss2Nostr.Processing.BodySchema do
       %{selector: selector} when selector != "" -> selector
       _ -> nil
     end
+  end
+
+  defp article_selector(regions) do
+    Enum.find_value(@article_selectors, fn selector ->
+      case Enum.find(regions, &(&1.selector == selector and &1.word_count >= 80)) do
+        %{selector: match} -> match
+        _ -> nil
+      end
+    end)
   end
 
   defp page_builder_selector(regions) do
