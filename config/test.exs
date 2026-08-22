@@ -39,5 +39,6 @@ config :logger, level: :warning
 
 config :rss2nostr, :code_reloader, false
 config :rss2nostr, :enrich_youtube_titles, false
+config :rss2nostr, :fetch_soundcloud_artwork, false
 config :rss2nostr, :video_ffprobe, false
 config :rss2nostr, :video_head, false

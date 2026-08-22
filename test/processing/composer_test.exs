@@ -146,6 +146,54 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert result.markdown =~ "[Auf SoundCloud anhören](https://soundcloud.com/a/b)"
     end
 
+    test "uses SoundCloud oEmbed artwork when the article has no image" do
+      html = """
+      <div itemprop="articleBody">
+        <p>Die Radio München-Redaktion macht SOMMER-PAUSE.</p>
+        <p><iframe src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/soundcloud%3Atracks%3A2370950135"></iframe></p>
+        <div style="font-size: 10px">
+          <a href="https://soundcloud.com/radiomuenchen">Radio München</a> ·
+          <a href="https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI">Sommerpause</a>
+        </div>
+      </div>
+      """
+
+      art = "https://i1.sndcdn.com/artworks-ev6nwBbxjRWKq4H7-mzezwQ-t500x500.jpg"
+
+      result =
+        Composer.compose(html, %{
+          skip_classes: [],
+          body_selector: "[itemprop='articleBody']",
+          soundcloud_artwork: fn permalink ->
+            assert permalink =~ "radio-muenchen-redaktion-macht"
+            art
+          end
+        })
+
+      assert result.image == art
+      assert result.markdown =~ "Die Radio München-Redaktion macht SOMMER-PAUSE."
+      refute result.markdown =~ art
+    end
+
+    test "does not fetch SoundCloud artwork when an article image is already set" do
+      html = """
+      <html>
+        <head><meta property="og:image" content="https://example.com/og.jpg"></head>
+        <body>
+          <iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>
+        </body>
+      </html>
+      """
+
+      result =
+        Composer.compose(html, %{
+          skip_classes: [],
+          soundcloud_artwork: fn _ -> flunk("should not fetch artwork") end
+        })
+
+      assert result.image == "https://example.com/og.jpg"
+    end
+
     test "promotes a leading image when none is provided" do
       html = ~s(<p><img src="https://example.com/hero.jpg" alt="Hero"></p><p>Article</p>)
       result = Composer.compose(html, %{skip_classes: []})

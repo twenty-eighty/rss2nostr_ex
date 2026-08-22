@@ -14,6 +14,7 @@ defmodule Rss2Nostr.Processing.Composer do
     ImageExtractor,
     Labels,
     Sites,
+    Soundcloud,
     Youtube
   }
 
@@ -54,7 +55,8 @@ defmodule Rss2Nostr.Processing.Composer do
           optional(:image) => String.t() | nil,
           optional(:summary) => String.t() | nil,
           optional(:language) => String.t() | nil,
-          optional(:fetch_page_image) => boolean()
+          optional(:fetch_page_image) => boolean(),
+          optional(:soundcloud_artwork) => (String.t() -> String.t() | nil) | false | nil
         }
 
   @spec body_presets() :: [{String.t(), String.t()}]
@@ -234,6 +236,7 @@ defmodule Rss2Nostr.Processing.Composer do
       |> Youtube.enrich_markdown()
 
     {image, markdown} = maybe_promote_leading_image(markdown, image)
+    image = blank_to_nil(image) || soundcloud_artwork(body || html, opts)
 
     %{
       markdown: markdown,
@@ -455,7 +458,8 @@ defmodule Rss2Nostr.Processing.Composer do
       image: opts[:image] || opts["image"],
       summary: opts[:summary] || opts["summary"],
       language: blank_to_nil(opts[:language] || opts["language"]),
-      fetch_page_image: opts[:fetch_page_image] == true or opts["fetch_page_image"] == true
+      fetch_page_image: opts[:fetch_page_image] == true or opts["fetch_page_image"] == true,
+      soundcloud_artwork: Map.get(opts, :soundcloud_artwork, Map.get(opts, "soundcloud_artwork"))
     }
   end
 
@@ -923,6 +927,20 @@ defmodule Rss2Nostr.Processing.Composer do
   end
 
   defp parse_px(_), do: nil
+
+  defp soundcloud_artwork(_html, %{soundcloud_artwork: false}), do: nil
+
+  defp soundcloud_artwork(html, opts) do
+    permalink = HtmlToMarkdown.soundcloud_permalink(html)
+
+    case Map.get(opts, :soundcloud_artwork) do
+      fun when is_function(fun, 1) ->
+        if permalink, do: fun.(permalink)
+
+      _ ->
+        Soundcloud.artwork_url(permalink)
+    end
+  end
 
   defp page_featured_image(html, opts) do
     url = opts.url

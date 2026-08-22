@@ -1323,18 +1323,17 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp soundcloud_widget_div?(children) do
     case Process.get({__MODULE__, :soundcloud_permalink}) do
       permalink when is_binary(permalink) ->
-        anchors = collect_anchors(children)
-        anchors != [] and Enum.all?(anchors, &soundcloud_widget_chrome?(get_attr(&1, "href")))
+        hrefs = collect_hrefs(children)
+
+        hrefs != [] and
+          Enum.all?(hrefs, &soundcloud_widget_chrome?/1) and
+          not has_paragraph?(children) and
+          chrome_only_text?(children)
 
       _ ->
         false
     end
   end
-
-  defp collect_anchors(nodes) when is_list(nodes), do: Enum.flat_map(nodes, &collect_anchors/1)
-  defp collect_anchors({"a", attrs, _}), do: [attrs]
-  defp collect_anchors({_, _, children}) when is_list(children), do: collect_anchors(children)
-  defp collect_anchors(_), do: []
 
   defp same_soundcloud_url?(a, b) do
     normalize_soundcloud_url(a) == normalize_soundcloud_url(b)

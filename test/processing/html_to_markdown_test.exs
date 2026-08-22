@@ -579,6 +579,27 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       refute md =~ " ·"
     end
 
+    test "keeps article text when SoundCloud chrome sits in the same wrapper" do
+      html = """
+      <div itemprop="articleBody" class="com-content-article__body">
+        <p>Die Radio München-Redaktion macht SOMMER-PAUSE. Wir hören uns im September wieder. Nutzen Sie doch mal die Gelegenheit und genießen Sie bis dahin unser Musikprogramm ... so vielfältig wie die Stadt!</p>
+        <p><iframe src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/soundcloud%3Atracks%3A2370950135%3Fsecret_token%3Ds-b588AbHllcI" width="100%" height="166"></iframe></p>
+        <div style="font-size: 10px; color: #cccccc;">
+          <a href="https://soundcloud.com/radiomuenchen">Radio München</a> ·
+          <a href="https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI">RADIO MÜNCHEN-Redaktion macht Sommerpause</a>
+        </div>
+      </div>
+      """
+
+      md = HtmlToMarkdown.convert(html, language: "de")
+
+      assert md =~ "Die Radio München-Redaktion macht SOMMER-PAUSE."
+      assert md =~ "so vielfältig wie die Stadt!"
+      assert md =~ "[Auf SoundCloud anhören](https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI)"
+      refute md =~ "[Radio München]"
+      refute md =~ "[RADIO MÜNCHEN-Redaktion macht Sommerpause]"
+    end
+
     test "translates generated embed labels to the feed language" do
       html = """
       <iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>
