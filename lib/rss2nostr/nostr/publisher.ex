@@ -9,14 +9,21 @@ defmodule Rss2Nostr.Nostr.Publisher do
 
   require Logger
 
-  alias Rss2Nostr.Nostr.{Event, Keys, NIP19, NIP46, NIP92, Relay, Relays, Signer}
+  alias Rss2Nostr.Nostr.{NIP19, Relays}
+  alias Rss2Nostr.Nostr.Publisher.{
+    Gap,
+    Identifiers,
+    PostKind,
+    PostLoader,
+    Preview,
+    RelayPublish,
+    Report,
+    Signing
+  }
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
-  alias Rss2Nostr.Processing.ArticleSplit
-  alias Rss2Nostr.Repo
-  alias Rss2Nostr.Sources.Source
 
-  @type relay_failure :: %{url: String.t(), error: String.t()}
+  @type relay_failure :: Report.relay_failure()
 
   @type publish_result :: %{
           success: boolean(),
@@ -37,7 +44,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   - :min_success - Minimum number of successful publishes (default: 1)
   """
   def publish_post(%Post{} = post, opts) do
-    post = ensure_source(post)
+    post = PostLoader.ensure_source(post)
     relays = Relays.publish_relays(post, opts)
     min_success = Keyword.get(opts, :min_success, 1)
 
@@ -46,80 +53,45 @@ defmodule Rss2Nostr.Nostr.Publisher do
         {:error, :no_relays}
 
       true ->
-        with {:ok, signer} <- resolve_signer(post, opts) do
+        with {:ok, signer} <- Signing.resolve_signer(post, opts) do
           do_publish_post(post, signer, relays, min_success)
         end
     end
   end
 
   defp do_publish_post(post, signer, relays, min_success) do
-    with {:ok, pubkey_hex, signer} <- pubkey_for_signer(signer),
-         {:ok, events} <- prepare_events(post, pubkey_hex, signer),
-         {:ok, signed_events} <- sign_all(signer, events) do
+    with {:ok, pubkey_hex, signer} <- Signing.pubkey_for_signer(signer),
+         {:ok, events} <- Signing.prepare_events(post, pubkey_hex, signer),
+         {:ok, signed_events} <- Signing.sign_all(signer, events) do
       Logger.info("Publishing #{length(signed_events)} event(s) to #{length(relays)} relays")
 
       results =
         Enum.map(signed_events, fn signed_event ->
-          publish_signed_event(
+          RelayPublish.publish_signed_event(
             signed_event,
-            published_kind(post),
+            PostKind.published_kind(post),
             pubkey_hex,
             relays,
             min_success
           )
         end)
 
-      close_signer(signer)
+      Signing.close_signer(signer)
       summarize_publish(post, pubkey_hex, results)
     else
       {:error, reason} ->
-        close_signer(signer)
+        Signing.close_signer(signer)
         Logger.error("Failed to sign event: #{inspect(reason)}")
         {:error, reason}
     end
-  end
-
-  defp publish_signed_event(signed_event, kind, pubkey_hex, relays, min_success) do
-    results = publish_with_rate_limit_retry(relays, signed_event)
-
-    {successful, failed} =
-      Enum.reduce(results, {[], []}, fn {url, result}, {success, fail} ->
-        case result do
-          :ok ->
-            {[url | success], fail}
-
-          {:error, reason} ->
-            {success, [%{url: url, error: Relay.format_error(reason)} | fail]}
-
-          reason ->
-            {success, [%{url: url, error: Relay.format_error(reason)} | fail]}
-        end
-      end)
-
-    identifier = get_event_identifier(signed_event)
-    naddr_result = NIP19.encode_naddr(kind, pubkey_hex, identifier, successful)
-
-    naddr =
-      case naddr_result do
-        {:ok, naddr} -> naddr
-        _ -> nil
-      end
-
-    %{
-      success: length(successful) >= min_success,
-      event_id: signed_event.id,
-      naddr: naddr,
-      successful_relays: successful,
-      failed_relays: failed
-    }
   end
 
   defp summarize_publish(post, pubkey_hex, results) do
     first = List.first(results) || %{success: false, event_id: nil, naddr: nil}
     success = results != [] and Enum.all?(results, & &1.success)
     successful = results |> Enum.flat_map(& &1.successful_relays) |> Enum.uniq()
-    failed = merge_failures(Enum.flat_map(results, & &1.failed_relays))
-    report = format_report(successful, failed)
+    failed = Report.merge_failures(Enum.flat_map(results, & &1.failed_relays))
+    report = Report.format_report(successful, failed)
 
     {:ok, post} =
       if success do
@@ -136,8 +108,8 @@ defmodule Rss2Nostr.Nostr.Publisher do
       end
 
     if failed != [] or not success do
-      _ = Posts.update_post(post, %{last_error: report_or_failure(report)})
-      Logger.warning("Publish report for post #{post.id}: #{report_or_failure(report)}")
+      _ = Posts.update_post(post, %{last_error: Report.report_or_failure(report)})
+      Logger.warning("Publish report for post #{post.id}: #{Report.report_or_failure(report)}")
     end
 
     {:ok,
@@ -153,49 +125,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   end
 
   @spec format_report([String.t()], [relay_failure()]) :: String.t()
-  def format_report(successful, failed) do
-    [format_reached(successful), format_missed(failed)]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" ")
-  end
-
-  defp format_reached([]), do: nil
-
-  defp format_reached(urls) do
-    "Reached #{length(urls)} #{relay_word(length(urls))}: #{Enum.map_join(urls, ", ", &relay_label/1)}."
-  end
-
-  defp format_missed([]), do: nil
-
-  defp format_missed(failed) do
-    items =
-      Enum.map_join(failed, "; ", fn
-        %{url: url, error: error} -> "#{relay_label(url)} (#{error})"
-        {url, error} -> "#{relay_label(url)} (#{error})"
-      end)
-
-    "Missed #{length(failed)}: #{items}."
-  end
-
-  defp relay_word(1), do: "relay"
-  defp relay_word(_), do: "relays"
-
-  defp relay_label(url) do
-    case URI.parse(to_string(url)) do
-      %URI{host: host} when is_binary(host) and host != "" -> host
-      _ -> to_string(url)
-    end
-  end
-
-  defp report_or_failure(""), do: "Publish failed"
-  defp report_or_failure(report), do: report
-
-  defp merge_failures(failures) do
-    failures
-    |> Enum.reverse()
-    |> Enum.uniq_by(& &1.url)
-    |> Enum.reverse()
-  end
+  def format_report(successful, failed), do: Report.format_report(successful, failed)
 
   @doc """
   Builds the unsigned long-form event that would be sent to relays.
@@ -204,52 +134,32 @@ defmodule Rss2Nostr.Nostr.Publisher do
   timestamp and is replaced when the event is signed.
   """
   @spec preview_event(Post.t() | map(), keyword()) :: map()
-  def preview_event(post_or_attrs, opts \\ []) do
-    source = Keyword.get(opts, :source) || source_of(post_or_attrs)
-    post_or_attrs = post_or_attrs |> ensure_source_if_post() |> attach_source(source)
-    pubkey = preview_pubkey(source, post_or_attrs)
-    parts = build_inner_events(post_or_attrs, pubkey)
-    event = List.first(parts)
-    relays = preview_relays(post_or_attrs, source)
-
-    %{
-      event: event,
-      parts: parts,
-      inner: nil,
-      encrypted: false,
-      draft: encrypted_draft?(post_or_attrs),
-      plain_draft: plain_draft?(post_or_attrs),
-      json: Jason.encode!(["EVENT", event], pretty: true),
-      message: ["EVENT", event],
-      relays: relays,
-      signed: false
-    }
-  end
+  def preview_event(post_or_attrs, opts \\ []), do: Preview.preview_event(post_or_attrs, opts)
 
   @doc """
   Exports a post to Nostr without updating the database.
   Returns the signed event and publishing results.
   """
   def export_post(%Post{} = post, opts) do
-    post = ensure_source(post)
+    post = PostLoader.ensure_source(post)
     relays = Relays.publish_relays(post, Keyword.put_new(opts, :relays, []))
 
-    with {:ok, signer} <- resolve_signer(post, opts),
-         {:ok, pubkey_hex, signer} <- pubkey_for_signer(signer),
-         {:ok, events} <- prepare_events(post, pubkey_hex, signer),
-         {:ok, signed_events} <- sign_all(signer, events) do
+    with {:ok, signer} <- Signing.resolve_signer(post, opts),
+         {:ok, pubkey_hex, signer} <- Signing.pubkey_for_signer(signer),
+         {:ok, events} <- Signing.prepare_events(post, pubkey_hex, signer),
+         {:ok, signed_events} <- Signing.sign_all(signer, events) do
       signed_event = hd(signed_events)
-      identifier = get_event_identifier(signed_event)
-      {:ok, naddr} = NIP19.encode_naddr(published_kind(post), pubkey_hex, identifier, relays)
+      identifier = Identifiers.from_event(signed_event)
+      {:ok, naddr} = NIP19.encode_naddr(PostKind.published_kind(post), pubkey_hex, identifier, relays)
 
       publish_results =
         if relays != [] do
-          Enum.flat_map(signed_events, &publish_with_rate_limit_retry(relays, &1))
+          Enum.flat_map(signed_events, &RelayPublish.publish_with_rate_limit_retry(relays, &1))
         else
           []
         end
 
-      close_signer(signer)
+      Signing.close_signer(signer)
 
       {:ok,
        %{
@@ -279,480 +189,17 @@ defmodule Rss2Nostr.Nostr.Publisher do
   Milliseconds to wait between articles and before retrying a rate-limited relay.
   """
   @spec publish_gap_ms() :: non_neg_integer()
-  def publish_gap_ms do
-    Application.get_env(:rss2nostr, :nostr, [])
-    |> Keyword.get(:publish_gap_ms, 10_000)
-    |> max(0)
-  end
+  def publish_gap_ms, do: Gap.publish_gap_ms()
 
   @doc """
   Maps `fun` over `items`, sleeping `publish_gap_ms/0` between calls.
   """
   @spec each_with_gap(list(), (term() -> term())) :: list()
-  def each_with_gap(items, fun) when is_list(items) and is_function(fun, 1) do
-    gap = publish_gap_ms()
-
-    items
-    |> Enum.with_index()
-    |> Enum.map(fn {item, index} ->
-      if index > 0 and gap > 0, do: Process.sleep(gap)
-      fun.(item)
-    end)
-  end
-
-  defp publish_with_rate_limit_retry(relays, signed_event) do
-    results = Relay.publish_to_relays(relays, signed_event)
-
-    {ok, limited} =
-      Enum.split_with(results, fn {_url, result} -> not rate_limited_result?(result) end)
-
-    case limited do
-      [] ->
-        results
-
-      limited ->
-        gap = publish_gap_ms()
-        if gap > 0, do: Process.sleep(gap)
-
-        retried =
-          limited
-          |> Enum.map(&elem(&1, 0))
-          |> Relay.publish_to_relays(signed_event)
-
-        ok ++ retried
-    end
-  end
-
-  defp rate_limited_result?(:ok), do: false
-  defp rate_limited_result?({:error, reason}), do: Relay.rate_limited?(reason)
-  defp rate_limited_result?(reason), do: Relay.rate_limited?(reason)
+  def each_with_gap(items, fun), do: Gap.each_with_gap(items, fun)
 
   @doc """
   `d` tag used when publishing this post.
   """
   @spec identifier(Post.t() | map()) :: String.t()
-  def identifier(post), do: generate_identifier(post)
-
-  # Generate a unique identifier for the post (d tag).
-  # Trailing slashes must not produce an empty slug — every article would
-  # then share one replaceable address and relays reject later publishes
-  # with "replaced: have newer event".
-  defp generate_identifier(post) do
-    slug_from_url(field(post, :source_url)) ||
-      slugify(field(post, :title)) ||
-      fallback_identifier(post)
-  end
-
-  defp slug_from_url(url) when is_binary(url) and url != "" do
-    path = url |> URI.parse() |> Map.get(:path) || ""
-
-    path
-    |> String.split("/", trim: true)
-    |> List.last()
-    |> case do
-      nil ->
-        nil
-
-      segment ->
-        segment
-        |> String.replace(~r/\.[^.]+$/, "")
-        |> slugify()
-    end
-  end
-
-  defp slug_from_url(_), do: nil
-
-  defp slugify(nil), do: nil
-  defp slugify(""), do: nil
-
-  defp slugify(text) do
-    slug =
-      text
-      |> to_string()
-      |> String.downcase()
-      |> String.replace(~r/[äöüß]/, fn
-        "ä" -> "ae"
-        "ö" -> "oe"
-        "ü" -> "ue"
-        "ß" -> "ss"
-      end)
-      |> String.replace(~r/[^a-z0-9]+/, "-")
-      |> String.trim("-")
-      |> String.slice(0, 64)
-
-    if slug == "", do: nil, else: slug
-  end
-
-  defp fallback_identifier(post) do
-    field(post, :source_url_hash) ||
-      case field(post, :id) do
-        nil -> "post"
-        id -> "post-#{id}"
-      end
-  end
-
-  # Extract identifier from signed event tags
-  defp get_event_identifier(event) do
-    case Enum.find(event.tags, fn [tag | _] -> tag == "d" end) do
-      [_, identifier | _] -> identifier
-      _ -> ""
-    end
-  end
-
-  defp long_form_kind(post) do
-    cond do
-      video?(post) -> Event.kind_video()
-      draft_kind?(post) -> Event.kind_long_form_draft()
-      true -> Event.kind_long_form()
-    end
-  end
-
-  defp published_kind(post) do
-    cond do
-      encrypted_draft?(post) -> Event.kind_draft_wrap()
-      plain_draft?(post) -> Event.kind_long_form_draft()
-      video?(post) -> Event.kind_video()
-      true -> Event.kind_long_form()
-    end
-  end
-
-  defp video?(post) do
-    field(post, :type) == Event.kind_video() or
-      case source_of(post) do
-        %Rss2Nostr.Sources.Source{} = source -> Source.video?(source)
-        _ -> field(post, :publish_as) == "video"
-      end
-  end
-
-  defp public_article?(post) do
-    not draft_kind?(post) and Relays.target_for(post) == :public
-  end
-
-  defp draft_kind?(post), do: encrypted_draft?(post) or plain_draft?(post)
-
-  defp encrypted_draft?(post) do
-    case source_of(post) do
-      %Rss2Nostr.Sources.Source{} = source ->
-        Signer.encrypted_draft?(source)
-
-      _ ->
-        case field(post, :publish_as) do
-          "draft_plain" ->
-            false
-
-          value when value in ["article", "video"] ->
-            false
-
-          "draft" ->
-            true
-
-          _ ->
-            case field(post, :type) do
-              30023 -> false
-              34235 -> false
-              30024 -> true
-              31234 -> true
-              _ -> true
-            end
-        end
-    end
-  end
-
-  defp plain_draft?(post) do
-    case source_of(post) do
-      %Rss2Nostr.Sources.Source{} = source ->
-        Signer.plain_draft?(source)
-
-      _ ->
-        field(post, :publish_as) == "draft_plain"
-    end
-  end
-
-  defp prepare_events(post, pubkey_hex, signer) do
-    inners = build_inner_events(post, inner_pubkey(post, pubkey_hex))
-
-    if encrypted_draft?(post) do
-      wrap_all(inners, post, signer)
-    else
-      {:ok, inners}
-    end
-  end
-
-  defp wrap_all(inners, post, signer) do
-    Enum.reduce_while(inners, {:ok, []}, fn inner, {:ok, acc} ->
-      case wrap_draft_event(inner, post, signer) do
-        {:ok, wrap} -> {:cont, {:ok, acc ++ [wrap]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp sign_all(signer, events) do
-    Enum.reduce_while(events, {:ok, []}, fn event, {:ok, acc} ->
-      case sign_with(signer, event) do
-        {:ok, signed} -> {:cont, {:ok, acc ++ [signed]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp wrap_draft_event(inner, post, {:private_key, key}) do
-    Event.wrap_draft(inner, key,
-      identifier: get_event_identifier(inner),
-      author_pubkey: draft_author(post)
-    )
-  end
-
-  defp wrap_draft_event(_inner, _post, _), do: {:error, :cannot_encrypt_draft}
-
-  defp draft_author(post, source \\ nil) do
-    source = source || source_of(post)
-
-    if draft_kind?(post) do
-      # posts.pubkey is the wrap/app signer after publish.
-      # The intended author is always the source field.
-      field(source, :pubkey)
-    end
-  end
-
-  defp inner_pubkey(post, signer_pubkey) do
-    author = if encrypted_draft?(post), do: draft_author(post)
-
-    if Keys.valid_pubkey?(author) do
-      String.downcase(author)
-    else
-      signer_pubkey
-    end
-  end
-
-  defp resolve_signer(post, opts) do
-    cond do
-      Keyword.has_key?(opts, :signer) ->
-        {:ok, Keyword.fetch!(opts, :signer)}
-
-      Keyword.has_key?(opts, :private_key) ->
-        {:ok, {:private_key, Keyword.fetch!(opts, :private_key)}}
-
-      true ->
-        Signer.resolve(post.source)
-    end
-  end
-
-  defp build_inner_events(post, pubkey_hex) do
-    content = field(post, :content) || ""
-    chunks = split_content(post, pubkey_hex, content)
-    total = length(chunks)
-
-    chunks
-    |> Enum.with_index(1)
-    |> Enum.map(fn {chunk, index} ->
-      build_event(post, pubkey_hex, content: chunk, index: index, total: total)
-    end)
-  end
-
-  defp split_content(post, pubkey_hex, content) do
-    ArticleSplit.split(
-      content,
-      fn chunk, index ->
-        measure_published_size(post, pubkey_hex, chunk, index)
-      end,
-      max_size: Event.max_event_size()
-    )
-  end
-
-  defp measure_published_size(post, pubkey_hex, chunk, index) do
-    inner = build_event(post, pubkey_hex, content: chunk, index: index, total: 99)
-
-    if encrypted_draft?(post) do
-      Event.estimate_wrap_message_size(inner, author_pubkey: draft_author(post))
-    else
-      Event.estimate_event_message_size(inner)
-    end
-  end
-
-  defp build_event(post, pubkey_hex, opts) do
-    index = Keyword.get(opts, :index, 1)
-    total = Keyword.get(opts, :total, 1)
-    content = Keyword.get(opts, :content) || field(post, :content) || ""
-    title = part_title(field(post, :title) || "Untitled", index, total)
-    identifier = part_identifier(generate_identifier(post), index, total)
-
-    Event.build_long_form(pubkey_hex, content,
-      title: title,
-      summary: field(post, :summary),
-      image: field(post, :image),
-      published_at: part_published_at(field(post, :published_at), index, total),
-      identifier: identifier,
-      hashtags: publish_hashtags(post),
-      language: field(post, :language),
-      canonical_url: field(post, :source_url),
-      imeta: NIP92.tags_for_event(images_of(post), content, featured: field(post, :image)),
-      kind: long_form_kind(post),
-      author_pubkey: draft_author(post),
-      client: public_article?(post)
-    )
-  end
-
-  defp part_title(title, _index, 1), do: title
-  defp part_title(title, index, total), do: "#{title} (#{index}/#{total})"
-
-  defp part_identifier(identifier, _index, 1), do: identifier
-
-  defp part_identifier(identifier, index, _total) do
-    suffix = "-p#{index}"
-    max = 64 - byte_size(suffix)
-    String.slice(identifier || "", 0, max) <> suffix
-  end
-
-  defp preview_pubkey(source, post) do
-    author = draft_author(post, source)
-
-    cond do
-      encrypted_draft?(post) and Keys.valid_pubkey?(author) ->
-        String.downcase(author)
-
-      true ->
-        case Signer.resolve(source) do
-          {:ok, {:private_key, key}} ->
-            key |> Keys.derive_public_key() |> Keys.to_hex()
-
-          _ ->
-            field(source, :pubkey) || String.duplicate("0", 64)
-        end
-    end
-  end
-
-  defp preview_relays(%Post{} = post, _source), do: Relays.publish_relays(post)
-
-  defp preview_relays(_attrs, %Rss2Nostr.Sources.Source{} = source),
-    do: Relays.publish_relays(source)
-
-  defp preview_relays(_, _), do: Relays.test()
-
-  defp publish_hashtags(post) do
-    source = source_of(post)
-
-    Event.merge_hashtags(
-      field(post, :categories),
-      hashtag_list(source, :fixed_hashtags),
-      hashtag_list(source, :excluded_hashtags)
-    )
-  end
-
-  defp hashtag_list(%{__struct__: _} = source, field) do
-    case Map.get(source, field) do
-      tags when is_list(tags) -> tags
-      _ -> []
-    end
-  end
-
-  defp hashtag_list(source, field) when is_map(source) do
-    source[field] || source[Atom.to_string(field)] || []
-  end
-
-  defp hashtag_list(_, _), do: []
-
-  defp attach_source(%Post{} = post, %Source{} = source), do: %{post | source: source}
-  defp attach_source(%Post{} = post, _), do: post
-  defp attach_source(attrs, source) when is_map(attrs), do: Map.put(attrs, :source, source)
-  defp attach_source(other, _), do: other
-
-  defp source_of(%Post{source: %Source{} = source}), do: source
-  defp source_of(%Post{} = post), do: ensure_source(post).source
-  defp source_of(%{source: %Source{} = source}), do: source
-  defp source_of(%{"source" => %Source{} = source}), do: source
-  defp source_of(_), do: nil
-
-  defp ensure_source_if_post(%Post{} = post), do: ensure_source(post)
-  defp ensure_source_if_post(other), do: other
-
-  defp field(%{__struct__: _} = struct, key), do: Map.get(struct, key)
-  defp field(map, key) when is_map(map), do: map[key] || map[Atom.to_string(key)]
-  defp field(_, _), do: nil
-
-  # Later parts get +1s so clients that sort by published_at keep reading order.
-  defp part_published_at(published_at, _index, 1), do: unix_published_at(published_at)
-
-  defp part_published_at(published_at, index, _total) do
-    base = unix_published_at(published_at) || System.os_time(:second)
-    base + (index - 1)
-  end
-
-  defp unix_published_at(%DateTime{} = dt), do: DateTime.to_unix(dt)
-  defp unix_published_at(unix) when is_integer(unix), do: unix
-  defp unix_published_at(_), do: nil
-
-  defp pubkey_for_signer({:private_key, private_key}) do
-    pubkey_hex = private_key |> Keys.derive_public_key() |> Keys.to_hex()
-    {:ok, pubkey_hex, {:private_key, private_key}}
-  end
-
-  defp pubkey_for_signer({:bunker, url}) do
-    with {:ok, pid} <- NIP46.start_link(bunker_url: url),
-         {:ok, _} <- NIP46.connect(pid),
-         {:ok, pubkey} <- NIP46.get_public_key(pid) do
-      {:ok, pubkey_hex(pubkey), {:bunker, pid}}
-    end
-  end
-
-  defp sign_with({:private_key, private_key}, event), do: Event.sign_event(event, private_key)
-
-  defp sign_with({:bunker, pid}, event) do
-    case NIP46.sign_event(pid, event) do
-      {:ok, signed} -> normalize_signed_event(signed, event)
-      error -> error
-    end
-  end
-
-  defp close_signer({:bunker, pid}) when is_pid(pid) do
-    NIP46.disconnect(pid)
-    GenServer.stop(pid, :normal)
-  rescue
-    _ -> :ok
-  end
-
-  defp close_signer(_), do: :ok
-
-  defp normalize_signed_event(signed, event) when is_map(signed) do
-    {:ok,
-     %{
-       id: signed["id"] || signed[:id],
-       pubkey: signed["pubkey"] || signed[:pubkey] || event.pubkey,
-       created_at: signed["created_at"] || signed[:created_at] || event.created_at,
-       kind: signed["kind"] || signed[:kind] || event.kind,
-       tags: signed["tags"] || signed[:tags] || event.tags,
-       content: signed["content"] || signed[:content] || event.content,
-       sig: signed["sig"] || signed[:sig]
-     }}
-  end
-
-  defp normalize_signed_event(signed, event) when is_binary(signed) do
-    case Jason.decode(signed) do
-      {:ok, map} -> normalize_signed_event(map, event)
-      _ -> {:error, :invalid_bunker_signature}
-    end
-  end
-
-  defp normalize_signed_event(_, _), do: {:error, :invalid_bunker_signature}
-
-  defp pubkey_hex(value) when is_binary(value) do
-    String.downcase(value)
-  end
-
-  defp images_of(%Post{} = post) do
-    post = if Ecto.assoc_loaded?(post.images), do: post, else: Posts.preload_images(post)
-    post.images || []
-  end
-
-  defp images_of(_), do: []
-
-  defp ensure_source(%Post{} = post) do
-    post
-    |> maybe_preload(:source)
-    |> maybe_preload(:images)
-  end
-
-  defp maybe_preload(post, assoc) do
-    if Ecto.assoc_loaded?(Map.get(post, assoc)), do: post, else: Repo.preload(post, [assoc])
-  end
+  def identifier(post), do: Identifiers.from_post(post)
 end

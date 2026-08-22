@@ -9,23 +9,9 @@ defmodule Rss2Nostr.Nostr.Blossom do
   This replaces NIP-96.
   """
 
-  require Logger
-
   alias Rss2Nostr.HTTP
-  alias Rss2Nostr.Nostr.{NIP92, Signer}
-  alias Rss2Nostr.Posts
-  alias Rss2Nostr.Processing.{ImageExtractor, VideoProbe}
-  alias Rss2Nostr.Sources.Source
-
-  @kind_auth 24242
-  @auth_ttl_seconds 600
-  @image_download_ms 30_000
-  @audio_download_ms 180_000
-  @image_upload_ms 60_000
-  @audio_upload_ms 180_000
-  # Inbound PUTs through route96's proxy die at 60s. Larger blobs are
-  # mirrored (BUD-04) so the server fetches the origin URL itself.
-  @mirror_min_bytes 5_000_000
+  alias Rss2Nostr.Nostr.Blossom.{Client, PostImages}
+  alias Rss2Nostr.Nostr.Signer
 
   @type upload_result :: %{
           url: String.t(),
@@ -119,22 +105,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
   BUD-11 `Authorization` header for a signed kind 24242 event.
   """
   @spec authorization_header(map()) :: String.t()
-  def authorization_header(signed_event) do
-    json =
-      Jason.encode!(%{
-        id: signed_event.id,
-        pubkey: signed_event.pubkey,
-        created_at: signed_event.created_at,
-        kind: signed_event.kind,
-        tags: signed_event.tags,
-        content: signed_event.content,
-        sig: signed_event.sig
-      })
-
-    # route96 and most Blossom servers decode with standard Base64 (padding
-    # included). BUD-11's base64url form is rejected as HTTP 400.
-    "Nostr " <> Base.encode64(json)
-  end
+  def authorization_header(signed_event), do: Client.authorization_header(signed_event)
 
   @doc """
   HEAD `/upload` to see if a Blossom server is reachable.
@@ -164,8 +135,8 @@ defmodule Rss2Nostr.Nostr.Blossom do
   def upload_file(file_path, opts \\ []) do
     case File.read(file_path) do
       {:ok, data} ->
-        opts = Keyword.put_new(opts, :content_type, guess_content_type(file_path))
-        upload_data(data, Path.basename(file_path), opts)
+        opts = Keyword.put_new(opts, :content_type, Client.guess_content_type(file_path))
+        Client.upload_data(data, Path.basename(file_path), opts)
 
       {:error, reason} ->
         {:error, {:file_error, reason}}
@@ -176,31 +147,14 @@ defmodule Rss2Nostr.Nostr.Blossom do
   Uploads binary data. Filename is unused by Blossom (hash-addressed) but kept
   for call-site compatibility.
   """
-  def upload_data(data, _filename, opts \\ []) do
-    signer = upload_signer_from_opts(opts)
-    content_type = Keyword.get(opts, :content_type, "application/octet-stream")
-    sha256 = sha256_hex(data)
-
-    server =
-      case Keyword.get(opts, :server) do
-        nil -> configured_server()
-        "" -> configured_server()
-        url -> String.trim_trailing(url, "/")
-      end
-
-    if is_nil(server) do
-      {:error, :no_upload_endpoint}
-    else
-      store_blob(server, data, sha256, content_type, signer, opts)
-    end
-  end
+  def upload_data(data, filename, opts \\ []), do: Client.upload_data(data, filename, opts)
 
   @doc """
   Uploads a post's featured image to the configured Blossom server if needed.
   """
   @spec ensure_post_image(Rss2Nostr.Posts.Post.t(), Signer.signer() | binary()) ::
           {:ok, Rss2Nostr.Posts.Post.t()} | {:error, term()}
-  def ensure_post_image(post, signer), do: ensure_post_images(post, signer)
+  def ensure_post_image(post, signer), do: PostImages.ensure_post_images(post, signer)
 
   @doc """
   Uploads the featured image and every referenced article image, then
@@ -212,515 +166,31 @@ defmodule Rss2Nostr.Nostr.Blossom do
   """
   @spec ensure_post_images(Rss2Nostr.Posts.Post.t(), Signer.signer() | binary()) ::
           {:ok, Rss2Nostr.Posts.Post.t()} | {:error, term()}
-  def ensure_post_images(post, signer) do
-    signer = normalize_signer(signer)
-    post = Posts.preload_images(post)
-    {post, mapping} = stamp_hosted_images(post)
-
-    Signer.with_open(signer, fn open_signer ->
-      {post, mapping, errors} = upload_pending_images(post, mapping, open_signer)
-      {:ok, post} = apply_image_mapping(post, mapping)
-      post = Posts.preload_images(post)
-
-      case {pending_image_urls(post), errors} do
-        {[], _} ->
-          {:ok, post}
-
-        {_pending, [reason | _]} ->
-          message = "Blossom upload failed: #{format_error(reason)}"
-          Logger.warning("[Blossom] #{message} (post #{post.id})")
-          _ = Posts.update_post(post, %{last_error: message})
-          {:error, reason}
-
-        {_pending, []} ->
-          {:error, :images_pending}
-      end
-    end)
-  end
+  def ensure_post_images(post, signer), do: PostImages.ensure_post_images(post, signer)
 
   @doc """
   Marks already-hosted image records as uploaded without contacting Blossom.
   """
   @spec stamp_hosted_images(Rss2Nostr.Posts.Post.t()) ::
           {Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}}
-  def stamp_hosted_images(post) do
-    post = post |> Posts.preload_source() |> Posts.preload_images()
-
-    uploaded_urls =
-      MapSet.new(for image <- post.images, present?(image.uploaded_url), do: image.uploaded_url)
-
-    uploaded_by_canonical =
-      Map.new(
-        for image <- post.images,
-            present?(image.uploaded_url),
-            do: {ImageExtractor.normalize_url(image.original_url), image}
-      )
-
-    mapping =
-      Enum.reduce(post.images, %{}, fn image, acc ->
-        canonical = ImageExtractor.normalize_url(image.original_url)
-        sibling = uploaded_by_canonical[canonical]
-
-        cond do
-          present?(image.uploaded_url) ->
-            Map.put(acc, image.original_url, image.uploaded_url)
-
-          already_hosted?(image.original_url) or keep_original_media?(post, image.original_url) or
-              MapSet.member?(uploaded_urls, image.original_url) ->
-            {:ok, updated} = Posts.mark_image_uploaded(image, image.original_url, hosted_attrs(image))
-            Map.put(acc, updated.original_url, updated.uploaded_url)
-
-          match?(%{uploaded_url: url} when is_binary(url), sibling) ->
-            {:ok, updated} =
-              Posts.mark_image_uploaded(image, sibling.uploaded_url, copy_upload_attrs(sibling))
-
-            Map.put(acc, updated.original_url, updated.uploaded_url)
-
-          true ->
-            acc
-        end
-      end)
-
-    mapping =
-      if present?(post.image) and
-           (already_hosted?(post.image) or keep_original_media?(post, post.image)) do
-        Map.put_new(mapping, post.image, post.image)
-      else
-        mapping
-      end
-
-    {:ok, post} = apply_image_mapping(post, mapping)
-    {Posts.preload_images(post), mapping}
-  end
+  def stamp_hosted_images(post), do: PostImages.stamp_hosted_images(post)
 
   @doc """
   True when the featured image or any article image still needs a Blossom URL.
   """
   @spec pending_images?(Rss2Nostr.Posts.Post.t()) :: boolean()
-  def pending_images?(post) do
-    post
-    |> Posts.preload_images()
-    |> pending_image_urls()
-    |> Enum.any?()
-  end
-
-  defp upload_pending_images(post, mapping, open_signer) do
-    targets = pending_image_records(post)
-
-    Enum.reduce(targets, {post, mapping, []}, fn image, {post, mapping, errors} ->
-      case upload_from_url(image.original_url, signer: open_signer) do
-        {:ok, result} ->
-          {:ok, updated} =
-            Posts.mark_image_uploaded(
-              image,
-              result.url,
-              NIP92.stored_attrs(result, alt: image.alt_text)
-            )
-
-          {Posts.preload_images(post), Map.put(mapping, updated.original_url, result.url), errors}
-
-        {:error, reason} ->
-          {post, mapping, [reason | errors]}
-      end
-    end)
-  end
-
-  defp apply_image_mapping(post, mapping) when mapping == %{}, do: {:ok, post}
-
-  defp apply_image_mapping(post, mapping) do
-    content = ImageExtractor.replace_image_urls(post.content, mapping)
-    image = Map.get(mapping, post.image || "", post.image)
-
-    Posts.update_post(post, %{content: content, image: image, last_error: nil})
-  end
-
-  defp pending_image_records(post) do
-    existing = post.images || []
-    known = MapSet.new(existing, & &1.original_url)
-
-    featured =
-      if present?(post.image) and not MapSet.member?(known, post.image) and
-           is_nil(mapping_or_hosted(post.image, existing)) do
-        case Posts.create_image(%{post_id: post.id, original_url: post.image}) do
-          {:ok, image} -> [image]
-          {:error, _} -> []
-        end
-      else
-        []
-      end
-
-    uploaded_urls = uploaded_url_set(existing)
-
-    (featured ++ existing)
-    |> Enum.reject(fn image ->
-      image_ready?(image, uploaded_urls)
-    end)
-  end
-
-  defp pending_image_urls(post) do
-    images = post.images || []
-    uploaded_urls = uploaded_url_set(images)
-
-    from_records =
-      for image <- images,
-          not image_ready?(image, uploaded_urls),
-          do: image.original_url
-
-    featured =
-      if present?(post.image) and is_nil(mapping_or_hosted(post.image, images)) do
-        [post.image]
-      else
-        []
-      end
-
-    Enum.uniq(featured ++ from_records)
-  end
-
-  defp uploaded_url_set(images) do
-    MapSet.new(for image <- images, present?(image.uploaded_url), do: image.uploaded_url)
-  end
-
-  defp image_ready?(image, uploaded_urls) do
-    present?(image.uploaded_url) or already_hosted?(image.original_url) or
-      MapSet.member?(uploaded_urls, image.original_url)
-  end
-
-  defp keep_original_media?(%{source: %Source{} = source}, url) do
-    ImageExtractor.video_url?(url) and not Source.mirror_media?(source)
-  end
-
-  defp keep_original_media?(_, _), do: false
-
-  defp mapping_or_hosted(url, images) do
-    cond do
-      already_hosted?(url) ->
-        url
-
-      match = Enum.find(images, &(&1.original_url == url and present?(&1.uploaded_url))) ->
-        match.uploaded_url
-
-      match = Enum.find(images, &(present?(&1.uploaded_url) and &1.uploaded_url == url)) ->
-        match.uploaded_url
-
-      true ->
-        nil
-    end
-  end
-
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(_), do: false
-
-  defp hosted_attrs(image) do
-    caption = ImageExtractor.parse_media_caption(image.caption)
-    probed = probe_media(image, caption)
-    mime = probed[:type] || image.mime_type || guess_content_type(image.original_url)
-    duration = probed[:duration] || caption.duration
-    size = probed[:size] || caption.size || image.file_size
-    dim = probed[:dim] || image.dim
-
-    NIP92.stored_attrs(
-      %{
-        url: image.original_url,
-        sha256: image.sha256,
-        size: size,
-        type: mime,
-        nip94: []
-      },
-      alt: image.alt_text,
-      duration: duration,
-      dim: dim,
-      bitrate: probed[:bitrate]
-    )
-    |> Map.merge(%{
-      imeta:
-        case image.imeta do
-          pairs when is_list(pairs) and pairs != [] ->
-            pairs
-
-          _ ->
-            NIP92.pairs_from_url(image.original_url,
-              alt: image.alt_text,
-              mime: mime,
-              duration: duration,
-              size: size,
-              dim: dim,
-              bitrate: probed[:bitrate]
-            )
-        end
-    })
-  end
-
-  defp probe_media(image, caption) do
-    url = image.original_url
-
-    if ImageExtractor.video_url?(url) or ImageExtractor.audio_url?(url) do
-      kind = if ImageExtractor.audio_url?(url), do: "audio", else: "video"
-      Logger.info("Probing #{kind} metadata at #{url}")
-
-      VideoProbe.probe(url,
-        duration: caption.duration,
-        size: caption.size || image.file_size,
-        type: image.mime_type
-      )
-    else
-      %{}
-    end
-  end
-
-  defp enrich_media_upload({:ok, result}, data, url, content_type)
-       when is_binary(data) do
-    if ImageExtractor.audio_url?(url) or ImageExtractor.video_url?(url) do
-      ext =
-        url
-        |> extract_filename(content_type)
-        |> Path.extname()
-
-      probed =
-        VideoProbe.probe_binary(data,
-          ext: ext,
-          type: content_type,
-          size: byte_size(data)
-        )
-
-      {:ok, Map.merge(result, Map.take(probed, [:duration, :bitrate, :dim]))}
-    else
-      {:ok, result}
-    end
-  end
-
-  defp enrich_media_upload(other, _data, _url, _content_type), do: other
-
-  defp copy_upload_attrs(image) do
-    %{
-      sha256: image.sha256,
-      mime_type: image.mime_type,
-      file_size: image.file_size,
-      dim: image.dim,
-      thumb: image.thumb,
-      imeta: image.imeta || []
-    }
-  end
+  def pending_images?(post), do: PostImages.pending_images?(post)
 
   @doc """
   Downloads an image from a URL and uploads it to Blossom.
   """
-  def upload_from_url(image_url, opts \\ []) do
-    image_url
-    |> ImageExtractor.download_urls()
-    |> Enum.reduce_while({:error, {:download_failed, :no_url}}, fn url, _acc ->
-      kind = download_kind(url)
-      Logger.info("Downloading #{kind} from #{url}")
-
-      case HTTP.get(url, receive_timeout: download_timeout(url), retry: false) do
-        {:ok, %{status: 200, body: data, headers: headers}} ->
-          content_type = content_type_for(url, headers)
-
-          content_type =
-            cond do
-              ImageExtractor.audio_url?(url) and not audio_content?(content_type) ->
-                "audio/mpeg"
-
-              ImageExtractor.video_url?(url) and not video_content?(content_type) ->
-                "video/mp4"
-
-              true ->
-                content_type
-            end
-
-          filename = extract_filename(url, content_type)
-
-          opts =
-            opts
-            |> Keyword.put_new(:content_type, content_type)
-            |> Keyword.put_new(:source_url, public_http_url(url))
-
-          {:halt, enrich_media_upload(upload_data(data, filename, opts), data, url, content_type)}
-
-        {:ok, %{status: code}} ->
-          {:cont, {:error, {:download_failed, code}}}
-
-        {:error, exception} ->
-          {:cont, {:error, {:download_failed, exception}}}
-      end
-    end)
-  end
+  def upload_from_url(image_url, opts \\ []), do: Client.upload_from_url(image_url, opts)
 
   @doc """
   Parses a BUD-02 blob descriptor JSON object or encoded string.
   """
   @spec parse_descriptor(map() | String.t()) :: {:ok, upload_result()} | {:error, atom()}
-  def parse_descriptor(body) when is_binary(body) do
-    case Jason.decode(body) do
-      {:ok, json} -> parse_descriptor(json)
-      {:error, _} -> {:error, :invalid_response}
-    end
-  end
-
-  def parse_descriptor(%{"url" => url} = json) when is_binary(url) and url != "" do
-    url = familiar_blob_url(url)
-
-    size =
-      case json["size"] do
-        n when is_integer(n) -> n
-        n when is_binary(n) -> String.to_integer(n)
-        _ -> nil
-      end
-
-    {:ok,
-     %{
-       url: url,
-       sha256: json["sha256"],
-       size: size,
-       type: json["type"],
-       nip94: rewrite_nip94_urls(json["nip94"] || []),
-       dimensions: nil
-     }}
-  end
-
-  def parse_descriptor(_), do: {:error, :unexpected_response}
-
-  defp store_blob(server, data, sha256, content_type, signer, opts) do
-    source_url = opts[:source_url] || opts["source_url"]
-
-    if mirrorable?(source_url, data) do
-      case mirror_blob(server, source_url, sha256, byte_size(data), signer) do
-        {:ok, _} = ok ->
-          ok
-
-        {:error, {:upload_failed, code, _}} when code in [404, 405] ->
-          Logger.warning("Blossom /mirror is unavailable (HTTP #{code}); falling back to PUT /upload")
-          put_blob(server, data, sha256, content_type, signer)
-
-        {:error, reason} ->
-          Logger.error("Blossom mirror failed: #{format_error(reason)}")
-          {:error, reason}
-      end
-    else
-      put_blob(server, data, sha256, content_type, signer)
-    end
-  end
-
-  defp mirrorable?(url, data) when is_binary(url) and url != "" do
-    byte_size(data) >= @mirror_min_bytes and String.starts_with?(url, "https://")
-  end
-
-  defp mirrorable?(_, _), do: false
-
-  defp public_http_url(url) when is_binary(url) do
-    String.replace_prefix(String.trim(url), "http://", "https://")
-  end
-
-  defp mirror_blob(server, source_url, sha256, byte_size, signer) do
-    with {:ok, auth_header} <- create_auth(signer, sha256, server) do
-      url = mirror_url(server)
-      timeout = upload_timeout("audio/mpeg", byte_size)
-      body = Jason.encode!(%{url: source_url})
-
-      Logger.info(
-        "Mirroring blob #{String.slice(sha256, 0, 12)}… #{format_bytes(byte_size)} " <>
-          "from #{source_url} timeout=#{timeout}ms to #{url}"
-      )
-
-      case HTTP.put(url,
-             headers: [
-               {"authorization", auth_header},
-               {"content-type", "application/json"}
-             ],
-             body: body,
-             receive_timeout: timeout,
-             retry: false
-           ) do
-        {:ok, %{status: code, body: resp}} when code in [200, 201] ->
-          parse_descriptor(resp)
-
-        {:ok, %{status: code, body: resp}} ->
-          Logger.error("Blossom mirror failed with status #{code}: #{resp}")
-          {:error, {:upload_failed, code, resp}}
-
-        {:error, exception} ->
-          {:error, {:upload_failed, exception}}
-      end
-    end
-  end
-
-  defp put_blob(server, data, sha256, content_type, signer) do
-    with {:ok, auth_header} <- create_auth(signer, sha256, server) do
-      url = upload_url(server)
-      timeout = upload_timeout(content_type, byte_size(data))
-      Logger.info(
-        "Uploading blob #{String.slice(sha256, 0, 12)}… #{format_bytes(byte_size(data))} " <>
-          "#{normalize_content_type(content_type)} timeout=#{timeout}ms to #{url}"
-      )
-
-      case HTTP.put(url,
-             headers: [
-               {"authorization", auth_header},
-               {"content-type", normalize_content_type(content_type)},
-               {"content-length", Integer.to_string(byte_size(data))},
-               {"x-sha-256", sha256}
-             ],
-             body: data,
-             receive_timeout: timeout,
-             retry: false
-           ) do
-        {:ok, %{status: code, body: body}} when code in [200, 201] ->
-          parse_descriptor(body)
-
-        {:ok, %{status: code, body: body}} ->
-          Logger.error("Blossom upload failed with status #{code}: #{body}")
-          {:error, {:upload_failed, code, body}}
-
-        {:error, exception} ->
-          {:error, {:upload_failed, exception}}
-      end
-    end
-  end
-
-  defp create_auth(signer, sha256, server_url) do
-    with {:ok, pubkey_hex} <- Signer.pubkey_hex(normalize_signer(signer)) do
-      now = System.os_time(:second) - 1
-      expiration = now + @auth_ttl_seconds
-      host = server_host(server_url)
-
-      tags = [
-        ["t", "upload"],
-        ["expiration", Integer.to_string(expiration)],
-        ["x", sha256]
-      ]
-
-      tags =
-        if host do
-          tags ++ [["server", host]]
-        else
-          tags
-        end
-
-      event = %{
-        pubkey: pubkey_hex,
-        created_at: now,
-        kind: @kind_auth,
-        tags: tags,
-        content: "Upload Blob"
-      }
-
-      case Signer.sign_event(normalize_signer(signer), event) do
-        {:ok, signed} -> {:ok, authorization_header(signed)}
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
-
-  defp upload_signer_from_opts(opts) do
-    cond do
-      Keyword.has_key?(opts, :signer) -> normalize_signer(Keyword.fetch!(opts, :signer))
-      Keyword.has_key?(opts, :private_key) -> {:private_key, Keyword.fetch!(opts, :private_key)}
-      true -> raise KeyError, key: :signer, term: opts
-    end
-  end
-
-  defp normalize_signer({:private_key, key}), do: {:private_key, key}
-  defp normalize_signer({:bunker, value}), do: {:bunker, value}
-  defp normalize_signer(key) when is_binary(key), do: {:private_key, key}
+  def parse_descriptor(body), do: Client.parse_descriptor(body)
 
   defp server_host(nil), do: nil
 
@@ -728,176 +198,6 @@ defmodule Rss2Nostr.Nostr.Blossom do
     case URI.parse(url) do
       %URI{host: host} when is_binary(host) and host != "" -> String.downcase(host)
       _ -> nil
-    end
-  end
-
-  defp format_error(:no_upload_endpoint), do: "NOSTR_UPLOAD_ENDPOINT is not set"
-
-  defp format_error({:upload_failed, code, body}) when is_binary(body) do
-    "HTTP #{code}: #{String.slice(body, 0, 200)}"
-  end
-
-  defp format_error({:download_failed, code}) when is_integer(code), do: "download HTTP #{code}"
-  defp format_error({:download_failed, other}), do: "download failed: #{inspect(other)}"
-  defp format_error(reason), do: inspect(reason)
-
-  defp normalize_content_type(value) when is_binary(value) do
-    value
-    |> String.split(";", parts: 2)
-    |> List.first()
-    |> String.trim()
-    |> case do
-      "" -> "application/octet-stream"
-      type -> type
-    end
-  end
-
-  defp normalize_content_type(_), do: "application/octet-stream"
-
-  defp sha256_hex(data) do
-    :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
-  end
-
-  defp content_type_for(url, headers) do
-    header =
-      headers
-      |> HTTP.header("content-type")
-      |> normalize_content_type()
-
-    cond do
-      header not in ["application/octet-stream", "binary/octet-stream"] -> header
-      true -> guess_content_type(url)
-    end
-  end
-
-  defp download_kind(url) do
-    cond do
-      ImageExtractor.video_url?(url) -> "video"
-      ImageExtractor.audio_url?(url) -> "audio"
-      true -> "image"
-    end
-  end
-
-  defp download_timeout(url) do
-    if ImageExtractor.audio_url?(url) or ImageExtractor.video_url?(url) do
-      @audio_download_ms
-    else
-      @image_download_ms
-    end
-  end
-
-  # Finch's receive_timeout covers sending the body too. A fixed 60s
-  # abort is what route96 logged as "EOF before message length reached".
-  defp upload_timeout(content_type, byte_size) when is_integer(byte_size) and byte_size > 0 do
-    base =
-      if audio_content?(content_type) or video_content?(content_type) do
-        @audio_upload_ms
-      else
-        @image_upload_ms
-      end
-
-    # 60s slack + 2s per MB so a ~75MB MP3 is not cut off at 60s.
-    sized = @image_upload_ms + div(byte_size, 500_000) * 1_000
-    max(base, sized)
-  end
-
-  defp upload_timeout(content_type, _byte_size), do: upload_timeout(content_type, 1)
-
-  defp audio_content?(type) when is_binary(type) do
-    String.starts_with?(normalize_content_type(type), "audio/")
-  end
-
-  defp audio_content?(_), do: false
-
-  defp video_content?(type) when is_binary(type) do
-    String.starts_with?(normalize_content_type(type), "video/")
-  end
-
-  defp video_content?(_), do: false
-
-  # mime_guess maps audio/mpeg → .mpga. Blossom URLs are hash-addressed;
-  # the extension is only a hint, and .mp3 is what players and users expect.
-  defp familiar_blob_url(url) when is_binary(url) do
-    uri = URI.parse(url)
-    path = uri.path || ""
-    ext = Path.extname(path)
-
-    if String.downcase(ext) == ".mpga" do
-      URI.to_string(%{uri | path: String.replace_suffix(path, ext, ".mp3")})
-    else
-      url
-    end
-  end
-
-  defp rewrite_nip94_urls(tags) when is_list(tags) do
-    Enum.map(tags, fn
-      ["url", url] when is_binary(url) -> ["url", familiar_blob_url(url)]
-      other -> other
-    end)
-  end
-
-  defp rewrite_nip94_urls(_), do: []
-
-  defp format_bytes(n) when n >= 1_000_000, do: "#{Float.round(n / 1_000_000, 1)}MB"
-  defp format_bytes(n) when n >= 1_000, do: "#{div(n, 1_000)}KB"
-  defp format_bytes(n), do: "#{n}B"
-
-  defp guess_content_type(file_path) do
-    path =
-      case URI.parse(file_path) do
-        %URI{path: path} when is_binary(path) and path != "" -> path
-        _ -> file_path
-      end
-
-    case Path.extname(path) |> String.downcase() do
-      ".jpg" -> "image/jpeg"
-      ".jpeg" -> "image/jpeg"
-      ".png" -> "image/png"
-      ".gif" -> "image/gif"
-      ".webp" -> "image/webp"
-      ".svg" -> "image/svg+xml"
-      ".mp4" -> "video/mp4"
-      ".m4v" -> "video/mp4"
-      ".webm" -> "video/webm"
-      ".mov" -> "video/quicktime"
-      ".mkv" -> "video/x-matroska"
-      ".mp3" -> "audio/mpeg"
-      ".m4a" -> "audio/mp4"
-      ".aac" -> "audio/aac"
-      ".ogg" -> "audio/ogg"
-      ".opus" -> "audio/opus"
-      ".wav" -> "audio/wav"
-      _ -> "application/octet-stream"
-    end
-  end
-
-  defp extract_filename(url, content_type) do
-    path = URI.parse(url).path || ""
-    basename = Path.basename(path)
-
-    if basename != "" and String.contains?(basename, ".") do
-      basename
-    else
-      ext =
-        case content_type do
-          "image/jpeg" -> ".jpg"
-          "image/png" -> ".png"
-          "image/gif" -> ".gif"
-          "image/webp" -> ".webp"
-          "video/mp4" -> ".mp4"
-          "video/webm" -> ".webm"
-          "video/quicktime" -> ".mov"
-          "audio/mpeg" -> ".mp3"
-          "audio/mp4" -> ".m4a"
-          "audio/aac" -> ".aac"
-          "audio/ogg" -> ".ogg"
-          "audio/opus" -> ".opus"
-          "audio/wav" -> ".wav"
-          _ -> ".bin"
-        end
-
-      prefix = if String.starts_with?(content_type, "audio/"), do: "audio", else: "image"
-      "#{prefix}_#{System.system_time(:second)}#{ext}"
     end
   end
 end
