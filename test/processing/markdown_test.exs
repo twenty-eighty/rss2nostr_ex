@@ -124,6 +124,14 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
     assert html =~ "&lt;script&gt;"
   end
 
+  test "renders mailto links and strips encoded spaces in the address" do
+    html =
+      Markdown.to_html("[Anmeldung](mailto:%20freie-medienakademie@posteo.de)")
+
+    assert html =~ ~s(<a href="mailto:freie-medienakademie@posteo.de">Anmeldung</a>)
+    refute html =~ "%20"
+  end
+
   test "renders fenced code without interpreting markup" do
     html = Markdown.to_html("```\n**not bold**\n```")
 

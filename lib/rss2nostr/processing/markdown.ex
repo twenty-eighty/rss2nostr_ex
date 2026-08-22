@@ -2,8 +2,9 @@ defmodule Rss2Nostr.Processing.Markdown do
   @moduledoc """
   Renders a conservative HTML preview of article Markdown.
 
-  Text and attribute values are escaped. Only http(s) links and images
-  are emitted, so the compose preview can use the HTML safely.
+  Text and attribute values are escaped. Only http(s) and mailto
+  links and images are emitted, so the compose preview can use
+  the HTML safely.
   """
 
   @spec to_html(String.t() | nil) :: String.t()
@@ -263,13 +264,44 @@ defmodule Rss2Nostr.Processing.Markdown do
   end
 
   defp safe_url(url) do
-    uri = URI.parse(String.trim(url))
+    url = String.trim(url)
+    uri = URI.parse(url)
 
-    if uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != "" do
-      url
+    cond do
+      uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != "" ->
+        url
+
+      uri.scheme == "mailto" ->
+        safe_mailto(url)
+
+      true ->
+        nil
     end
   rescue
     _ -> nil
+  end
+
+  defp safe_mailto(url) do
+    rest = String.replace_prefix(url, "mailto:", "")
+    {address, suffix} = split_mailto_target(rest)
+    address = address |> URI.decode() |> String.trim()
+
+    if valid_mailto_address?(address) do
+      "mailto:#{address}#{suffix}"
+    end
+  end
+
+  defp split_mailto_target(rest) do
+    case String.split(rest, "?", parts: 2) do
+      [address, query] -> {address, "?" <> query}
+      [address] -> {address, ""}
+    end
+  end
+
+  defp valid_mailto_address?(address) do
+    address != "" and
+      String.contains?(address, "@") and
+      not String.contains?(address, [" ", "\n", "\r", "<", ">", "\"", "'"])
   end
 
   defp unescape(text) do

@@ -1609,11 +1609,22 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp normalize_href(href) when is_binary(href) do
     case String.replace(href, ~r/\s+/, "") do
       "" -> nil
+      "mailto:" <> rest -> "mailto:" <> normalize_mailto_target(rest)
       url -> url
     end
   end
 
   defp normalize_href(_), do: nil
+
+  defp normalize_mailto_target(rest) do
+    {address, suffix} =
+      case String.split(rest, "?", parts: 2) do
+        [address, query] -> {address, "?" <> query}
+        [address] -> {address, ""}
+      end
+
+    (address |> URI.decode() |> String.trim()) <> suffix
+  end
 
   defp link_fallback_label(attrs, children, href) do
     aria = get_attr(attrs, "aria-label")

@@ -819,6 +819,26 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "[![](#{icon}) Telegram](https://t.me/kulturzentner)"
     end
 
+    test "keeps mailto links and strips encoded spaces in the address" do
+      html = ~s(<p><a href="mailto:%20freie-medienakademie@posteo.de">Anmeldung</a></p>)
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Anmeldung](mailto:freie-medienakademie@posteo.de)"
+      refute md =~ "%20"
+
+      html_out = Markdown.to_html(md)
+      assert html_out =~ ~s(<a href="mailto:freie-medienakademie@posteo.de">Anmeldung</a>)
+    end
+
+    test "keeps mailto query parameters" do
+      html =
+        ~s(<a href="mailto:freie-medienakademie@posteo.de?subject=Bewerbung">E-Mail schreiben</a>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[E-Mail schreiben](mailto:freie-medienakademie@posteo.de?subject=Bewerbung)"
+    end
+
     test "drops relative links" do
       html =
         ~s(<p>See <a href="/local-page">this</a> and <a href="https://example.com">that</a>.</p>)
