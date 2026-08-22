@@ -770,6 +770,35 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       refute html_out =~ ~r/<p>IBAN:[^<]*Spende via Paypal/
     end
 
+    test "turns a social-bar icon into a Markdown link using the nearby label" do
+      html = """
+      <div class="social-bar">
+        <span>Folgt mir auf Telegram</span>
+        <div class="social-icons text-center">
+          <a href="
+      https://t.me/kulturzentner
+      " target="_blank">
+            <i class="fab fa-telegram"></i>
+          </a>
+        </div>
+      </div>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Folgt mir auf Telegram](https://t.me/kulturzentner)"
+      refute md =~ "_Telegram_"
+      html_out = Rss2Nostr.Processing.Markdown.to_html(md)
+      assert html_out =~ ~s(<a href="https://t.me/kulturzentner">Folgt mir auf Telegram</a>)
+    end
+
+    test "labels an icon-only social link from the icon class" do
+      html = ~s(<a href="https://t.me/kulturzentner"><i class="fab fa-telegram"></i></a>)
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Telegram](https://t.me/kulturzentner)"
+    end
+
     test "drops relative links" do
       html =
         ~s(<p>See <a href="/local-page">this</a> and <a href="https://example.com">that</a>.</p>)

@@ -210,8 +210,19 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       # Underscores so italic next to `**bold**` does not emit `***`,
       # which CommonMark treats as one delimiter run. Nested <em><i>
       # is the same role; wrapping twice emits `__text__` (bold).
-      "em" -> wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
-      "i" -> wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
+      "em" ->
+        if icon_class?(get_attr(attrs, "class", "")) do
+          process_nodes(children)
+        else
+          wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
+        end
+
+      "i" ->
+        if icon_class?(get_attr(attrs, "class", "")) do
+          process_nodes(children)
+        else
+          wrap_inline(process_nodes(unwrap_same_role(children, :em)), "_")
+        end
       "u" -> wrap_inline(process_nodes(children), "_")
       "code" -> "`#{process_nodes(children)}`"
       "pre" -> "\n\n```\n#{Floki.text(children)}\n```\n\n"
@@ -379,6 +390,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
         |> blockify_callout_children()
         |> process_blockquote()
 
+      social_bar_class?(class) ->
+        process_social_bar(children)
+
       soundcloud_widget_div?(children) ->
         ""
 
@@ -387,9 +401,84 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end
   end
 
+  defp social_bar_class?(class) when is_binary(class) do
+    class
+    |> String.downcase()
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.any?(fn token ->
+      token in ~w(social-bar social-icons social-links social-media) or
+        String.starts_with?(token, "social-")
+    end)
+  end
+
+  defp process_social_bar(children) do
+    links = collect_http_links(children)
+    caption = social_bar_caption(children)
+
+    markdown =
+      case {links, caption} do
+        {[%{href: href}], caption} when caption != "" ->
+          markdown_media_link(caption, href, nil)
+
+        {links, _} ->
+          Enum.map_join(links, " · ", fn %{href: href, label: label} ->
+            markdown_media_link(label, href, nil)
+          end)
+      end
+
+    if String.trim(markdown) == "", do: "", else: "\n\n#{markdown}\n\n"
+  end
+
+  defp collect_http_links(nodes) do
+    Enum.flat_map(List.wrap(nodes), fn
+      {"a", attrs, inner} ->
+        href = attrs |> get_attr("href") |> normalize_href()
+
+        if is_binary(href) and http_url?(href) and not discard_link?(href) do
+          [%{href: remove_tracking_params(href), label: link_fallback_label(attrs, inner, href)}]
+        else
+          []
+        end
+
+      {_, _, inner} ->
+        collect_http_links(inner)
+
+      _ ->
+        []
+    end)
+  end
+
+  defp social_bar_caption(nodes) do
+    nodes
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      {"a", _, _} ->
+        []
+
+      {tag, _, inner} when tag in ~w(span p) ->
+        text = inner |> Floki.text() |> String.trim()
+        if text == "", do: [], else: [text]
+
+      {_, _, inner} ->
+        case social_bar_caption(inner) do
+          "" -> []
+          text -> [text]
+        end
+
+      text when is_binary(text) ->
+        trimmed = String.trim(text)
+        if trimmed == "", do: [], else: [trimmed]
+
+      _ ->
+        []
+    end)
+    |> Enum.join(" ")
+    |> String.trim()
+  end
+
   # Process links
   defp process_link(attrs, children) do
-    href = get_attr(attrs, "href")
+    href = attrs |> get_attr("href") |> normalize_href()
 
     cond do
       is_nil(href) or href == "" ->
@@ -407,12 +496,8 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       true ->
         text = process_nodes(children) |> String.trim()
         clean_href = remove_tracking_params(href)
-
-        if text == "" do
-          clean_href
-        else
-          markdown_media_link(text, clean_href, get_attr(attrs, "title"))
-        end
+        label = if text == "", do: link_fallback_label(attrs, children, clean_href), else: text
+        markdown_media_link(label, clean_href, get_attr(attrs, "title"))
     end
   end
 
@@ -1393,6 +1478,86 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     else
       "[#{text}](#{href})"
     end
+  end
+
+  defp normalize_href(href) when is_binary(href) do
+    case String.replace(href, ~r/\s+/, "") do
+      "" -> nil
+      url -> url
+    end
+  end
+
+  defp normalize_href(_), do: nil
+
+  defp link_fallback_label(attrs, children, href) do
+    aria = get_attr(attrs, "aria-label")
+    title = get_attr(attrs, "title")
+
+    cond do
+      present_title?(aria) -> String.trim(aria)
+      present_title?(title) -> String.trim(title)
+      label = icon_network_label(children) -> label
+      label = host_network_label(href) -> label
+      true -> href
+    end
+  end
+
+  @fa_networks [
+    {"telegram", "Telegram"},
+    {"twitter", "Twitter"},
+    {"x-twitter", "X"},
+    {"facebook", "Facebook"},
+    {"instagram", "Instagram"},
+    {"youtube", "YouTube"},
+    {"mastodon", "Mastodon"},
+    {"whatsapp", "WhatsApp"},
+    {"signal", "Signal"}
+  ]
+
+  defp icon_network_label(nodes) do
+    classes = element_classes(nodes)
+
+    Enum.find_value(@fa_networks, fn {name, label} ->
+      if Enum.any?(classes, &(String.starts_with?(&1, "fa") and String.contains?(&1, name))) do
+        label
+      end
+    end)
+  end
+
+  defp host_network_label(href) do
+    host = href |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
+
+    cond do
+      host in ["t.me", "telegram.me", "www.telegram.me", "telegram.org"] -> "Telegram"
+      String.ends_with?(host, ".t.me") -> "Telegram"
+      true -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp element_classes(nodes) do
+    Enum.flat_map(List.wrap(nodes), fn
+      {_, attrs, inner} ->
+        class_tokens(get_attr(attrs, "class", "")) ++ element_classes(inner)
+
+      _ ->
+        []
+    end)
+  end
+
+  defp class_tokens(class) when is_binary(class) do
+    class |> String.downcase() |> String.split(~r/\s+/, trim: true)
+  end
+
+  defp class_tokens(_), do: []
+
+  defp icon_class?(class) do
+    Enum.any?(class_tokens(class), fn token ->
+      token in ~w(fa fab fas far fal fad icon dashicons material-icons) or
+        String.starts_with?(token, "fa-") or
+        String.starts_with?(token, "icon-")
+    end)
   end
 
   defp media_file_url?(href) do
