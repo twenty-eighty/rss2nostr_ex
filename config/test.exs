@@ -42,3 +42,10 @@ config :rss2nostr, :enrich_youtube_titles, false
 config :rss2nostr, :fetch_soundcloud_artwork, false
 config :rss2nostr, :video_ffprobe, false
 config :rss2nostr, :video_head, false
+
+# Avoid flaky CI: no tzdata downloads, no HTTP retries, shorter timeouts.
+config :tzdata, :autoupdate, :disabled
+
+config :rss2nostr,
+  http_retry: false,
+  http_receive_timeout: 10_000

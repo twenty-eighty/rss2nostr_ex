@@ -44,7 +44,7 @@ defmodule Rss2Nostr.Import.FeedFetcher do
   defp request(url, opts) do
     Logger.debug("Fetching #{url}")
 
-    case HTTP.get(url, Keyword.put(opts, :receive_timeout, @timeout)) do
+    case HTTP.get(url, Keyword.merge(opts, receive_timeout: @timeout, retry: false)) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, ensure_utf8(body)}
 

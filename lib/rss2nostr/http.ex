@@ -51,11 +51,15 @@ defmodule Rss2Nostr.HTTP do
   defp request(opts) do
     {:ok, _} = Application.ensure_all_started(:req)
 
-    {receive_timeout, opts} = Keyword.pop(opts, :receive_timeout, 30_000)
+    default_timeout = Application.get_env(:rss2nostr, :http_receive_timeout, 30_000)
+    default_retry = Application.get_env(:rss2nostr, :http_retry, true)
+
+    {receive_timeout, opts} = Keyword.pop(opts, :receive_timeout, default_timeout)
 
     req_opts =
       opts
       |> Keyword.put(:receive_timeout, receive_timeout)
+      |> Keyword.put_new(:retry, default_retry)
       |> Keyword.put_new(:decode_body, false)
       |> Keyword.put_new(:redirect, true)
       |> Keyword.update(:headers, [{"user-agent", @user_agent}], &ensure_user_agent/1)

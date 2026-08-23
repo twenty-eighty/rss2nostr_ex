@@ -26,9 +26,7 @@ defmodule Rss2Nostr.Scheduler.TasksTest do
 
   describe "run_process/0" do
     test "returns result map" do
-      result = Tasks.run_process()
-
-      assert is_map(result) or match?({:ok, _}, result)
+      assert {:ok, %{errors: _, processed: _}} = Tasks.run_process()
     end
 
     test "processes new posts" do
@@ -55,7 +53,7 @@ defmodule Rss2Nostr.Scheduler.TasksTest do
 
       result = Tasks.run_process()
 
-      assert is_map(result) or match?({:ok, _}, result)
+      assert match?({:ok, %{errors: _, processed: _}}, result)
     end
   end
 

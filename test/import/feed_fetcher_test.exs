@@ -24,13 +24,6 @@ defmodule Rss2Nostr.Import.FeedFetcherTest do
 
       assert match?({:error, _}, result)
     end
-
-    test "accepts valid URL string" do
-      # This will fail with connection error but should accept the string
-      result = FeedFetcher.fetch("https://httpbin.org/status/404")
-
-      assert match?({:error, _}, result) or match?({:ok, _}, result)
-    end
   end
 
   describe "fetch_article/1" do
