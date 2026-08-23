@@ -21,3 +21,5 @@ config :rss2nostr, :import,
 config :logger, level: :info
 
 config :rss2nostr, :code_reloader, false
+config :rss2nostr, :start_web_server, true
+config :rss2nostr, :web_port, 4000

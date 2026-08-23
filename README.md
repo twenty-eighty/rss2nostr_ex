@@ -20,6 +20,41 @@ Import RSS/Atom feeds and publish them as Nostr long-form content (NIP-23).
 - PostgreSQL
 - Node.js 18+ (for Nostr signing)
 
+For production deployment, use the included `Dockerfile` (see [Docker deployment](#docker-deployment)).
+
+## Docker deployment
+
+The app ships as an Elixir release in a multi-stage Docker image. Coolify (or any Docker host) can build from the repo `Dockerfile` and run the container with a linked PostgreSQL database.
+
+### Coolify setup
+
+1. Create a new application from this repository (build pack: **Dockerfile**).
+2. Add a PostgreSQL database and set `DATABASE_URL` on the app (Coolify usually provides this when the DB is linked).
+3. Set required environment variables (see below).
+4. Expose port **4000** (or set `PORT` to match Coolify's assigned port).
+5. Optional health check: `GET /health` (returns `200 ok`).
+
+### Required environment variables (production)
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL URL (`ecto://USER:PASS@HOST/DATABASE`) |
+| `SECRET_KEY_BASE` | Admin session signing key (`openssl rand -base64 48`) |
+| `ADMIN_NOSTR_PUBKEYS` | Comma-separated npub/hex keys for admin login |
+| `NOSTR_NSEC` | Nostr private key for publishing |
+
+Also set `MCP_TOKEN` if remote MCP clients will call `/mcp`, and relay variables as needed (`NOSTR_RELAYS_PUBLIC`, etc.).
+
+On startup the container runs database migrations automatically. Set `SKIP_MIGRATIONS=true` to disable that.
+
+### Local Docker test
+
+```bash
+docker compose up --build
+```
+
+Then open http://localhost:4000 (after setting `ADMIN_NOSTR_PUBKEYS` and other env vars in `docker-compose.yml`).
+
 ## Installation
 
 1. Clone the repository:

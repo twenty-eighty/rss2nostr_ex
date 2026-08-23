@@ -7,6 +7,15 @@ defmodule Rss2Nostr.Web.Server do
 
   @default_port 4000
 
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start, [opts]},
+      type: :supervisor,
+      restart: :permanent
+    }
+  end
+
   def start(opts \\ []) do
     port =
       Keyword.get(opts, :port) ||

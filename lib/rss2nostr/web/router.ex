@@ -57,6 +57,10 @@ defmodule Rss2Nostr.Web.Router do
     |> redirect("/login")
   end
 
+  get "/health" do
+    send_resp(conn, 200, "ok")
+  end
+
   forward("/mcp",
     to: ExMCP.HttpPlug,
     init_opts: [

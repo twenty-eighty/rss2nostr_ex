@@ -14,6 +14,16 @@ defmodule Rss2Nostr.MixProject do
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
         plt_add_apps: [:mix, :ex_unit]
+      ],
+      releases: releases()
+    ]
+  end
+
+  defp releases do
+    [
+      rss2nostr: [
+        include_executables_for: [:unix],
+        applications: [runtime_tools: :permanent]
       ]
     ]
   end

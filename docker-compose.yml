@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: rss2nostr
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: ecto://postgres:postgres@db:5432/rss2nostr
+      PORT: 4000
+      SECRET_KEY_BASE: change-me-use-openssl-rand-base64-48
+      ADMIN_NOSTR_PUBKEYS: ""
+      NOSTR_NSEC: ""
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

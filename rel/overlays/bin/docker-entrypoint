@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+if [ "${1:-}" = "start" ] && [ "${SKIP_MIGRATIONS:-}" != "true" ]; then
+  /app/bin/rss2nostr eval "Rss2Nostr.Release.migrate()"
+fi
+
+exec /app/bin/rss2nostr "$@"
