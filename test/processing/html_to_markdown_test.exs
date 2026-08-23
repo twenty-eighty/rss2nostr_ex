@@ -774,6 +774,44 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       refute md =~ "Drop"
     end
 
+    test "drops VG Wort / WP Worthy tracking pixels" do
+      html = """
+      <p>Article text</p>
+      <div id="wp-worthy-pixel"><img decoding="async" class="wp-worthy-pixel-img " src="https://vg09.met.vgwort.de/na/ca9760d03d7f450dba63db90362e74e7" loading="eager" data-no-lazy="1" data-skip-lazy="1" height="1" width="1" alt=""></div>
+      """
+
+      md = HtmlToMarkdown.convert(html, skip_classes: [])
+
+      assert md =~ "Article text"
+      refute md =~ "vgwort"
+      refute md =~ "wp-worthy"
+      refute md =~ "![]("
+    end
+
+    test "drops a bare VG Wort pixel even without the wrapper" do
+      html = """
+      <p>Keep</p>
+      <img src="http://vg01.met.vgwort.de/na/abc" width="1" height="1" alt="">
+      """
+
+      md = HtmlToMarkdown.convert(html, skip_classes: [])
+
+      assert md =~ "Keep"
+      refute md =~ "vgwort"
+    end
+
+    test "keeps ordinary article images" do
+      html = """
+      <p>Keep</p>
+      <img src="https://example.com/photo.jpg" width="1400" height="800" alt="Cover">
+      """
+
+      md = HtmlToMarkdown.convert(html, skip_classes: [])
+
+      assert md =~ "Keep"
+      assert md =~ "![Cover](https://example.com/photo.jpg)"
+    end
+
     test "formats pullquotes as blockquotes" do
       html = ~s(<div class="pullquote"><p>Hello</p></div>)
       md = HtmlToMarkdown.convert(html)

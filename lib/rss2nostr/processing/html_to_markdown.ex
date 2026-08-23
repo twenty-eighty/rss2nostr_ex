@@ -295,6 +295,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   end
 
   defp skip_element?(attrs) do
+    Images.tracking_wrapper?(attrs) or skip_class?(attrs)
+  end
+
+  defp skip_class?(attrs) do
     classes =
       attrs
       |> get_attr("class", "")

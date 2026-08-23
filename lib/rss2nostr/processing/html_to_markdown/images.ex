@@ -10,15 +10,32 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
 
   @spec process_image(list()) :: String.t()
   def process_image(attrs) do
-    src = get_best_image_src(attrs)
-    alt = image_alt(attrs)
-
-    if src && src != "" do
-      "![#{alt}](#{src})"
-    else
+    if tracking_pixel?(attrs) do
       ""
+    else
+      src = get_best_image_src(attrs)
+      alt = image_alt(attrs)
+
+      if src && src != "" do
+        "![#{alt}](#{src})"
+      else
+        ""
+      end
     end
   end
+
+  @doc false
+  @spec tracking_pixel?(list()) :: boolean()
+  def tracking_pixel?(attrs) when is_list(attrs) do
+    tracking_pixel_marker?(attrs) or tracking_pixel_src?(attrs) or one_by_one_pixel?(attrs)
+  end
+
+  def tracking_pixel?(_), do: false
+
+  @doc false
+  @spec tracking_wrapper?(list()) :: boolean()
+  def tracking_wrapper?(attrs) when is_list(attrs), do: tracking_pixel_marker?(attrs)
+  def tracking_wrapper?(_), do: false
 
   @spec process_figure(list(), list(), process_nodes()) :: String.t()
   def process_figure(_attrs, children, process_nodes) do
@@ -35,22 +52,27 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     alt = image_alt(img_attrs)
     caption = figcaption_text(figcaption)
 
-    if src && src != "" do
-      clean_src = clean_image_url(src)
+    cond do
+      tracking_pixel?(img_attrs) ->
+        ""
 
-      image_md =
-        if caption != "" do
-          "![#{alt}](#{clean_src} \"#{caption}\")"
-        else
-          "![#{alt}](#{clean_src})"
+      src && src != "" ->
+        clean_src = clean_image_url(src)
+
+        image_md =
+          if caption != "" do
+            "![#{alt}](#{clean_src} \"#{caption}\")"
+          else
+            "![#{alt}](#{clean_src})"
+          end
+
+        case figure_wrap_href(children, img_attrs, clean_src) do
+          href when is_binary(href) -> "\n\n[#{image_md}](#{href})\n\n"
+          _ -> "\n\n#{image_md}\n\n"
         end
 
-      case figure_wrap_href(children, img_attrs, clean_src) do
-        href when is_binary(href) -> "\n\n[#{image_md}](#{href})\n\n"
-        _ -> "\n\n#{image_md}\n\n"
-      end
-    else
-      process_nodes.(children)
+      true ->
+        process_nodes.(children)
     end
   end
 
@@ -259,4 +281,46 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     |> Map.get("action")
     |> Kernel.==("share")
   end
+
+  defp tracking_pixel_marker?(attrs) do
+    haystack =
+      [Dom.get_attr(attrs, "id", ""), Dom.get_attr(attrs, "class", "")]
+      |> Enum.map(&to_string/1)
+      |> Enum.join(" ")
+      |> String.downcase()
+
+    String.contains?(haystack, "wp-worthy-pixel") or
+      String.contains?(haystack, "worthy-pixel")
+  end
+
+  defp tracking_pixel_src?(attrs) do
+    [Dom.get_attr(attrs, "src"), Dom.get_attr(attrs, "data-src")]
+    |> Enum.any?(&vgwort_url?/1)
+  end
+
+  defp vgwort_url?(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) ->
+        host == "vgwort.de" or String.ends_with?(host, ".vgwort.de")
+
+      _ ->
+        false
+    end
+  end
+
+  defp vgwort_url?(_), do: false
+
+  defp one_by_one_pixel?(attrs) do
+    parse_px(Dom.get_attr(attrs, "width")) == 1 and
+      parse_px(Dom.get_attr(attrs, "height")) == 1
+  end
+
+  defp parse_px(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
+  defp parse_px(_), do: nil
 end
