@@ -53,12 +53,30 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
 
   def valid?(url) do
     uri = URI.parse(url)
-    uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != ""
+    uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != "" and
+      not tracking_pixel?(url)
   rescue
     e ->
       Logger.debug("Invalid image URL #{inspect(url)}: #{inspect(e)}")
       false
   end
+
+  @doc """
+  True for VG Wort / similar 1×1 meter pixels that should never be uploaded.
+  """
+  @spec tracking_pixel?(String.t() | nil) :: boolean()
+  def tracking_pixel?(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) ->
+        host = String.downcase(host)
+        host == "vgwort.de" or String.ends_with?(host, ".vgwort.de")
+
+      _ ->
+        false
+    end
+  end
+
+  def tracking_pixel?(_), do: false
 
   @spec path_ext(String.t()) :: String.t()
   def path_ext(url) when is_binary(url) do

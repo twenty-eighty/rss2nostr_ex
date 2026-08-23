@@ -179,6 +179,23 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       assert html =~ post.title
       assert html =~ "btn-active"
     end
+
+    test "lets pending-image posts be selected for reprocess" do
+      {_source, post} = create_test_post()
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          status: Post.status_pending_images(),
+          title: "Pending Selectable Article"
+        })
+
+      html = PostsView.index(status: "9")
+
+      assert html =~ ~s(name="post_ids[]" value="#{post.id}")
+      assert html =~ ~s(data-publishable="false")
+      assert html =~ "Reprocess selected"
+      assert html =~ ~s(formaction="/posts/reprocess-selected")
+    end
   end
 
   describe "show/1" do
@@ -250,6 +267,8 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
 
       assert html =~ "pending images"
       assert html =~ "Upload images"
+      assert html =~ "Reprocess"
+      assert html =~ "/posts/#{post.id}/reprocess"
       assert html =~ "Last error"
       assert html =~ source.name or html =~ "Images"
     end
@@ -315,7 +334,7 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       assert html =~ "data-post-tab=\"preview\""
       assert html =~ "Publish to"
       assert html =~ "Reprocess"
-      assert html =~ "/posts/#{post.id}/process"
+      assert html =~ "/posts/#{post.id}/reprocess"
     end
 
     test "shows publish notes on a published post" do

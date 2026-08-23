@@ -625,6 +625,11 @@ defmodule Rss2Nostr.Posts do
     |> Repo.insert()
   end
 
+  @spec delete_image(ArticleImage.t()) :: {:ok, ArticleImage.t()} | {:error, Ecto.Changeset.t()}
+  def delete_image(%ArticleImage{} = image) do
+    Repo.delete(image)
+  end
+
   @doc """
   Updates an article image.
   """

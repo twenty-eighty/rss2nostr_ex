@@ -9,7 +9,7 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Articles do
   def articles_tab(source) do
     posts = Posts.list_posts_for_source(source.id, limit: 100)
     relay_label = Helpers.relay_target_name(Relays.target_for(source))
-    selectable? = Enum.any?(posts, &(&1.status == Post.status_processed()))
+    selectable? = Enum.any?(posts, &reprocessable?/1)
 
     rows =
       if Enum.empty?(posts) do
@@ -19,8 +19,8 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Articles do
           """
           <tr id="article-#{post.id}">
             <td class="article-select">
-              #{if post.status == Post.status_processed() do
-            ~s(<input type="checkbox" name="post_ids[]" value="#{post.id}">)
+              #{if reprocessable?(post) do
+            ~s(<input type="checkbox" name="post_ids[]" value="#{post.id}" data-publishable="#{publishable?(post)}">)
           else
             ""
           end}
@@ -44,18 +44,18 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Articles do
       <form action="/sources/#{source.id}/import" method="POST">
         <button type="submit" class="btn btn-secondary">Import now</button>
       </form>
-      <button type="submit" class="btn btn-primary js-articles-bulk" form="articles-bulk-form" disabled>Publish selected</button>
-      <button type="submit" class="btn btn-secondary js-articles-bulk" form="articles-bulk-form"
+      <button type="submit" class="btn btn-primary js-articles-publish" form="articles-bulk-form" disabled>Publish selected</button>
+      <button type="submit" class="btn btn-secondary js-articles-reprocess" form="articles-bulk-form"
               formaction="/sources/#{source.id}/reprocess-selected" disabled>Reprocess selected</button>
     </div>
-    <p class="help-text">Selected staging articles publish to the #{relay_label}. Setup never uses the public list. Articles stay in pending images until featured and inline images are uploaded. Manual publish ignores the staging hold.</p>
+    <p class="help-text">Selected staging articles publish to the #{relay_label}. Setup never uses the public list. Pending-images articles can be reprocessed; they stay pending until featured and inline images are uploaded. Manual publish ignores the staging hold.</p>
     #{upload_forms(source, posts)}
     <form id="articles-bulk-form" action="/sources/#{source.id}/publish-selected" method="POST">
       <table class="table">
         <thead>
           <tr>
             <th class="article-select">
-              <input type="checkbox" id="select-all-articles" aria-label="Select all staging articles"
+              <input type="checkbox" id="select-all-articles" aria-label="Select all articles"
                      #{unless selectable?, do: "disabled"}>
             </th>
             <th>Title</th>
@@ -92,5 +92,9 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Articles do
       URI.encode_www_form("/sources/#{source.id}?tab=articles")
   end
 
+  defp reprocessable?(post) do
+    post.status in [Post.status_processed(), Post.status_pending_images()]
+  end
 
+  defp publishable?(post), do: post.status == Post.status_processed()
 end

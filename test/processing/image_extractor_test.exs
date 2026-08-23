@@ -162,6 +162,32 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
       assert created == 0
       assert length(Posts.list_images_for_post(post.id)) == 1
     end
+
+    test "drops VG Wort tracking pixels from content and stored images", %{source: source} do
+      pixel = "https://vg09.met.vgwort.de/na/ca9760d03d7f450dba63db90362e74e7"
+      photo = "https://cdn.example/photo.jpg"
+      post = create_test_post(source, "<p>x</p>")
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          content: "![Photo](#{photo})\n\n![](#{pixel})",
+          image: pixel
+        })
+
+      {:ok, _} = Posts.create_image(%{post_id: post.id, original_url: pixel})
+      {:ok, _} = Posts.create_image(%{post_id: post.id, original_url: photo})
+
+      {:ok, post, created} = ImageExtractor.extract_and_store(post)
+
+      assert created == 0
+      refute post.content =~ "vgwort"
+      assert post.content =~ photo
+      assert is_nil(post.image)
+
+      urls = Enum.map(Posts.list_images_for_post(post.id), & &1.original_url)
+      assert photo in urls
+      refute Enum.any?(urls, &String.contains?(&1, "vgwort"))
+    end
   end
 
   describe "extract_audio/1" do

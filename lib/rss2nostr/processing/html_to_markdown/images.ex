@@ -295,20 +295,8 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
 
   defp tracking_pixel_src?(attrs) do
     [Dom.get_attr(attrs, "src"), Dom.get_attr(attrs, "data-src")]
-    |> Enum.any?(&vgwort_url?/1)
+    |> Enum.any?(&ImageExtractor.Urls.tracking_pixel?/1)
   end
-
-  defp vgwort_url?(url) when is_binary(url) do
-    case URI.parse(url) do
-      %URI{host: host} when is_binary(host) ->
-        host == "vgwort.de" or String.ends_with?(host, ".vgwort.de")
-
-      _ ->
-        false
-    end
-  end
-
-  defp vgwort_url?(_), do: false
 
   defp one_by_one_pixel?(attrs) do
     parse_px(Dom.get_attr(attrs, "width")) == 1 and

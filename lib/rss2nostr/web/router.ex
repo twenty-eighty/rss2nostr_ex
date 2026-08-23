@@ -278,6 +278,12 @@ defmodule Rss2Nostr.Web.Router do
     end
   end
 
+  post "/posts/reprocess-selected" do
+    dest = return_to(conn, "/posts")
+    {:ok, result} = API.Posts.reprocess_selected(conn.body_params)
+    redirect(conn, with_flash(dest, reprocess_notice(result), "success"))
+  end
+
   get "/posts/:id" do
     case API.Posts.get(id) do
       {:ok, _post} ->
@@ -300,6 +306,31 @@ defmodule Rss2Nostr.Web.Router do
 
   post "/posts/:id/process" do
     case API.Posts.process(id) do
+      {:ok, post} ->
+        if wants_json?(conn) do
+          send_json(conn, 200, process_result(post))
+        else
+          redirect(conn, return_to(conn, "/posts/#{id}"))
+        end
+
+      {:error, :not_found} ->
+        if wants_json?(conn) do
+          send_json(conn, 404, %{error: "Post not found"})
+        else
+          send_html(conn, 404, Views.Error.not_found())
+        end
+
+      {:error, :invalid_id} ->
+        if wants_json?(conn) do
+          send_json(conn, 400, %{error: "Invalid post id"})
+        else
+          send_html(conn, 400, Views.Error.bad_request())
+        end
+    end
+  end
+
+  post "/posts/:id/reprocess" do
+    case API.Posts.reprocess(id) do
       {:ok, post} ->
         if wants_json?(conn) do
           send_json(conn, 200, process_result(post))
@@ -510,7 +541,11 @@ defmodule Rss2Nostr.Web.Router do
       status_name: Rss2Nostr.Posts.Post.status_name(post.status),
       status_label: Rss2Nostr.Posts.Post.status_label(post.status),
       last_error: post.last_error,
-      selectable: post.status == Rss2Nostr.Posts.Post.status_processed()
+      selectable: post.status in [
+        Rss2Nostr.Posts.Post.status_processed(),
+        Rss2Nostr.Posts.Post.status_pending_images()
+      ],
+      publishable: post.status == Rss2Nostr.Posts.Post.status_processed()
     }
   end
 

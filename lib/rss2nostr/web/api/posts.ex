@@ -59,6 +59,17 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
+  @spec reprocess(String.t()) :: {:ok, Post.t()} | {:error, atom()}
+  def reprocess(id) do
+    with {:ok, post_id} <- parse_id(id),
+         %Post{} = post <- Posts.get_post(post_id) do
+      Processor.reprocess_post(post)
+    else
+      nil -> {:error, :not_found}
+      {:error, :invalid_id} -> {:error, :invalid_id}
+    end
+  end
+
   @spec publish(String.t(), map()) :: {:ok, map()} | {:error, atom() | String.t()}
   def publish(id, _params \\ %{}) do
     with {:ok, post_id} <- parse_id(id),
@@ -77,8 +88,29 @@ defmodule Rss2Nostr.Web.API.Posts do
   @spec publish_selected(map()) :: {:ok, map()} | {:error, atom() | String.t()}
   def publish_selected(params) do
     ids = List.wrap(params["post_ids"] || params["post_ids[]"] || [])
-    posts = Posts.get_posts(ids, preload: [:source])
+
+    posts =
+      ids
+      |> Posts.get_posts(preload: [:source])
+      |> Enum.filter(&(&1.status == Post.status_processed()))
+
     publish_posts(posts)
+  end
+
+  @spec reprocess_selected(map()) :: {:ok, map()}
+  def reprocess_selected(params) do
+    ids = List.wrap(params["post_ids"] || params["post_ids[]"] || [])
+
+    results =
+      ids
+      |> Posts.get_posts()
+      |> Enum.map(&Processor.reprocess_post/1)
+
+    {:ok,
+     %{
+       processed: Enum.count(results, &match?({:ok, _}, &1)),
+       errors: Enum.count(results, &match?({:error, _}, &1))
+     }}
   end
 
   @spec publish_posts([Post.t()]) :: {:ok, map()} | {:error, atom() | String.t()}

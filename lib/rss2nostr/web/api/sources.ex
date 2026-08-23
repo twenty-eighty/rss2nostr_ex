@@ -143,7 +143,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     posts =
       ids
       |> Posts.get_posts(preload: [:source])
-      |> Enum.filter(&(&1.source_id == source.id))
+      |> Enum.filter(&(&1.source_id == source.id and &1.status == Post.status_processed()))
 
     PostsAPI.publish_posts(posts)
   end
@@ -164,7 +164,7 @@ defmodule Rss2Nostr.Web.API.Sources do
       ids
       |> Posts.get_posts()
       |> Enum.filter(&(&1.source_id == source.id))
-      |> Enum.map(&Processor.process_post/1)
+      |> Enum.map(&Processor.reprocess_post/1)
 
     {:ok,
      %{

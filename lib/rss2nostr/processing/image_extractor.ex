@@ -42,6 +42,8 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
         end
       end)
 
+    post = prune_unreferenced_images(post, images)
+
     {:ok, Posts.preload_images(post), created}
   end
 
@@ -157,19 +159,70 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   end
 
   defp repair_content(content) when is_binary(content) do
-    Regex.replace(~r/!\[([^\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/, content, fn _full, alt, url, rest ->
-      "![#{alt}](#{display_url(url)}#{rest})"
+    content
+    |> strip_tracking_pixel_images()
+    |> then(fn repaired ->
+      Regex.replace(~r/!\[([^\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/, repaired, fn _full, alt, url, rest ->
+        "![#{alt}](#{display_url(url)}#{rest})"
+      end)
     end)
   end
 
   defp repair_content(content), do: content
 
+  defp strip_tracking_pixel_images(content) do
+    Regex.replace(
+      ~r/!?\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/,
+      content,
+      fn full, _alt, url ->
+        if Urls.tracking_pixel?(url), do: "", else: full
+      end
+    )
+  end
+
   defp normalize_optional_url(url) when is_binary(url) and url != "" do
-    case display_url(url) do
-      "" -> url
-      displayed -> displayed
+    cond do
+      Urls.tracking_pixel?(url) ->
+        nil
+
+      true ->
+        case display_url(url) do
+          "" -> url
+          displayed -> displayed
+        end
     end
   end
 
   defp normalize_optional_url(url), do: url
+
+  defp prune_unreferenced_images(post, wanted) do
+    wanted_urls = referenced_url_set(wanted)
+
+    (post.images || [])
+    |> Enum.filter(fn image ->
+      Urls.tracking_pixel?(image.original_url) or not image_referenced?(image, wanted_urls)
+    end)
+    |> Enum.each(&Posts.delete_image/1)
+
+    post
+  end
+
+  defp referenced_url_set(images) do
+    images
+    |> Enum.flat_map(fn %{url: url} -> url_variants(url) end)
+    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+    |> MapSet.new()
+  end
+
+  defp image_referenced?(image, wanted) do
+    [image.original_url, image.uploaded_url]
+    |> Enum.flat_map(&url_variants/1)
+    |> Enum.any?(&MapSet.member?(wanted, &1))
+  end
+
+  defp url_variants(url) when is_binary(url) and url != "" do
+    [url, Urls.normalize(url), Urls.display(url) | Urls.download_urls(url)]
+  end
+
+  defp url_variants(_), do: []
 end

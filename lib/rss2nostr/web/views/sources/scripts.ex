@@ -20,7 +20,12 @@ defmodule Rss2Nostr.Web.Views.Sources.Scripts do
           selectAll.checked = boxes.length > 0 && checked === boxes.length;
           selectAll.indeterminate = checked > 0 && checked < boxes.length;
         }
-        document.querySelectorAll(".js-articles-bulk").forEach(function (button) {
+        document.querySelectorAll(".js-articles-publish").forEach(function (button) {
+          button.disabled = boxes.filter(function (box) {
+            return box.checked && box.getAttribute("data-publishable") === "true";
+          }).length === 0;
+        });
+        document.querySelectorAll(".js-articles-reprocess").forEach(function (button) {
           button.disabled = checked === 0;
         });
       }
@@ -70,9 +75,13 @@ defmodule Rss2Nostr.Web.Views.Sources.Scripts do
             box.type = "checkbox";
             box.name = "post_ids[]";
             box.value = String(body.id);
+            box.setAttribute("data-publishable", body.publishable ? "true" : "false");
             select.replaceChildren(box);
+          } else if (select) {
+            const box = select.querySelector("input");
+            if (box) box.setAttribute("data-publishable", body.publishable ? "true" : "false");
           }
-          if (upload) upload.remove();
+          if (body.publishable && upload) upload.remove();
           syncSelectAll();
         } else if (upload) {
           upload.disabled = false;

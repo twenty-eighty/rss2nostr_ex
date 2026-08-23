@@ -136,8 +136,10 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert articles =~ "Publish selected"
       assert articles =~ "Import now"
       assert articles =~ "Reprocess selected"
-      assert articles =~ "js-articles-bulk"
-      assert articles =~ ~s(js-articles-bulk" form="articles-bulk-form" disabled)
+      assert articles =~ "js-articles-publish"
+      assert articles =~ "js-articles-reprocess"
+      assert articles =~ ~s(js-articles-publish" form="articles-bulk-form" disabled)
+      assert articles =~ ~s(js-articles-reprocess" form="articles-bulk-form")
       assert articles =~ "select-all-articles"
       assert articles =~ "article-toolbar"
       assert articles =~ "js-upload-images"
@@ -167,6 +169,34 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       expected = URI.encode_www_form("/sources/#{source.id}?tab=articles")
 
       assert html =~ "/posts/#{post.id}?return_to=#{expected}"
+    end
+
+    test "lets pending-image articles be selected for reprocess" do
+      {:ok, source} =
+        SourcesContext.create_source(%{
+          name: "Pending Select Source",
+          url: unique_url(),
+          type: "rss",
+          language: "en"
+        })
+
+      url = "https://example.com/article-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Rss2Nostr.Posts.create_post(%{
+          title: "Pending Pixel Article",
+          source_url: url,
+          source_url_hash: Rss2Nostr.Posts.Post.generate_url_hash(url),
+          status: 9,
+          source_id: source.id
+        })
+
+      html = Sources.show(source, tab: "articles")
+
+      assert html =~ ~s(name="post_ids[]" value="#{post.id}")
+      assert html =~ ~s(data-publishable="false")
+      assert html =~ "js-upload-images"
+      assert html =~ "Reprocess selected"
     end
 
     test "makes the mode badge switch an automated source back to setup" do

@@ -35,9 +35,11 @@ defmodule Rss2Nostr.Web.Views.Posts do
     sources = Enum.sort_by(Sources.list_sources(), & &1.name)
     return_to = posts_path(status: status_filter, source_id: source_id, q: q, page: page)
     selectable_ids = selectable_post_ids(status_filter, source_id, q)
+    publishable_ids = MapSet.new(publishable_post_ids(status_filter, source_id, q))
     page_ids = MapSet.new(Enum.map(posts, & &1.id))
     extra_ids = Enum.reject(selectable_ids, &MapSet.member?(page_ids, &1))
     selectable? = selectable_ids != []
+    publishable? = not MapSet.equal?(publishable_ids, MapSet.new())
 
     rows =
       if Enum.empty?(posts) do
@@ -50,8 +52,8 @@ defmodule Rss2Nostr.Web.Views.Posts do
           """
           <tr>
             <td class="article-select">
-              #{if post.status == Post.status_processed() do
-            ~s(<input type="checkbox" name="post_ids[]" value="#{post.id}">)
+              #{if reprocessable?(post) do
+            ~s(<input type="checkbox" name="post_ids[]" value="#{post.id}" data-publishable="#{publishable?(post)}">)
           else
             ""
           end}
@@ -97,19 +99,22 @@ defmodule Rss2Nostr.Web.Views.Posts do
     #{post_action_forms(posts, return_to)}
     <div class="article-toolbar">
       <button type="submit" class="btn btn-primary" form="posts-bulk-form"
-              #{unless selectable?, do: "disabled"}>Publish selected</button>
+              #{unless publishable?, do: "disabled"}>Publish selected</button>
+      <button type="submit" class="btn btn-secondary" form="posts-bulk-form"
+              formaction="/posts/reprocess-selected"
+              #{unless selectable?, do: "disabled"}>Reprocess selected</button>
     </div>
-    <p class="help-text">Select all includes every matching staging article, not only this page. Relays come from each source: drafts use the draft list, articles use public or test from the source flag.</p>
+    <p class="help-text">Select all includes matching articles, not only this page. Staging articles can be published; pending-images articles can be reprocessed. Relays come from each source: drafts use the draft list, articles use public or test from the source flag.</p>
     <form id="posts-bulk-form" action="/posts/publish-selected" method="POST">
       <input type="hidden" name="return_to" value="#{escape_attr(return_to)}">
       #{Enum.map_join(extra_ids, "", fn id ->
-        ~s(<input type="checkbox" name="post_ids[]" value="#{id}" hidden>)
+        ~s(<input type="checkbox" name="post_ids[]" value="#{id}" data-publishable="#{MapSet.member?(publishable_ids, id)}" hidden>)
       end)}
     <table class="table">
       <thead>
         <tr>
           <th class="article-select">
-            <input type="checkbox" id="select-all-posts" aria-label="Select all filtered staging posts"
+            <input type="checkbox" id="select-all-posts" aria-label="Select all filtered articles"
                    #{unless selectable?, do: "disabled"}>
           </th>
           <th>Title</th>
@@ -173,7 +178,7 @@ defmodule Rss2Nostr.Web.Views.Posts do
         </div>
 
         <div class="post-actions">
-          #{show_actions(post)}
+          #{show_actions(post, back)}
           <a href="#{escape_attr(back)}" class="btn btn-secondary">Back to List</a>
         </div>
 
@@ -218,23 +223,35 @@ defmodule Rss2Nostr.Web.Views.Posts do
     end
   end
 
-  defp show_actions(post) do
+  defp show_actions(post, back) do
     audience = relay_target_name(post)
+    return_to = return_to_hidden(back)
 
     cond do
       post.status in [Post.status_new(), Post.status_pending_images()] ->
         """
         <form action="/posts/#{post.id}/process" method="POST" style="display:inline">
+          #{return_to}
           <button type="submit" class="btn btn-primary">#{if post.status == Post.status_pending_images(), do: "Upload images", else: "Process"}</button>
         </form>
+        #{if post.status == Post.status_pending_images() do
+          """
+          <form action="/posts/#{post.id}/reprocess" method="POST" style="display:inline">
+            #{return_to}
+            <button type="submit" class="btn btn-secondary">Reprocess</button>
+          </form>
+          """
+        end}
         """
 
       post.status == Post.status_processed() ->
         """
         <form action="/posts/#{post.id}/publish" method="POST" style="display:inline">
+          #{return_to}
           <button type="submit" class="btn btn-primary">Publish to #{audience} relays</button>
         </form>
-        <form action="/posts/#{post.id}/process" method="POST" style="display:inline">
+        <form action="/posts/#{post.id}/reprocess" method="POST" style="display:inline">
+          #{return_to}
           <button type="submit" class="btn btn-secondary">Reprocess</button>
         </form>
         """
@@ -242,9 +259,11 @@ defmodule Rss2Nostr.Web.Views.Posts do
       post.status == Post.status_published() ->
         """
         <form action="/posts/#{post.id}/publish" method="POST" style="display:inline">
+          #{return_to}
           <button type="submit" class="btn btn-primary">Republish to #{audience} relays</button>
         </form>
         <form action="/posts/#{post.id}/revise" method="POST" style="display:inline">
+          #{return_to}
           <button type="submit" class="btn btn-secondary">Revise</button>
         </form>
         """
@@ -599,18 +618,40 @@ defmodule Rss2Nostr.Web.Views.Posts do
   end
 
   defp selectable_post_ids(status_filter, source_id, q) do
+    cond do
+      status_filter in [nil, ""] ->
+        post_ids_for(Post.status_processed(), source_id, q) ++
+          post_ids_for(Post.status_pending_images(), source_id, q)
+
+      status_filter == "2" ->
+        post_ids_for(Post.status_processed(), source_id, q)
+
+      status_filter == "9" ->
+        post_ids_for(Post.status_pending_images(), source_id, q)
+
+      true ->
+        []
+    end
+  end
+
+  defp publishable_post_ids(status_filter, source_id, q) do
     if status_filter in [nil, "", "2"] do
-      Posts.list_posts(
-        status: Post.status_processed(),
-        source_id: source_id,
-        q: q,
-        limit: 5_000
-      )
-      |> Enum.map(& &1.id)
+      post_ids_for(Post.status_processed(), source_id, q)
     else
       []
     end
   end
+
+  defp post_ids_for(status, source_id, q) do
+    Posts.list_posts(status: status, source_id: source_id, q: q, limit: 5_000)
+    |> Enum.map(& &1.id)
+  end
+
+  defp reprocessable?(post) do
+    post.status in [Post.status_processed(), Post.status_pending_images()]
+  end
+
+  defp publishable?(post), do: post.status == Post.status_processed()
 
   defp posts_select_all_script do
     """

@@ -330,5 +330,33 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
       assert result.status == Post.status_pending_images()
       assert result.content == "Already composed"
     end
+
+    test "reprocess_post reconverts pending-image posts and drops tracking pixels", %{
+      source: source
+    } do
+      pixel = "https://vg09.met.vgwort.de/na/abc"
+      photo = "https://cdn.example/photo.jpg"
+
+      post =
+        create_post(source, %{
+          source_html:
+            ~s(<p>Keep this.</p><div id="wp-worthy-pixel"><img class="wp-worthy-pixel-img" src="#{pixel}" height="1" width="1" alt=""></div><p><img src="#{photo}" width="800" height="450" alt="Photo"></p>),
+          content: "Keep this.\n\n![](#{pixel})\n\n![Photo](#{photo})",
+          status: Post.status_pending_images()
+        })
+
+      {:ok, _} = Posts.create_image(%{post_id: post.id, original_url: pixel})
+      {:ok, _} = Posts.create_image(%{post_id: post.id, original_url: photo})
+
+      {:ok, result} = Processor.reprocess_post(post)
+
+      assert result.content =~ "Keep this"
+      refute result.content =~ "vgwort"
+      assert result.content =~ "photo.jpg" or result.image == photo
+
+      urls = Enum.map(Posts.list_images_for_post(result.id), & &1.original_url)
+      refute Enum.any?(urls, &String.contains?(&1, "vgwort"))
+      assert photo in urls
+    end
   end
 end
