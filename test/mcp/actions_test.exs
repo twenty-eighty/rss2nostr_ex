@@ -79,6 +79,62 @@ defmodule Rss2Nostr.MCP.ActionsTest do
     assert {:error, "Post not found"} = Actions.get_post(%{post_id: 9_999_999})
   end
 
+  test "get_settings includes compose presets" do
+    assert {:ok, settings} = Actions.get_settings()
+    assert is_map(settings.compose)
+    assert settings.compose.body_presets != []
+    assert settings.compose.languages != []
+    assert settings.compose.publish_as == ~w(draft draft_plain article video)
+  end
+
+  test "add_source stores start_guid and compose options" do
+    url = unique_url()
+
+    assert {:ok, source} =
+             Actions.add_source(%{
+               name: "Compose MCP",
+               url: url,
+               language: "en",
+               type: "rss",
+               start_guid: "item-123",
+               body_selector: "article.post",
+               start_at: "//p[1]",
+               skip_classes: "ad, promo",
+               fetch_source_from: "content"
+             })
+
+    assert source.start_guid == "item-123"
+    assert source.body_selector == "article.post"
+    assert source.start_at == "//p[1]"
+    assert source.skip_classes =~ "ad"
+    assert source.fetch_source_from == "content"
+  end
+
+  test "update_source can set active flag" do
+    {:ok, created} =
+      Sources.create_source(%{
+        name: "Mode MCP",
+        url: unique_url(),
+        type: "rss",
+        language: "en",
+        active: true
+      })
+
+    assert {:ok, updated} =
+             Actions.update_source(%{
+               source_id: created.id,
+               active: false,
+               name: "Renamed MCP"
+             })
+
+    assert updated.active == false
+    assert updated.name == "Renamed MCP"
+  end
+
+  test "preview_compose requires a feed url" do
+    assert {:error, "Feed URL is required"} = Actions.preview_compose(%{})
+  end
+
   test "update_source stores staging hold and notify pubkey" do
     hex = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
     {:ok, npub} = Rss2Nostr.Nostr.NIP19.encode_npub(hex)

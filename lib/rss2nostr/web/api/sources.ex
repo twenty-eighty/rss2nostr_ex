@@ -61,8 +61,8 @@ defmodule Rss2Nostr.Web.API.Sources do
         url: params["url"],
         type: params["type"] || "atom",
         language: params["language"] || "de",
-        active: true,
-        mode: "setup",
+        active: active?(params),
+        mode: blank_to_nil(params["mode"]) || "setup",
         public: truthy?(params["public"]),
         pubkey: blank_to_nil(params["pubkey"]),
         signing_nsec: blank_to_nil(params["signing_nsec"]),
@@ -94,6 +94,7 @@ defmodule Rss2Nostr.Web.API.Sources do
       |> maybe_put(:fetch_source_from, blank_to_nil(params["fetch_source_from"]))
       |> maybe_put(:publish_as, blank_to_nil(params["publish_as"]))
       |> maybe_put(:mode, blank_to_nil(params["mode"]))
+      |> maybe_put_active(params)
       |> maybe_put_bunker(params)
       |> maybe_put(:signing_nsec, blank_to_nil(params["signing_nsec"]))
       |> maybe_put(:publish_after_date, parse_datetime(params["start_published_at"]))
@@ -376,6 +377,18 @@ defmodule Rss2Nostr.Web.API.Sources do
     else
       Map.put(attrs, :public, source.public)
     end
+  end
+
+  defp maybe_put_active(attrs, params, _source \\ nil) do
+    if Map.has_key?(params, "active") do
+      Map.put(attrs, :active, truthy?(params["active"]))
+    else
+      attrs
+    end
+  end
+
+  defp active?(params) do
+    if Map.has_key?(params, "active"), do: truthy?(params["active"]), else: true
   end
 
   defp truthy?(value) when value in [true, "true", "1", "on", "yes"], do: true

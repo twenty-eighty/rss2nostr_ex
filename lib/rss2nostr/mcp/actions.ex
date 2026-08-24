@@ -1,6 +1,7 @@
 defmodule Rss2Nostr.MCP.Actions do
   @moduledoc false
 
+  alias Rss2Nostr.Processing.Composer
   alias Rss2Nostr.Nostr.Signer
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
@@ -40,7 +41,10 @@ defmodule Rss2Nostr.MCP.Actions do
     params =
       string_params(
         args,
-        ~w(url guid type body_selector start_at skip_classes excluded_hashtags language)a
+        ~w(
+          url guid type fetch_source_from body_selector start_at skip_classes excluded_hashtags
+          language publish_as pubkey fixed_hashtags mirror_media conversion_rules body_selector_auto
+        )a
       )
 
     params =
@@ -61,6 +65,9 @@ defmodule Rss2Nostr.MCP.Actions do
           :language,
           :publish_as,
           :mirror_media,
+          :mode,
+          :active,
+          :public,
           :pubkey,
           :signing_nsec,
           :bunker_connection,
@@ -68,11 +75,13 @@ defmodule Rss2Nostr.MCP.Actions do
           :body_selector,
           :start_at,
           :skip_classes,
+          :start_guid,
           :start_published_at,
           :staging_hold_minutes,
           :notify_pubkey,
           :fixed_hashtags,
-          :excluded_hashtags
+          :excluded_hashtags,
+          :conversion_rules
         ])
         |> Map.merge(%{"name" => name, "url" => url})
 
@@ -93,6 +102,8 @@ defmodule Rss2Nostr.MCP.Actions do
           :publish_as,
           :mirror_media,
           :mode,
+          :active,
+          :public,
           :pubkey,
           :signing_nsec,
           :bunker_connection,
@@ -100,11 +111,13 @@ defmodule Rss2Nostr.MCP.Actions do
           :body_selector,
           :start_at,
           :skip_classes,
+          :start_guid,
           :start_published_at,
           :staging_hold_minutes,
           :notify_pubkey,
           :fixed_hashtags,
-          :excluded_hashtags
+          :excluded_hashtags,
+          :conversion_rules
         ])
 
       case Sources.update(id, params) do
@@ -233,6 +246,34 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  def upload_post_images(args) do
+    with {:ok, id} <- require_id(args, :post_id) do
+      case Posts.process(id) do
+        {:ok, post} ->
+          {:ok,
+           post_summary(post)
+           |> Map.put(:pending_images, post.status == Post.status_pending_images())}
+
+        {:error, :not_found} ->
+          {:error, "Post not found"}
+
+        {:error, reason} ->
+          {:error, format_error(reason)}
+      end
+    end
+  end
+
+  def reprocess_post(args) do
+    with {:ok, id} <- require_id(args, :post_id) do
+      case Posts.reprocess(id) do
+        {:ok, post} -> {:ok, post_summary(post)}
+        {:error, :not_found} -> {:error, "Post not found"}
+        {:error, :invalid_id} -> {:error, "Invalid post_id"}
+        {:error, reason} -> {:error, format_error(reason)}
+      end
+    end
+  end
+
   def publish_post(args) do
     with {:ok, id} <- require_id(args, :post_id) do
       case Posts.publish(id) do
@@ -290,6 +331,8 @@ defmodule Rss2Nostr.MCP.Actions do
   end
 
   defp source_detail(%Source{} = source) do
+    options = source.options || %{}
+
     %{
       id: source.id,
       name: source.name,
@@ -311,8 +354,22 @@ defmodule Rss2Nostr.MCP.Actions do
       excluded_hashtags: source.excluded_hashtags || [],
       bunker_configured: present?(source.bunker_connection),
       signing_nsec_configured: Signer.signing_nsec_configured?(source),
-      options: source.options || %{}
+      start_guid: options["start_guid"],
+      body_selector: options["body_selector"],
+      start_at: options["start_at"],
+      skip_classes: skip_classes_text(options),
+      conversion_rules: options["conversion_rules"] || [],
+      publish_after_date: source.publish_after_date,
+      options: options
     }
+  end
+
+  defp skip_classes_text(options) do
+    case options["skip_classes"] do
+      list when is_list(list) -> Enum.join(list, ", ")
+      text when is_binary(text) -> text
+      _ -> Composer.default_skip_classes_text()
+    end
   end
 
   defp post_summary(%Post{} = post) do
@@ -343,7 +400,11 @@ defmodule Rss2Nostr.MCP.Actions do
   end
 
   defp arg(args, key) when is_atom(key) do
-    Map.get(args, key) || Map.get(args, Atom.to_string(key))
+    cond do
+      Map.has_key?(args, key) -> Map.get(args, key)
+      Map.has_key?(args, to_string(key)) -> Map.get(args, to_string(key))
+      true -> nil
+    end
   end
 
   defp require_string(args, key) do

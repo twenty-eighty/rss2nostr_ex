@@ -166,6 +166,13 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
   end
 
   defp load_source(params) do
+    case load_existing_source(params) do
+      %Source{} = source -> source
+      _ -> build_preview_source(params)
+    end
+  end
+
+  defp load_existing_source(params) do
     id = params["source_id"] || params[:source_id]
 
     cond do
@@ -183,6 +190,70 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
 
       true ->
         nil
+    end
+  end
+
+  defp build_preview_source(params) do
+    publish_as = blank_to_nil(params["publish_as"] || params[:publish_as]) || "draft"
+
+    %Source{
+      url: blank_to_nil(params["url"] || params[:url]) || "",
+      language: blank_to_nil(params["language"] || params[:language]) || "de",
+      publish_as: publish_as,
+      default_post_kind: preview_post_kind(publish_as),
+      pubkey: blank_to_nil(params["pubkey"] || params[:pubkey]),
+      fetch_source_from:
+        blank_to_nil(params["fetch_source_from"] || params[:fetch_source_from]) ||
+          "fetch_from_url",
+      fixed_hashtags:
+        Event.normalize_hashtags(params["fixed_hashtags"] || params[:fixed_hashtags] || []),
+      options: preview_options(params)
+    }
+  end
+
+  defp preview_post_kind("article"), do: 30_023
+  defp preview_post_kind("video"), do: 34_235
+  defp preview_post_kind(_), do: 30_024
+
+  defp preview_options(params) do
+    %{}
+    |> maybe_preview_option("mirror_media", params)
+    |> maybe_preview_option("body_selector", params)
+    |> maybe_preview_option("start_at", params)
+    |> maybe_preview_skip_classes(params)
+    |> maybe_preview_conversion_rules(params)
+  end
+
+  defp maybe_preview_option(options, key, params) do
+    case blank_to_nil(params[key] || params[String.to_atom(key)]) do
+      nil -> options
+      value -> Map.put(options, key, value)
+    end
+  end
+
+  defp maybe_preview_skip_classes(options, params) do
+    if Map.has_key?(params, "skip_classes") or Map.has_key?(params, :skip_classes) do
+      Map.put(
+        options,
+        "skip_classes",
+        Composer.parse_skip_classes(params["skip_classes"] || params[:skip_classes])
+      )
+    else
+      options
+    end
+  end
+
+  defp maybe_preview_conversion_rules(options, params) do
+    if Map.has_key?(params, "conversion_rules") or Map.has_key?(params, :conversion_rules) do
+      Map.put(
+        options,
+        "conversion_rules",
+        Rss2Nostr.Processing.Conversion.parse_rules(
+          params["conversion_rules"] || params[:conversion_rules]
+        )
+      )
+    else
+      options
     end
   end
 

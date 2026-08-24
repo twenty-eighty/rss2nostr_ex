@@ -4,6 +4,8 @@ defmodule Rss2Nostr.Web.API.Settings do
   """
 
   alias Rss2Nostr.Nostr.{Blossom, Relays}
+  alias Rss2Nostr.Processing.Composer
+  alias Rss2NostrWeb.Language
 
   def get do
     %{
@@ -13,7 +15,26 @@ defmodule Rss2Nostr.Web.API.Settings do
       blossom_servers: Blossom.servers(),
       scheduler_intervals:
         Application.get_env(:rss2nostr, Rss2Nostr.Scheduler, [])[:intervals] || %{},
+      compose: compose_options(),
       version: "0.1.0"
+    }
+  end
+
+  defp compose_options do
+    %{
+      body_presets:
+        Enum.map(Composer.body_presets(), fn {label, selector} ->
+          %{label: label, selector: selector}
+        end),
+      languages:
+        Enum.map(Language.choices(), fn {code, label} ->
+          %{code: code, label: label}
+        end),
+      default_skip_classes: Composer.default_skip_classes_text(),
+      fetch_source_from: ~w(content fetch_from_url),
+      publish_as: ~w(draft draft_plain article video),
+      mirror_media: ~w(blossom original),
+      modes: ~w(setup automated)
     }
   end
 

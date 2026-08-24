@@ -13,7 +13,8 @@ defmodule Rss2Nostr.MCP.Server do
     run(fn _args, state -> reply(Actions.get_status(), state) end)
   end
 
-  tool "get_settings", "Non-secret settings: relays, upload endpoint, scheduler intervals" do
+  tool "get_settings",
+       "Non-secret settings: relays, upload endpoint, scheduler intervals, compose presets" do
     annotations(readOnlyHint: true)
     run(fn _args, state -> reply(Actions.get_settings(), state) end)
   end
@@ -41,19 +42,41 @@ defmodule Rss2Nostr.MCP.Server do
     run(fn args, state -> reply(Actions.preview_feed(args), state) end)
   end
 
-  tool "preview_compose", "Preview Markdown conversion for a feed item" do
+  tool "preview_compose", "Preview Markdown conversion and Nostr event shape for a feed item" do
     annotations(readOnlyHint: true)
     param(:url, :string, required: true, description: "Feed URL")
-    param(:guid, :string, description: "Optional item guid")
-    param(:source_id, :integer, description: "Existing source to reuse settings from")
+    param(:guid, :string, description: "Optional item guid; defaults to the first item")
+    param(:type, :string, description: "rss or atom when auto-detection fails")
+    param(:source_id, :integer, description: "Existing source to reuse saved settings from")
+
+    param(:fetch_source_from, :string,
+      description: "content (feed XML) or fetch_from_url (article page)"
+    )
+
+    param(:publish_as, :string,
+      description: "draft, draft_plain, article, or video for the event preview"
+    )
+
+    param(:pubkey, :string, description: "Author npub or hex for draft previews")
     param(:body_selector, :string, description: "CSS selector for the article body")
-    param(:start_at, :string, description: "Skip content before this marker")
+    param(:start_at, :string, description: "XPath marker: skip content before this block")
     param(:skip_classes, :string, description: "Comma-separated CSS class fragments to drop")
+
+    param(:body_selector_auto, :string,
+      description: "true to auto-pick a body selector when body_selector is empty"
+    )
+
+    param(:conversion_rules, :string, description: "Custom HTML conversion rules JSON")
 
     param(:excluded_hashtags, :string,
       description: "Comma-separated RSS categories dropped from published t tags"
     )
 
+    param(:fixed_hashtags, :string,
+      description: "Comma-separated hashtags added to every article"
+    )
+
+    param(:mirror_media, :string, description: "For video previews: blossom or original")
     param(:language, :string, description: "ISO 639-1 feed language for generated labels")
     run(fn args, state -> reply(Actions.preview_compose(args), state) end)
   end
@@ -63,6 +86,8 @@ defmodule Rss2Nostr.MCP.Server do
     param(:url, :string, required: true, description: "Feed URL")
     param(:type, :string, description: "rss or atom (default atom)")
     param(:language, :string, description: "ISO 639-1 language code (default de)")
+    param(:active, :boolean, description: "Enable imports for this source (default true)")
+    param(:mode, :string, description: "setup or automated (default setup)")
     param(:publish_as, :string, description: "draft, draft_plain, article, or video")
     param(:mirror_media, :string, description: "For video sources: blossom or original")
 
@@ -72,9 +97,11 @@ defmodule Rss2Nostr.MCP.Server do
     param(:bunker_connection, :string, description: "NIP-46 bunker URL for article sources")
     param(:fetch_source_from, :string, description: "content or fetch_from_url")
     param(:body_selector, :string, description: "CSS selector for the article body")
-    param(:start_at, :string, description: "Skip content before this marker")
+    param(:start_at, :string, description: "XPath marker: skip content before this block")
     param(:skip_classes, :string, description: "Comma-separated CSS class fragments to drop")
-    param(:start_published_at, :string, description: "ISO-8601; skip older articles")
+    param(:conversion_rules, :string, description: "Custom HTML conversion rules JSON")
+    param(:start_guid, :string, description: "Item guid to start importing from")
+    param(:start_published_at, :string, description: "ISO-8601; skip articles older than this")
 
     param(:staging_hold_minutes, :integer,
       description: "Minutes to wait after staging before auto-publish"
@@ -93,6 +120,8 @@ defmodule Rss2Nostr.MCP.Server do
       description: "Comma-separated RSS categories dropped from published t tags"
     )
 
+    param(:public, :boolean, description: "Legacy public flag on the source record")
+
     run(fn args, state -> reply(Actions.add_source(args), state) end)
   end
 
@@ -101,6 +130,8 @@ defmodule Rss2Nostr.MCP.Server do
     param(:name, :string)
     param(:url, :string)
     param(:language, :string)
+    param(:active, :boolean)
+    param(:public, :boolean)
     param(:publish_as, :string, description: "draft, draft_plain, article, or video")
     param(:mirror_media, :string, description: "For video sources: blossom or original")
     param(:mode, :string, description: "setup or automated")
@@ -109,8 +140,10 @@ defmodule Rss2Nostr.MCP.Server do
     param(:bunker_connection, :string)
     param(:fetch_source_from, :string)
     param(:body_selector, :string)
-    param(:start_at, :string)
+    param(:start_at, :string, description: "XPath marker: skip content before this block")
     param(:skip_classes, :string)
+    param(:conversion_rules, :string, description: "Custom HTML conversion rules JSON")
+    param(:start_guid, :string, description: "Item guid to start importing from")
     param(:start_published_at, :string)
 
     param(:staging_hold_minutes, :integer,
@@ -189,6 +222,17 @@ defmodule Rss2Nostr.MCP.Server do
   tool "process_post", "Convert an article to Markdown and upload images" do
     param(:post_id, :integer, required: true)
     run(fn args, state -> reply(Actions.process_post(args), state) end)
+  end
+
+  tool "upload_post_images",
+       "Upload pending images for an article (same as process_post for pending_images status)" do
+    param(:post_id, :integer, required: true)
+    run(fn args, state -> reply(Actions.upload_post_images(args), state) end)
+  end
+
+  tool "reprocess_post", "Reconvert one article from stored HTML" do
+    param(:post_id, :integer, required: true)
+    run(fn args, state -> reply(Actions.reprocess_post(args), state) end)
   end
 
   tool "publish_post", "Publish one staging article, or republish a published article" do
@@ -274,12 +318,15 @@ defmodule Rss2Nostr.MCP.Server do
        """
        Add this site as an RSS2Nostr source: #{website}
 
-       1. Call discover_feeds with the URL.
-       2. Call preview_feed on the best feed.
-       3. Call add_source with name, url, language, and publish_as.
-          Drafts need pubkey. Articles need signing_nsec or bunker_connection.
-       4. Optionally preview_compose and update_source with a body_selector.
-       5. Call import_source, then list_posts for that source.
+       1. get_settings for compose presets, languages, and relay lists.
+       2. discover_feeds with the URL, then preview_feed on the best feed.
+       3. preview_compose on a sample item. Try fetch_source_from, body_selector,
+          start_at, publish_as, and pubkey before saving.
+       4. add_source with name, url, language, publish_as, composition, and publishing
+          fields. Drafts need pubkey. Articles need signing_nsec or bunker_connection.
+          Set start_guid from preview_feed when limiting the import window.
+       5. update_source with mode automated once signing is configured.
+       6. import_source, then list_posts. Use upload_post_images for pending_images.
        """, state}
     end)
   end
@@ -292,7 +339,7 @@ defmodule Rss2Nostr.MCP.Server do
 
        1. get_status
        2. list_posts with status pending_images, then processed, then error
-       3. process_post or reprocess_posts for failures
+       3. upload_post_images, process_post, reprocess_post, or reprocess_posts for failures
        4. publish_post only for processed articles
        """, state}
     end)

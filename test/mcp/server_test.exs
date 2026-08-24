@@ -14,6 +14,8 @@ defmodule Rss2Nostr.MCP.ServerTest do
     assert "publish_post" in names
     assert "update_post" in names
     assert "revise_post" in names
+    assert "upload_post_images" in names
+    assert "reprocess_post" in names
     assert "run_scheduler_task" in names
   end
 
