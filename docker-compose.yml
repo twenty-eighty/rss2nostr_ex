@@ -23,6 +23,7 @@ services:
       SECRET_KEY_BASE: change-me-use-openssl-rand-base64-48
       ADMIN_NOSTR_PUBKEYS: ""
       NOSTR_NSEC: ""
+      # SCHEDULER_AUTO_START: "true"
     depends_on:
       db:
         condition: service_healthy

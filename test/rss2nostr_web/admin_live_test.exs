@@ -28,7 +28,8 @@ defmodule Rss2NostrWeb.AdminLiveTest do
   end
 
   defp create_post(source, attrs) do
-    url = attrs[:source_url] || "https://example.com/article-#{System.unique_integer([:positive])}"
+    url =
+      attrs[:source_url] || "https://example.com/article-#{System.unique_integer([:positive])}"
 
     {:ok, post} =
       Posts.create_post(

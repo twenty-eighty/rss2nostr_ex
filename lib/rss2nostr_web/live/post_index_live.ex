@@ -29,6 +29,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
 
     {:noreply,
      socket
+     |> apply_query_flash(params)
      |> assign(:status, status)
      |> assign(:source_id, source_id)
      |> assign(:q, q)
@@ -219,7 +220,14 @@ defmodule Rss2NostrWeb.PostIndexLive do
           </option>
         </select>
         <label for="q">Contains</label>
-        <input type="search" id="q" name="q" value={@q} placeholder="Filter articles" phx-debounce="400" />
+        <input
+          type="search"
+          id="q"
+          name="q"
+          value={@q}
+          placeholder="Filter articles"
+          phx-debounce="400"
+        />
         <button type="submit" class="btn btn-small">Apply</button>
       </form>
     </div>
@@ -270,7 +278,9 @@ defmodule Rss2NostrWeb.PostIndexLive do
       </thead>
       <tbody>
         <%= if @posts == [] do %>
-          <tr><td colspan="6" class="empty-state">No posts found.</td></tr>
+          <tr>
+            <td colspan="6" class="empty-state">No posts found.</td>
+          </tr>
         <% else %>
           <tr :for={post <- @posts} id={"post-#{post.id}"}>
             <td class="article-select">

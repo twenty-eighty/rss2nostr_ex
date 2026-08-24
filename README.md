@@ -43,7 +43,7 @@ The app ships as an Elixir release in a multi-stage Docker image. Coolify (or an
 | `ADMIN_NOSTR_PUBKEYS` | Comma-separated npub/hex keys for admin login |
 | `NOSTR_NSEC` | Nostr private key for publishing |
 
-Also set `MCP_TOKEN` if remote MCP clients will call `/mcp`, and relay variables as needed (`NOSTR_RELAYS_PUBLIC`, etc.).
+Also set `MCP_TOKEN` if remote MCP clients will call `/mcp`, and relay variables as needed (`NOSTR_RELAYS_PUBLIC`, etc.). Set `SCHEDULER_AUTO_START=true` if the import/process/export timers should run as soon as the container starts.
 
 On startup the container runs database migrations automatically. Set `SKIP_MIGRATIONS=true` to disable that.
 
@@ -108,6 +108,7 @@ Copy `.env.example` to `.env`. Values are loaded at runtime (OS environment vari
 | `NOSTR_RELAYS` | Alias for `NOSTR_RELAYS_TEST` if that variable is unset | No |
 | `NOSTR_RELAY_AUDIENCE` | Default audience when a source is missing: `test` or `public` | No |
 | `NOSTR_UPLOAD_ENDPOINT` | Blossom server base URL (BUD-02 `PUT /upload`) | For image upload |
+| `SCHEDULER_AUTO_START` | `true`/`1`/`yes`/`on` starts import/process/export/cleanup timers with the server (default: off) | No |
 | `DATABASE_URL` | PostgreSQL connection URL | For production |
 
 ### Config File
@@ -202,6 +203,8 @@ Draft sources always publish to the **draft** list (or **test** if that list is 
 ```
 
 #### Scheduler
+
+The HTTP server starts the scheduler process idle. Set `SCHEDULER_AUTO_START=true` to start the timers on boot, or use Start on `/scheduler`. The CLI command below always starts them.
 
 ```bash
 # Start the scheduler daemon

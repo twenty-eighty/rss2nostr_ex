@@ -18,8 +18,8 @@ defmodule Rss2Nostr.Application do
         # Nostr Relay Registry
         {Registry, keys: :unique, name: Rss2Nostr.RelayRegistry},
 
-        # Import / process / export / cleanup. Start/Stop on the Scheduler
-        # page only toggles timers; the process itself stays up.
+        # Import / process / export / cleanup. The process always stays up;
+        # timers start when SCHEDULER_AUTO_START=true or when Start is clicked.
         {Rss2Nostr.Scheduler, []},
         {Phoenix.PubSub, name: Rss2Nostr.PubSub}
       ] ++ web_children()

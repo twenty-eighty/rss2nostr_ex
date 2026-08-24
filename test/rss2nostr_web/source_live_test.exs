@@ -1,6 +1,8 @@
-defmodule Rss2Nostr.Web.Views.SourcesTest do
+defmodule Rss2NostrWeb.SourceLiveTest do
   use Rss2NostrWeb.ConnCase, async: false
 
+  alias Rss2Nostr.Posts
+  alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources, as: SourcesContext
 
   def unique_url do
@@ -39,6 +41,7 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "/sources/#{source.id}"
       assert html =~ "Open"
       assert html =~ "Duplicate"
+      assert html =~ ~s(data-confirm="Delete this source and all of its articles?")
     end
 
     test "includes the author pubkey for the profile image", %{conn: conn} do
@@ -152,10 +155,10 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       url = "https://example.com/article-#{System.unique_integer([:positive])}"
 
       {:ok, post} =
-        Rss2Nostr.Posts.create_post(%{
+        Posts.create_post(%{
           title: "Preview Return Article",
           source_url: url,
-          source_url_hash: Rss2Nostr.Posts.Post.generate_url_hash(url),
+          source_url_hash: Post.generate_url_hash(url),
           status: 2,
           source_id: source.id
         })
@@ -178,10 +181,10 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       url = "https://example.com/article-#{System.unique_integer([:positive])}"
 
       {:ok, post} =
-        Rss2Nostr.Posts.create_post(%{
+        Posts.create_post(%{
           title: "Pending Pixel Article",
           source_url: url,
-          source_url_hash: Rss2Nostr.Posts.Post.generate_url_hash(url),
+          source_url_hash: Post.generate_url_hash(url),
           status: 9,
           source_id: source.id
         })
@@ -190,7 +193,7 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
 
       assert html =~ ~s(name="post_ids[]" value="#{post.id}")
       assert html =~ ~s(data-publishable="false")
-      assert html =~ "js-upload-images"
+      assert html =~ "Upload images"
       assert html =~ "Reprocess selected"
     end
 

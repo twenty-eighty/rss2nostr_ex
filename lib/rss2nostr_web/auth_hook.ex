@@ -9,19 +9,17 @@ defmodule Rss2NostrWeb.AuthHook do
   def on_mount(:require_admin, _params, session, socket) do
     pubkey = session_pubkey(session)
 
-    cond do
-      is_binary(pubkey) and Auth.allowed?(pubkey) ->
-        Auth.put_current_pubkey(pubkey)
+    if is_binary(pubkey) and Auth.allowed?(pubkey) do
+      Auth.put_current_pubkey(pubkey)
 
-        {:cont,
-         socket
-         |> assign(:current_pubkey, pubkey)
-         |> assign(:current_npub, Auth.current_npub())
-         |> assign(:wide, false)
-         |> assign(:active_nav, "")}
-
-      true ->
-        {:halt, redirect(socket, to: "/login?next=#{URI.encode_www_form(requested_path(socket))}")}
+      {:cont,
+       socket
+       |> assign(:current_pubkey, pubkey)
+       |> assign(:current_npub, Auth.current_npub())
+       |> assign(:wide, false)
+       |> assign(:active_nav, "")}
+    else
+      {:halt, redirect(socket, to: "/login?next=#{URI.encode_www_form(requested_path(socket))}")}
     end
   end
 

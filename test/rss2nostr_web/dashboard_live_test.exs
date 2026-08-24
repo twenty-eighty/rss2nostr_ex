@@ -1,4 +1,4 @@
-defmodule Rss2Nostr.Web.Views.DashboardTest do
+defmodule Rss2NostrWeb.DashboardLiveTest do
   use Rss2NostrWeb.ConnCase, async: false
 
   describe "GET /" do

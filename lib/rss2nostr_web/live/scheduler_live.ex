@@ -45,6 +45,9 @@ defmodule Rss2NostrWeb.SchedulerLive do
       <div class={"status-indicator #{if @status.running, do: "status-running", else: "status-stopped"}"}>
         Status: {if @status.running, do: "Running", else: "Stopped"}
       </div>
+      <p class="help-text">
+        Timers stay off until you click Start, unless <code>SCHEDULER_AUTO_START=true</code> is set.
+      </p>
       <div class="scheduler-controls">
         <button
           :if={@status.running}
@@ -79,7 +82,11 @@ defmodule Rss2NostrWeb.SchedulerLive do
           </tr>
         </thead>
         <tbody>
-          <.task_row :for={task <- ["import", "process", "export", "cleanup"]} task={task} status={@status} />
+          <.task_row
+            :for={task <- ["import", "process", "export", "cleanup"]}
+            task={task}
+            status={@status}
+          />
         </tbody>
       </table>
     </div>

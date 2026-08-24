@@ -56,11 +56,25 @@ defmodule Rss2Nostr.Scheduler do
     - :relays - Explicit relay URLs (optional; otherwise per-source draft/public)
     - :audience - `:test` or `:public` (optional; forces one list for every post)
     - :upload_images - Whether to upload images
-  - :auto_start - Start scheduling immediately (default: false)
+  - :auto_start - Start scheduling immediately (default: `SCHEDULER_AUTO_START`
+    or application config, otherwise false)
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @doc false
+  def auto_start?(opts \\ []) do
+    case Keyword.fetch(opts, :auto_start) do
+      {:ok, value} ->
+        enabled?(value)
+
+      :error ->
+        Application.get_env(:rss2nostr, __MODULE__, [])
+        |> Keyword.get(:auto_start, false)
+        |> enabled?()
+    end
   end
 
   @doc """
@@ -131,7 +145,7 @@ defmodule Rss2Nostr.Scheduler do
       |> Map.merge(Keyword.get(opts, :intervals, %{}))
 
     export_config = Keyword.get(opts, :export_config) || default_export_config()
-    auto_start = Keyword.get(opts, :auto_start, false)
+    auto_start = auto_start?(opts)
 
     state = %__MODULE__{
       intervals: intervals,
@@ -313,6 +327,14 @@ defmodule Rss2Nostr.Scheduler do
   defp format_duration(ms) when ms < 60_000, do: "#{div(ms, 1000)}s"
   defp format_duration(ms) when ms < 3_600_000, do: "#{div(ms, 60_000)}m"
   defp format_duration(ms), do: "#{div(ms, 3_600_000)}h"
+
+  defp enabled?(true), do: true
+
+  defp enabled?(value) when is_binary(value) do
+    String.downcase(String.trim(value)) in ~w(1 true yes on)
+  end
+
+  defp enabled?(_), do: false
 
   defp default_export_config do
     nsec = System.get_env("NOSTR_NSEC")

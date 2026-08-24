@@ -1,26 +1,93 @@
 defmodule Rss2NostrWeb.LiveHelpers do
   @moduledoc false
 
+  alias Phoenix.LiveView
   alias Rss2Nostr.Nostr.{Relays, Signer}
   alias Rss2Nostr.Posts.Post
+  alias Rss2Nostr.Processing.{BodySchema, Composer}
   alias Rss2Nostr.Sources.Source
-  alias Rss2Nostr.Web.Views.Sources.{Helpers, Language}
+  alias Rss2NostrWeb.Language
 
   @avatar_placeholder "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect fill='%23e5e7eb' width='32' height='32' rx='16'/%3E%3C/svg%3E"
 
-  def truncate(value, max), do: Helpers.truncate(value, max)
-  def format_datetime(value), do: Helpers.format_datetime(value)
-  def status_class(status), do: Helpers.status_class(status)
+  def truncate(str, max) when is_binary(str) do
+    if String.length(str) > max, do: String.slice(str, 0, max) <> "...", else: str
+  end
+
+  def truncate(nil, _max), do: ""
+
+  def format_datetime(nil), do: "-"
+  def format_datetime(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+
+  def status_class(status) do
+    case status do
+      0 -> "badge-new"
+      1 -> "badge-processing"
+      2 -> "badge-processed"
+      6 -> "badge-published"
+      9 -> "badge-pending-images"
+      _ -> "badge-error"
+    end
+  end
+
   def status_label(status), do: Post.status_label(status)
-  def option(source, key), do: Helpers.option(source, key)
-  def skip_classes_text(source), do: Helpers.skip_classes_text(source)
-  def known_body_schema?(selector, source), do: Helpers.known_body_schema?(selector, source)
-  def start_label(source, start_guid, start_at), do: Helpers.start_label(source, start_guid, start_at)
-  def datetime_value(value), do: Helpers.datetime_value(value)
-  def relay_target_label(target), do: Helpers.relay_target_label(target)
-  def relay_badge_class(target), do: Helpers.relay_badge_class(target)
-  def relay_target_name(target), do: Helpers.relay_target_name(target)
-  def avatar_relays, do: Helpers.avatar_relays()
+
+  def option(nil, _key), do: nil
+
+  def option(source, key) do
+    (source.options || %{})[key]
+  end
+
+  def skip_classes_text(nil), do: Composer.default_skip_classes_text()
+
+  def skip_classes_text(source) do
+    case option(source, "skip_classes") do
+      nil -> Composer.default_skip_classes_text()
+      list when is_list(list) -> Enum.join(list, ", ")
+      text when is_binary(text) -> text
+      _ -> Composer.default_skip_classes_text()
+    end
+  end
+
+  def known_body_schema?(selector, source) do
+    sel = selector |> to_string() |> String.trim()
+    url = source && Map.get(source, :url)
+
+    BodySchema.known_selector?(sel) or
+      (sel == "" and is_binary(BodySchema.selector_for_url(url)))
+  end
+
+  def start_label(source, start_guid, start_at) do
+    cond do
+      start_guid not in [nil, ""] -> start_guid
+      start_at not in [nil, ""] -> start_at
+      source.publish_after_date -> datetime_value(source.publish_after_date)
+      true -> "beginning of the feed"
+    end
+  end
+
+  def datetime_value(nil), do: ""
+  def datetime_value(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  def datetime_value(value) when is_binary(value), do: value
+
+  def relay_target_label(:draft), do: "Draft relays"
+  def relay_target_label(:public), do: "Public relays"
+  def relay_target_label(_), do: "Test relays"
+
+  def relay_badge_class(:public), do: "badge-public"
+  def relay_badge_class(_), do: "badge-test"
+
+  def relay_target_name(:draft), do: "draft relays"
+  def relay_target_name(:public), do: "public relays"
+  def relay_target_name(_), do: "test relays"
+
+  def avatar_relays do
+    (Relays.draft() ++ Relays.test() ++ Relays.public())
+    |> Enum.uniq()
+    |> Enum.take(4)
+    |> Enum.join(",")
+  end
+
   def avatar_placeholder, do: @avatar_placeholder
   def author_pubkey(source), do: Signer.author_pubkey(source)
   def target_for(source), do: Relays.target_for(source)
@@ -63,6 +130,27 @@ defmodule Rss2NostrWeb.LiveHelpers do
   end
 
   def format_update_error(reason), do: to_string(reason)
+
+  def apply_query_flash(socket, params) do
+    notice = params["notice"]
+
+    cond do
+      notice in [nil, ""] and params["saved"] == "1" ->
+        LiveView.put_flash(socket, :info, "Settings saved.")
+
+      notice in [nil, ""] ->
+        socket
+
+      params["notice_kind"] == "error" ->
+        LiveView.put_flash(socket, :error, notice)
+
+      params["notice_kind"] == "warning" ->
+        LiveView.put_flash(socket, :warning, notice)
+
+      true ->
+        LiveView.put_flash(socket, :info, notice)
+    end
+  end
 
   def import_notice(result) do
     skipped =
@@ -115,7 +203,8 @@ defmodule Rss2NostrWeb.LiveHelpers do
   def join_tags(list) when is_list(list), do: Enum.join(list, ", ")
   def join_tags(value), do: to_string(value)
 
-  def source_path(%Source{id: id}, tab) when tab in ["feed", "compose", "articles", "publishing"] do
+  def source_path(%Source{id: id}, tab)
+      when tab in ["feed", "compose", "articles", "publishing"] do
     "/sources/#{id}?tab=#{tab}"
   end
 

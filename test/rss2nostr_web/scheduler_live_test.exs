@@ -1,4 +1,4 @@
-defmodule Rss2Nostr.Web.Views.SchedulerTest do
+defmodule Rss2NostrWeb.SchedulerLiveTest do
   use Rss2NostrWeb.ConnCase, async: false
 
   alias Rss2Nostr.Posts
@@ -36,6 +36,7 @@ defmodule Rss2Nostr.Web.Views.SchedulerTest do
     assert html =~ "Drafts deleted"
     assert html =~ ">#{Posts.count_draft_cleaned()}<"
     assert html =~ "runs every hour"
+    assert html =~ "SCHEDULER_AUTO_START"
     assert html =~ ">1h<" or html =~ ">1 hour<"
   end
 end

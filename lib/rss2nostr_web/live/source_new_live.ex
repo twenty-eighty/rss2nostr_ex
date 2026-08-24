@@ -23,6 +23,11 @@ defmodule Rss2NostrWeb.SourceNewLive do
   end
 
   @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply, apply_query_flash(socket, params)}
+  end
+
+  @impl true
   def handle_event("form_changed", params, socket) do
     form = merge_form(socket.assigns.form, params)
 
@@ -103,42 +108,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
 
   @impl true
   def handle_async(:discover, {:ok, {:ok, result}}, socket) do
-    feeds = result[:feeds] || result["feeds"] || []
-    items = result[:items] || result["items"] || []
-    page_title = result[:page_title] || result["page_title"]
-    language = language_from(result)
-    direct? = result[:direct_feed] || result["direct_feed"]
-    selected = List.first(feeds)
-
-    form =
-      socket.assigns.form
-      |> maybe_put_name(page_title)
-      |> maybe_put_language(language)
-      |> maybe_put_feed(selected)
-      |> maybe_put_start(items)
-
-    socket =
-      socket
-      |> assign(:busy, false)
-      |> assign(:details?, feeds != [])
-      |> assign(:feeds, feeds)
-      |> assign(:items, items)
-      |> assign(:form, form)
-      |> assign(:discover_error, if(feeds == [], do: "No RSS or Atom feeds found on this page."))
-      |> assign(:discover_status, if(direct?, do: "Using this feed URL.", else: nil))
-
-    socket =
-      if feeds != [] and items == [] and selected do
-        url = feed_url(selected)
-
-        socket
-        |> assign(:discover_status, "Loading articles…")
-        |> start_async(:preview, fn -> SourcesAPI.preview(%{"url" => url}) end)
-      else
-        socket
-      end
-
-    {:noreply, socket}
+    {:noreply, apply_discover_result(socket, result)}
   end
 
   def handle_async(:discover, {:ok, {:error, reason}}, socket) do
@@ -197,7 +167,12 @@ defmodule Rss2NostrWeb.SourceNewLive do
     ~H"""
     <h1>Add Source</h1>
 
-    <form id="add-source-form" phx-change="form_changed" phx-submit="save" class="form form-wide form-compose">
+    <form
+      id="add-source-form"
+      phx-change="form_changed"
+      phx-submit="save"
+      class="form form-wide form-compose"
+    >
       <div class="form-group">
         <label for="website">Website or feed URL</label>
         <div class="input-row">
@@ -210,11 +185,19 @@ defmodule Rss2NostrWeb.SourceNewLive do
             placeholder="https://example.com or https://example.com/feed.xml"
             value={@form["website"]}
           />
-          <button type="button" class="btn btn-secondary" id="discover-button" phx-click="discover" disabled={@busy}>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            id="discover-button"
+            phx-click="discover"
+            disabled={@busy}
+          >
             Find feeds
           </button>
         </div>
-        <p class="help-text">Paste a website to discover its feeds, or paste an RSS/Atom URL directly.</p>
+        <p class="help-text">
+          Paste a website to discover its feeds, or paste an RSS/Atom URL directly.
+        </p>
         <p id="discover-status" class="help-text">{@discover_status}</p>
         <p :if={@discover_error} id="discover-error" class="error">{@discover_error}</p>
       </div>
@@ -253,7 +236,14 @@ defmodule Rss2NostrWeb.SourceNewLive do
 
         <div class="form-group">
           <label for="name">Name</label>
-          <input type="text" id="name" name="name" required placeholder="e.g., Heise News" value={@form["name"]} />
+          <input
+            type="text"
+            id="name"
+            name="name"
+            required
+            placeholder="e.g., Heise News"
+            value={@form["name"]}
+          />
           <.field_error field={:name} errors={@errors} />
         </div>
 
@@ -357,14 +347,23 @@ defmodule Rss2NostrWeb.SourceNewLive do
           <input type="radio" name="publish_as" value="draft" checked={@publish_as == "draft"} />
           <span>
             <strong>Draft (encrypted, NIP-37)</strong>
-            <span class="help-text">Signed by the app key and NIP-44-encrypted into a kind 31234 wrap. The author’s pubkey is a <code>p</code> tag.</span>
+            <span class="help-text">Signed by the app key and NIP-44-encrypted into a kind 31234 wrap. The author’s pubkey is a
+            <code>p</code>
+            tag.</span>
           </span>
         </label>
         <label class="choice">
-          <input type="radio" name="publish_as" value="draft_plain" checked={@publish_as == "draft_plain"} />
+          <input
+            type="radio"
+            name="publish_as"
+            value="draft_plain"
+            checked={@publish_as == "draft_plain"}
+          />
           <span>
             <strong>Draft (unencrypted)</strong>
-            <span class="help-text">A kind 30024 event signed by the app key. The author’s pubkey is a <code>p</code> tag.</span>
+            <span class="help-text">A kind 30024 event signed by the app key. The author’s pubkey is a
+            <code>p</code>
+            tag.</span>
           </span>
         </label>
         <label class="choice">
@@ -394,14 +393,25 @@ defmodule Rss2NostrWeb.SourceNewLive do
         <legend>Video file</legend>
         <div class="choice-list">
           <label class="choice">
-            <input type="radio" name="mirror_media" value="blossom" checked={@form["mirror_media"] != "original"} />
+            <input
+              type="radio"
+              name="mirror_media"
+              value="blossom"
+              checked={@form["mirror_media"] != "original"}
+            />
             <span>
               <strong>Mirror to Blossom</strong>
-              <span class="help-text">Upload the MP4 to <code>NOSTR_UPLOAD_ENDPOINT</code> and put that URL on the event.</span>
+              <span class="help-text">Upload the MP4 to <code>NOSTR_UPLOAD_ENDPOINT</code>
+              and put that URL on the event.</span>
             </span>
           </label>
           <label class="choice">
-            <input type="radio" name="mirror_media" value="original" checked={@form["mirror_media"] == "original"} />
+            <input
+              type="radio"
+              name="mirror_media"
+              value="original"
+              checked={@form["mirror_media"] == "original"}
+            />
             <span>
               <strong>Link original URL</strong>
               <span class="help-text">Leave the feed enclosure URL as-is. No download or upload.</span>
@@ -423,16 +433,26 @@ defmodule Rss2NostrWeb.SourceNewLive do
           autocomplete="off"
         />
         <.field_error field={:pubkey} errors={@errors} />
-        <p class="help-text">Required for drafts. Added as a <code>p</code> tag so the intended author is known.</p>
+        <p class="help-text">
+          Required for drafts. Added as a <code>p</code> tag so the intended author is known.
+        </p>
       </div>
     </div>
 
     <div id="article-signer-fields" hidden={not @article?}>
       <div class="form-group">
         <label for="signing_nsec">Author private key (nsec)</label>
-        <input type="password" id="signing_nsec" name="signing_nsec" autocomplete="new-password" placeholder="nsec1…" />
+        <input
+          type="password"
+          id="signing_nsec"
+          name="signing_nsec"
+          autocomplete="new-password"
+          placeholder="nsec1…"
+        />
         <.field_error field={:signing_nsec} errors={@errors} />
-        <p class="help-text">Required for articles and videos unless a bunker URL is set. Stored encrypted.</p>
+        <p class="help-text">
+          Required for articles and videos unless a bunker URL is set. Stored encrypted.
+        </p>
       </div>
       <div class="form-group">
         <label for="bunker_connection">Bunker URL</label>
@@ -500,6 +520,53 @@ defmodule Rss2NostrWeb.SourceNewLive do
     end
   end
 
+  defp apply_discover_result(socket, result) do
+    feeds = result_list(result, :feeds)
+    items = result_list(result, :items)
+    selected = List.first(feeds)
+
+    form =
+      socket.assigns.form
+      |> maybe_put_name(result_get(result, :page_title))
+      |> maybe_put_language(language_from(result))
+      |> maybe_put_feed(selected)
+      |> maybe_put_start(items)
+
+    socket
+    |> assign(:busy, false)
+    |> assign(:details?, feeds != [])
+    |> assign(:feeds, feeds)
+    |> assign(:items, items)
+    |> assign(:form, form)
+    |> assign(:discover_error, empty_feeds_error(feeds))
+    |> assign(:discover_status, direct_feed_status(result))
+    |> maybe_load_preview_items(feeds, items, selected)
+  end
+
+  defp result_list(result, key), do: result_get(result, key) || []
+
+  defp result_get(result, key) do
+    result[key] || result[Atom.to_string(key)]
+  end
+
+  defp empty_feeds_error([]), do: "No RSS or Atom feeds found on this page."
+  defp empty_feeds_error(_feeds), do: nil
+
+  defp direct_feed_status(result) do
+    if result[:direct_feed] || result["direct_feed"], do: "Using this feed URL.", else: nil
+  end
+
+  defp maybe_load_preview_items(socket, [_ | _] = _feeds, [], selected)
+       when not is_nil(selected) do
+    url = feed_url(selected)
+
+    socket
+    |> assign(:discover_status, "Loading articles…")
+    |> start_async(:preview, fn -> SourcesAPI.preview(%{"url" => url}) end)
+  end
+
+  defp maybe_load_preview_items(socket, _feeds, _items, _selected), do: socket
+
   defp complete?(form, items) do
     present?(form["url"]) and present?(form["name"]) and present?(form["language"]) and
       start_ok?(form, items) and identity_ok?(form)
@@ -542,7 +609,8 @@ defmodule Rss2NostrWeb.SourceNewLive do
     |> Map.put("type", feed_type(feed) || form["type"])
   end
 
-  defp maybe_put_start(form, []), do: Map.merge(form, %{"start_guid" => "", "start_published_at" => ""})
+  defp maybe_put_start(form, []),
+    do: Map.merge(form, %{"start_guid" => "", "start_published_at" => ""})
 
   defp maybe_put_start(form, items) do
     item = List.last(items)
@@ -583,24 +651,25 @@ defmodule Rss2NostrWeb.SourceNewLive do
   defp item_published(%{"published_at" => published}), do: published
   defp item_published(_), do: nil
 
-  defp item_label(item) do
-    date =
-      case item_published(item) do
-        published when is_binary(published) and published != "" -> String.slice(published, 0, 10) <> " — "
-        _ -> ""
-      end
+  defp item_label(item), do: date_prefix(item) <> item_title(item)
 
-    title =
-      case item do
-        %{title: title} when is_binary(title) and title != "" -> title
-        %{"title" => title} when is_binary(title) and title != "" -> title
-        _ ->
-          case item_guid(item) do
-            "" -> "Untitled"
-            guid -> guid
-          end
-      end
+  defp date_prefix(item) do
+    case item_published(item) do
+      published when is_binary(published) and published != "" ->
+        String.slice(published, 0, 10) <> " — "
 
-    date <> title
+      _ ->
+        ""
+    end
+  end
+
+  defp item_title(%{title: title}) when is_binary(title) and title != "", do: title
+  defp item_title(%{"title" => title}) when is_binary(title) and title != "", do: title
+
+  defp item_title(item) do
+    case item_guid(item) do
+      "" -> "Untitled"
+      guid -> guid
+    end
   end
 end

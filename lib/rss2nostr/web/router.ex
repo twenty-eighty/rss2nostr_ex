@@ -75,8 +75,7 @@ defmodule Rss2Nostr.Web.Router do
         redirect(conn, "/sources/#{source.id}")
 
       {:error, changeset} ->
-        html = Views.Sources.new(errors: changeset_errors(changeset), params: conn.body_params)
-        send_html(conn, 422, html)
+        redirect(conn, with_flash("/sources/new", format_update_error(changeset), "error"))
     end
   end
 
@@ -90,14 +89,14 @@ defmodule Rss2Nostr.Web.Router do
             redirect(conn, "/sources/#{updated.id}?tab=#{tab}&saved=1")
 
           {:error, changeset} ->
-            html =
-              Views.Sources.show(source,
-                tab: tab,
-                errors: changeset_errors(changeset),
-                params: conn.body_params
+            redirect(
+              conn,
+              with_flash(
+                "/sources/#{source.id}?tab=#{tab}",
+                format_update_error(changeset),
+                "error"
               )
-
-            send_html(conn, 422, html)
+            )
         end
 
       {:error, :not_found} ->
@@ -557,14 +556,6 @@ defmodule Rss2Nostr.Web.Router do
   defp login_error_message(:invalid_signature), do: "Invalid event signature."
   defp login_error_message(:invalid_id), do: "Invalid event id."
   defp login_error_message(reason), do: "Login failed (#{reason})."
-
-  defp changeset_errors(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
-    end)
-  end
 
   defp import_notice(result) do
     skipped =

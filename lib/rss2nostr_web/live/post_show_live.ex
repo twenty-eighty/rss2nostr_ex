@@ -42,6 +42,7 @@ defmodule Rss2NostrWeb.PostShowLive do
 
     {:noreply,
      socket
+     |> apply_query_flash(params)
      |> assign(:return_to, back)
      |> assign(:page_title, socket.assigns.post.title || "Post")}
   end
@@ -78,7 +79,12 @@ defmodule Rss2NostrWeb.PostShowLive do
   end
 
   def handle_event("revise", _params, socket) do
-    run_action(socket, :revise, fn -> PostsAPI.revise(to_string(socket.assigns.post.id)) end, "Reconverted from HTML and moved to staging")
+    run_action(
+      socket,
+      :revise,
+      fn -> PostsAPI.revise(to_string(socket.assigns.post.id)) end,
+      "Reconverted from HTML and moved to staging"
+    )
   end
 
   def handle_event("publish", _params, socket) do
@@ -169,7 +175,10 @@ defmodule Rss2NostrWeb.PostShowLive do
           {relay_target_label(Relays.target_for(@post))}
         </span>
       </p>
-      <p :if={@post.last_error not in [nil, ""]} class={if @post.status == Post.status_published(), do: "warning", else: "error"}>
+      <p
+        :if={@post.last_error not in [nil, ""]}
+        class={if @post.status == Post.status_published(), do: "warning", else: "error"}
+      >
         <strong>{if @post.status == Post.status_published(), do: "Publish notes:", else: "Last error:"}</strong>
         {@post.last_error}
       </p>
@@ -284,9 +293,12 @@ defmodule Rss2NostrWeb.PostShowLive do
     <div id="post-event-tab" hidden={@tab != "event"}>
       <p class="help-text">
         {raw(event_tab_intro(@post))}
-        <code>id</code> and <code>sig</code> are added when publishing;
-        <code>created_at</code> is a preview timestamp.
-        Changing the title does not change the <code>d</code> tag.
+        <code>id</code>
+        and <code>sig</code>
+        are added when publishing; <code>created_at</code>
+        is a preview timestamp.
+        Changing the title does not change the <code>d</code>
+        tag.
       </p>
       {raw(@event_html)}
     </div>
@@ -391,7 +403,11 @@ defmodule Rss2NostrWeb.PostShowLive do
   defp images_section(assigns) do
     images = assigns.post.images || []
     show? = images != [] or present?(assigns.post.image)
-    rows = if images == [], do: [%{original_url: assigns.post.image, uploaded_url: uploaded_url(assigns.post.image)}], else: images
+
+    rows =
+      if images == [],
+        do: [%{original_url: assigns.post.image, uploaded_url: uploaded_url(assigns.post.image)}],
+        else: images
 
     assigns = assign(assigns, show?: show?, rows: rows)
 
@@ -614,7 +630,11 @@ defmodule Rss2NostrWeb.PostShowLive do
       parts
       |> Enum.with_index(1)
       |> Enum.map_join("", fn {event, index} ->
-        heading = if total > 1, do: "<p><strong>Part #{index}/#{total}</strong></p>\n", else: "<p><strong>Message</strong></p>\n"
+        heading =
+          if total > 1,
+            do: "<p><strong>Part #{index}/#{total}</strong></p>\n",
+            else: "<p><strong>Message</strong></p>\n"
+
         json = Jason.encode!(["EVENT", event], pretty: true)
         heading <> ~s(<pre class="compose-preview">#{escape_text(json)}</pre>\n)
       end)

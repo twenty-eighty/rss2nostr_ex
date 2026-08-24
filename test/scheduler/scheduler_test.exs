@@ -70,6 +70,49 @@ defmodule Rss2Nostr.SchedulerTest do
     end
   end
 
+  describe "auto_start?/1" do
+    setup do
+      original = Application.get_env(:rss2nostr, Scheduler, [])
+
+      on_exit(fn ->
+        Application.put_env(:rss2nostr, Scheduler, original)
+      end)
+
+      :ok
+    end
+
+    test "defaults to false from application config" do
+      Application.put_env(
+        :rss2nostr,
+        Scheduler,
+        Keyword.put(Application.get_env(:rss2nostr, Scheduler, []), :auto_start, false)
+      )
+
+      refute Scheduler.auto_start?([])
+    end
+
+    test "reads auto_start from application env" do
+      Application.put_env(
+        :rss2nostr,
+        Scheduler,
+        Keyword.put(Application.get_env(:rss2nostr, Scheduler, []), :auto_start, true)
+      )
+
+      assert Scheduler.auto_start?([])
+    end
+
+    test "start_link opts override application env" do
+      Application.put_env(
+        :rss2nostr,
+        Scheduler,
+        Keyword.put(Application.get_env(:rss2nostr, Scheduler, []), :auto_start, true)
+      )
+
+      refute Scheduler.auto_start?(auto_start: false)
+      assert Scheduler.auto_start?(auto_start: "true")
+    end
+  end
+
   describe "run_task/1" do
     test "runs import task" do
       result = Scheduler.run_task(:import)

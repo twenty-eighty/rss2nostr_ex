@@ -149,6 +149,26 @@ if import_interval = System.get_env("IMPORT_INTERVAL_MINUTES") do
   config :rss2nostr, :import, interval_minutes: String.to_integer(import_interval)
 end
 
+# Tests never auto-start timers, even if the OS env is set.
+if config_env() != :test do
+  case System.get_env("SCHEDULER_AUTO_START") do
+    value when is_binary(value) ->
+      case value |> String.trim() |> String.downcase() do
+        flag when flag in ["1", "true", "yes", "on"] ->
+          config :rss2nostr, Rss2Nostr.Scheduler, auto_start: true
+
+        flag when flag in ["0", "false", "no", "off"] ->
+          config :rss2nostr, Rss2Nostr.Scheduler, auto_start: false
+
+        _ ->
+          :ok
+      end
+
+    _ ->
+      :ok
+  end
+end
+
 if default_language = System.get_env("DEFAULT_LANGUAGE") do
   config :rss2nostr, :import, default_language: default_language
 end

@@ -111,7 +111,7 @@ defmodule Rss2NostrWeb.SourceIndexLive do
                 class="btn btn-small btn-danger"
                 phx-click="delete"
                 phx-value-id={source.id}
-                onclick="return confirm('Delete this source and all of its articles?')"
+                data-confirm="Delete this source and all of its articles?"
               >
                 Delete
               </button>

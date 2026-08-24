@@ -1,4 +1,4 @@
-defmodule Rss2Nostr.Web.Views.PostsTest do
+defmodule Rss2NostrWeb.PostLiveTest do
   use Rss2NostrWeb.ConnCase, async: false
 
   alias Rss2Nostr.Posts

@@ -5,6 +5,9 @@ config :rss2nostr,
 
 # Scheduler configuration
 config :rss2nostr, Rss2Nostr.Scheduler,
+  # Start import/process/export/cleanup timers with the app.
+  # Override with SCHEDULER_AUTO_START=true|false.
+  auto_start: false,
   # Task intervals in milliseconds
   intervals: %{
     # Fetch new articles every 15 minutes

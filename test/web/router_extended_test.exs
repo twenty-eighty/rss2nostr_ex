@@ -26,11 +26,14 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       assert location =~ ~r"^/sources/\d+$"
     end
 
-    test "returns 422 for invalid params", %{conn: conn} do
+    test "redirects with a flash for invalid params", %{conn: conn} do
       conn = conn |> authed_conn() |> post("/sources", %{"name" => "", "url" => ""})
 
-      assert conn.status == 422
-      assert conn.resp_body =~ "Add Source"
+      assert conn.status == 302
+      [location] = get_resp_header(conn, "location")
+      assert location =~ ~r"^/sources/new"
+      assert location =~ "notice="
+      assert location =~ "notice_kind=error"
     end
   end
 

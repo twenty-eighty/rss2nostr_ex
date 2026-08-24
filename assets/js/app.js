@@ -93,6 +93,19 @@ function applyProfile(event, byAuthor) {
   })
 }
 
+document.addEventListener(
+  "click",
+  (event) => {
+    const el = event.target.closest("[data-confirm]")
+    if (!el || el.tagName === "A") return
+    if (!window.confirm(el.getAttribute("data-confirm"))) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+  },
+  true
+)
+
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},

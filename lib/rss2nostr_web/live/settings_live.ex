@@ -59,7 +59,8 @@ defmodule Rss2NostrWeb.SettingsLive do
 
       <h3>Test relays</h3>
       <p class="help-text">
-        Fallback when the draft list is empty. Set with <code>NOSTR_RELAYS_TEST</code> (or <code>NOSTR_RELAYS</code>).
+        Fallback when the draft list is empty. Set with <code>NOSTR_RELAYS_TEST</code>
+        (or <code>NOSTR_RELAYS</code>).
       </p>
       <.relay_list relays={@relays.test} />
 
@@ -86,11 +87,21 @@ defmodule Rss2NostrWeb.SettingsLive do
       <h2>Scheduler Intervals</h2>
       <p>Default task intervals (configurable in <code>config/config.exs</code>):</p>
       <table class="table">
-        <tr><th>Task</th><th>Interval</th></tr>
-        <tr><td>Import</td><td>15 minutes</td></tr>
-        <tr><td>Process</td><td>5 minutes</td></tr>
-        <tr><td>Export</td><td>10 minutes</td></tr>
-        <tr><td>Cleanup</td><td>1 hour</td></tr>
+        <tr>
+          <th>Task</th><th>Interval</th>
+        </tr>
+        <tr>
+          <td>Import</td><td>15 minutes</td>
+        </tr>
+        <tr>
+          <td>Process</td><td>5 minutes</td>
+        </tr>
+        <tr>
+          <td>Export</td><td>10 minutes</td>
+        </tr>
+        <tr>
+          <td>Cleanup</td><td>1 hour</td>
+        </tr>
       </table>
     </div>
 
@@ -102,16 +113,18 @@ defmodule Rss2NostrWeb.SettingsLive do
           <li><code>{@upload_endpoint}</code></li>
         </ul>
         <p class="help-text">
-          Uploads are signed with the source nsec or bunker, or with
-          <code>NOSTR_NSEC</code> for draft sources that have a pubkey. If upload
-          fails, the article stays in <em>pending images</em> so the remaining
+          Uploads are signed with the source nsec or bunker, or with <code>NOSTR_NSEC</code>
+          for draft sources that have a pubkey. If upload
+          fails, the article stays in <em>pending images</em>
+          so the remaining
           uploads can be finished.
         </p>
       <% else %>
         <p>No <code>NOSTR_UPLOAD_ENDPOINT</code> is set.</p>
         <p class="help-text">
-          Set it in <code>.env</code> to a Blossom server. Articles with images stay in
-          <em>pending images</em> until the endpoint is configured and upload succeeds.
+          Set it in <code>.env</code>
+          to a Blossom server. Articles with images stay in <em>pending images</em>
+          until the endpoint is configured and upload succeeds.
         </p>
       <% end %>
     </div>
@@ -121,7 +134,8 @@ defmodule Rss2NostrWeb.SettingsLive do
       <p class="help-text">
         The web UI only accepts logins from these public keys, via a
         <a href="https://nips.nostr.com/7" target="_blank" rel="noopener">NIP-07</a>
-        browser extension. Set <code>ADMIN_NOSTR_PUBKEYS</code> in <code>.env</code>.
+        browser extension. Set <code>ADMIN_NOSTR_PUBKEYS</code>
+        in <code>.env</code>.
       </p>
       <ul>
         <%= if @admin_keys == [] do %>

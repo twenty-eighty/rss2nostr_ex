@@ -1,45 +1,52 @@
 defmodule Rss2Nostr.Web.Views.Error do
   @moduledoc """
-  Error page views.
+  HTML error pages for Plug routes that are not handled by Phoenix.
   """
 
-  alias Rss2Nostr.Web.Views.Layout
-
   def not_found do
-    content = """
-    <div class="error-page">
-      <h1>404 - Page Not Found</h1>
-      <p>The page you're looking for doesn't exist.</p>
-      <p><a href="/" class="btn btn-primary">Go to Dashboard</a></p>
-    </div>
-    """
-
-    Layout.render("Not Found", content)
+    error_page("404 - Page Not Found", "The page you're looking for doesn't exist.")
   end
 
   def bad_request(message \\ nil) do
-    content = """
-    <div class="error-page">
-      <h1>400 - Bad Request</h1>
-      <p>The request could not be understood.</p>
-      #{if message, do: "<p><code>#{message}</code></p>"}
-      <p><a href="/" class="btn btn-primary">Go to Dashboard</a></p>
-    </div>
-    """
-
-    Layout.render("Bad Request", content)
+    detail = if message, do: "<p><code>#{escape(message)}</code></p>", else: ""
+    error_page("400 - Bad Request", "The request could not be understood.", detail)
   end
 
   def server_error(message \\ nil) do
-    content = """
-    <div class="error-page">
-      <h1>500 - Server Error</h1>
-      <p>Something went wrong.</p>
-      #{if message, do: "<p><code>#{message}</code></p>"}
-      <p><a href="/" class="btn btn-primary">Go to Dashboard</a></p>
-    </div>
-    """
+    detail = if message, do: "<p><code>#{escape(message)}</code></p>", else: ""
+    error_page("500 - Server Error", "Something went wrong.", detail)
+  end
 
-    Layout.render("Error", content)
+  defp error_page(heading, message, extra \\ "") do
+    """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>#{heading} - RSS2Nostr</title>
+      <link rel="stylesheet" href="/static/style.css">
+    </head>
+    <body>
+      <main class="container">
+        <div class="error-page">
+          <h1>#{heading}</h1>
+          <p>#{message}</p>
+          #{extra}
+          <p><a href="/" class="btn btn-primary">Go to Dashboard</a></p>
+        </div>
+      </main>
+    </body>
+    </html>
+    """
+  end
+
+  defp escape(value) do
+    value
+    |> to_string()
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+    |> String.replace("\"", "&quot;")
   end
 end

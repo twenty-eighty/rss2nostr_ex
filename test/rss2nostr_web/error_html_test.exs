@@ -1,4 +1,4 @@
-defmodule Rss2Nostr.Web.Views.ErrorTest do
+defmodule Rss2NostrWeb.ErrorHTMLTest do
   use ExUnit.Case, async: true
 
   alias Rss2Nostr.Web.Views.Error
