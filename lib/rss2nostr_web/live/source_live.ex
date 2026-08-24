@@ -204,7 +204,7 @@ defmodule Rss2NostrWeb.SourceLive do
     {:noreply, assign(socket, :selected_ids, selected)}
   end
 
-  def handle_event("toggle_all", %{"value" => "on"}, socket) do
+  def handle_event("toggle_all", %{"checked" => "true"}, socket) do
     ids =
       socket.assigns.posts
       |> Enum.filter(&reprocessable?/1)

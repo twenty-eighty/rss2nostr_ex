@@ -166,6 +166,25 @@ defmodule Rss2NostrWeb.AdminLiveTest do
       refute html =~ ~r/phx-click="reprocess_selected"[^>]*disabled/
     end
 
+    test "select-all checks every staging post on the page", %{conn: conn} do
+      source = create_source(%{name: "Select All Source"})
+      post = create_post(source, %{title: "Select all target"})
+
+      {:ok, view, html} =
+        conn
+        |> authed_conn()
+        |> live("/posts?source_id=#{source.id}&page=1")
+
+      assert html =~ ~s(phx-value-checked="true")
+      refute html =~ ~r/phx-click="toggle_post"[^>]*checked/
+
+      html = render_click(view, "toggle_all", %{"checked" => "true"})
+
+      assert html =~ ~r/value="#{post.id}"[^>]*checked|checked[^>]*value="#{post.id}"/
+      refute html =~ ~r/phx-click="publish_selected"[^>]*disabled/
+      refute html =~ ~r/phx-click="reprocess_selected"[^>]*disabled/
+    end
+
     test "shows a processed post editor", %{conn: conn} do
       source = create_source()
       post = create_post(source, %{title: "Editable post", content: "Hello **world**"})

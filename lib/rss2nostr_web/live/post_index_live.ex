@@ -69,7 +69,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
      |> assign_selection_flags()}
   end
 
-  def handle_event("toggle_all", %{"value" => "on"}, socket) do
+  def handle_event("toggle_all", %{"checked" => "true"}, socket) do
     {:noreply,
      socket
      |> assign(:selected_ids, MapSet.new(socket.assigns.selectable_ids))
@@ -274,6 +274,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
               id="select-all-posts"
               aria-label="Select all filtered articles"
               phx-click="toggle_all"
+              phx-value-checked={to_string(not @all_selected?)}
               checked={@all_selected?}
               disabled={@selectable_ids == []}
             />

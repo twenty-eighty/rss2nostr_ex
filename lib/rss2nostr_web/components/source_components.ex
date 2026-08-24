@@ -502,6 +502,7 @@ defmodule Rss2NostrWeb.SourceComponents do
               id="select-all-articles"
               aria-label="Select all articles"
               phx-click="toggle_all"
+              phx-value-checked={to_string(not @all_selected?)}
               checked={@all_selected?}
               disabled={not @selectable?}
             />
