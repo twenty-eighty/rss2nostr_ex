@@ -11,6 +11,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
   @per_page 20
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
   def mount(_params, _session, socket) do
     {:ok,
      socket
@@ -21,6 +22,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
   end
 
   @impl true
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(params, _uri, socket) do
     status = blank_to_nil(params["status"])
     source_id = parse_source_id(params["source_id"])
@@ -39,6 +41,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("filter", params, socket) do
     {:noreply,
      push_patch(socket,
@@ -116,6 +119,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
   end
 
   @impl true
+  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:publish, {:ok, {:ok, result}}, socket) do
     {kind, message} = publish_notice(result)
 
@@ -183,6 +187,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
   end
 
   @impl true
+  @spec render(map()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <div class="page-header">
@@ -373,6 +378,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
     """
   end
 
+  @spec assign_posts(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp assign_posts(socket) do
     status = socket.assigns.status
     source_id = socket.assigns.source_id
@@ -408,9 +414,11 @@ defmodule Rss2NostrWeb.PostIndexLive do
     |> assign_selection_flags()
   end
 
+  @spec total_pages(non_neg_integer(), pos_integer()) :: pos_integer()
   defp total_pages(total, _per_page) when total <= 0, do: 1
   defp total_pages(total, per_page), do: div(total + per_page - 1, per_page)
 
+  @spec assign_selection_flags(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp assign_selection_flags(socket) do
     selected = socket.assigns.selected_ids
     selectable_ids = socket.assigns.selectable_ids
@@ -428,6 +436,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
     )
   end
 
+  @spec selectable_post_ids(String.t() | nil, integer() | nil, String.t() | nil) :: [integer()]
   defp selectable_post_ids(status_filter, source_id, q) do
     cond do
       status_filter in [nil, ""] ->
@@ -445,6 +454,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
     end
   end
 
+  @spec publishable_post_ids(String.t() | nil, integer() | nil, String.t() | nil) :: [integer()]
   defp publishable_post_ids(status_filter, source_id, q) do
     if status_filter in [nil, "", "2"] do
       post_ids_for(Post.status_processed(), source_id, q)
@@ -453,19 +463,23 @@ defmodule Rss2NostrWeb.PostIndexLive do
     end
   end
 
+  @spec post_ids_for(integer(), integer() | nil, String.t() | nil) :: [integer()]
   defp post_ids_for(status, source_id, q) do
     Posts.list_posts(status: status, source_id: source_id, q: q, limit: 5_000)
     |> Enum.map(& &1.id)
   end
 
+  @spec normalize_one_publish(map()) :: map()
   defp normalize_one_publish(result) when is_map(result) do
     Map.merge(%{published: 1, failed: 0, errors: []}, result)
   end
 
+  @spec blank_to_nil(term()) :: term()
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
 
+  @spec parse_source_id(String.t() | nil) :: integer() | nil
   defp parse_source_id(nil), do: nil
   defp parse_source_id(""), do: nil
 
@@ -476,6 +490,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
     end
   end
 
+  @spec parse_page(term()) :: pos_integer()
   defp parse_page(nil), do: 1
 
   defp parse_page(value) when is_binary(value) do

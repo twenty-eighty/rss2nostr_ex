@@ -5,6 +5,7 @@ defmodule Rss2NostrWeb.SessionController do
 
   alias Rss2Nostr.Web.Auth
 
+  @spec new(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def new(conn, _params) do
     if Auth.logged_in?(conn) do
       redirect(conn, to: "/")
@@ -16,6 +17,7 @@ defmodule Rss2NostrWeb.SessionController do
     end
   end
 
+  @spec delete(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def delete(conn, _params) do
     conn
     |> Auth.logout()

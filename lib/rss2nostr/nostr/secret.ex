@@ -1,7 +1,9 @@
 defmodule Rss2Nostr.Nostr.Secret do
   @moduledoc """
-  Encrypts source signing keys at rest using SECRET_KEY_BASE.
+  Encrypts source signing keys at rest using the admin session secret.
   """
+
+  alias Rss2Nostr.Web.Auth
 
   @aad "rss2nostr-nsec"
 
@@ -26,6 +28,7 @@ defmodule Rss2Nostr.Nostr.Secret do
 
   def decrypt(_), do: {:error, :decrypt_failed}
 
+  @spec open(binary()) :: {:ok, String.t()} | {:error, atom()}
   defp open(<<iv::binary-12, tag::binary-16, cipher::binary>>) do
     case :crypto.crypto_one_time_aead(
            :aes_256_gcm,
@@ -43,12 +46,8 @@ defmodule Rss2Nostr.Nostr.Secret do
 
   defp open(_), do: {:error, :decrypt_failed}
 
+  @spec encryption_key() :: binary()
   defp encryption_key do
-    base =
-      Application.get_env(:rss2nostr, :secret_key_base) ||
-        System.get_env("SECRET_KEY_BASE") ||
-        "rss2nostr-dev-secret-key-base-not-for-production"
-
-    :crypto.hash(:sha256, to_string(base))
+    :crypto.hash(:sha256, Auth.secret_key_base())
   end
 end

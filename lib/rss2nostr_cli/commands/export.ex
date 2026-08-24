@@ -10,6 +10,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
   alias Rss2Nostr.Nostr.{Publisher, Relays, Keys, NIP19}
   alias Rss2Nostr.Repo
 
+  @spec run(map()) :: :ok
   def run(options) do
     post_id = Map.get(options, :id)
     limit = Map.get(options, :limit, 10)
@@ -51,6 +52,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
     end
   end
 
+  @spec get_private_key(String.t() | nil) :: {:ok, binary(), String.t()} | {:error, atom()}
   defp get_private_key(nil) do
     # Check environment variable
     case System.get_env("NOSTR_NSEC") do
@@ -66,6 +68,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
 
   defp get_private_key(nsec), do: decode_nsec(nsec)
 
+  @spec decode_nsec(String.t()) :: {:ok, binary(), String.t()} | {:error, atom()}
   defp decode_nsec(nsec) do
     cond do
       String.starts_with?(nsec, "nsec") ->
@@ -95,6 +98,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
     end
   end
 
+  @spec parse_relays(String.t() | list() | nil) :: [String.t()] | nil
   defp parse_relays(nil), do: nil
 
   defp parse_relays(relays) when is_binary(relays) do
@@ -106,6 +110,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
 
   defp parse_relays(relays) when is_list(relays), do: relays
 
+  @spec describe_relay_target([String.t()] | nil, atom() | nil) :: :ok
   defp describe_relay_target(relays, _audience) when is_list(relays) do
     Output.info("  Relays: #{length(relays)} (explicit override)")
   end
@@ -118,12 +123,14 @@ defmodule Rss2Nostr.CLI.Commands.Export do
     Output.info("  Relays: per source (draft, test, or public)")
   end
 
+  @spec publish_opts(binary(), [String.t()] | nil, atom() | nil) :: keyword()
   defp publish_opts(private_key, relays, audience) do
     [private_key: private_key]
     |> maybe_put(:relays, if(is_list(relays), do: relays))
     |> maybe_put(:audience, if(audience in [:test, :public], do: audience))
   end
 
+  @spec relays_for_post(Rss2Nostr.Posts.Post.t(), [String.t()] | nil, atom() | nil) :: [String.t()]
   defp relays_for_post(post, relays, audience) do
     []
     |> maybe_put(:relays, if(is_list(relays), do: relays))
@@ -131,9 +138,11 @@ defmodule Rss2Nostr.CLI.Commands.Export do
     |> then(&Relays.publish_relays(post, &1))
   end
 
+  @spec maybe_put(keyword(), atom(), term()) :: keyword()
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
+  @spec export_dry_run(integer() | nil, integer(), binary(), [String.t()] | nil, atom() | nil) :: :ok
   defp export_dry_run(post_id, limit, private_key, relays, audience) do
     posts = get_posts_to_export(post_id, limit)
 
@@ -159,6 +168,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
     end
   end
 
+  @spec export_and_publish(integer() | nil, integer(), binary(), [String.t()] | nil, atom() | nil, boolean()) :: :ok
   defp export_and_publish(post_id, limit, private_key, relays, audience, upload_images) do
     posts = get_posts_to_export(post_id, limit)
 
@@ -209,6 +219,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
     end
   end
 
+  @spec prepare_export_post(Rss2Nostr.Posts.Post.t(), boolean(), binary()) :: {:ok, Rss2Nostr.Posts.Post.t()} | {:error, {Rss2Nostr.Posts.Post.t(), atom()}}
   defp prepare_export_post(post, _upload_images, _private_key) do
     {:ok, updated} = Processor.ensure_images(post)
 
@@ -219,6 +230,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
     end
   end
 
+  @spec show_result_detail({integer(), map()}, [Rss2Nostr.Posts.Post.t()], [String.t()] | nil, atom() | nil) :: :ok
   defp show_result_detail({post_id, result}, posts, relays, audience) do
     post = Enum.find(posts, &(&1.id == post_id))
     title = if post, do: post.title, else: "Post #{post_id}"
@@ -240,6 +252,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
     end)
   end
 
+  @spec preview_post_export(Rss2Nostr.Posts.Post.t(), binary()) :: :ok
   defp preview_post_export(post, private_key) do
     case Publisher.export_post(post, private_key: private_key, relays: []) do
       {:ok, %{event: event, naddr: naddr}} ->
@@ -253,6 +266,7 @@ defmodule Rss2Nostr.CLI.Commands.Export do
     end
   end
 
+  @spec get_posts_to_export(integer() | nil, integer()) :: [Rss2Nostr.Posts.Post.t()]
   defp get_posts_to_export(nil, limit) do
     Posts.list_processed_posts(limit: limit)
     |> Repo.preload(:source)

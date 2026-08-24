@@ -174,6 +174,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     end
   end
 
+  @spec youtube_markdown(String.t(), term()) :: String.t()
   defp youtube_markdown(url, title) do
     case Youtube.video_id(url) do
       nil ->
@@ -185,6 +186,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     end
   end
 
+  @spec process_podbean_iframe(String.t()) :: String.t()
   defp process_podbean_iframe(src) do
     case EmbedUrls.podbean_episode_url(src) do
       url when is_binary(url) ->
@@ -195,6 +197,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     end
   end
 
+  @spec iframe_src(list()) :: String.t()
   defp iframe_src(attrs) do
     [Dom.get_attr(attrs, "src"), Dom.get_attr(attrs, "data-src")]
     |> Enum.find(&(is_binary(&1) and String.trim(&1) != ""))
@@ -204,6 +207,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     end
   end
 
+  @spec unescape_attr(term()) :: String.t()
   defp unescape_attr(value) when is_binary(value) do
     value
     |> String.replace("&amp;", "&")
@@ -213,16 +217,19 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
 
   defp unescape_attr(_), do: ""
 
+  @spec soundcloud_listen_markdown(term()) :: String.t()
   defp soundcloud_listen_markdown(url) when is_binary(url) and url != "" do
     "\n\n[#{listen_on("SoundCloud")}](#{with_soundcloud_params(url)})\n\n"
   end
 
   defp soundcloud_listen_markdown(_), do: ""
 
+  @spec same_soundcloud_url?(String.t(), String.t()) :: boolean()
   defp same_soundcloud_url?(a, b) do
     normalize_soundcloud_url(a) == normalize_soundcloud_url(b)
   end
 
+  @spec soundcloud_profile_of?(String.t(), String.t()) :: boolean()
   defp soundcloud_profile_of?(href, permalink) do
     href_path =
       href |> URI.parse() |> Map.get(:path) |> to_string() |> String.split("/", trim: true)
@@ -236,6 +243,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     end
   end
 
+  @spec normalize_soundcloud_url(String.t()) :: String.t()
   defp normalize_soundcloud_url(url) do
     uri = URI.parse(url)
     host = uri.host |> to_string() |> String.downcase() |> String.replace_prefix("www.", "")
@@ -243,6 +251,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     "https://#{host}#{path}"
   end
 
+  @spec put_soundcloud_query(String.t(), String.t(), String.t()) :: String.t()
   defp put_soundcloud_query(url, key, value) do
     if soundcloud_host?(url) do
       uri = URI.parse(url)
@@ -258,6 +267,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     end
   end
 
+  @spec find_source_src(list()) :: String.t() | nil
   defp find_source_src(children) do
     source = Dom.find_element(children, "source")
 
@@ -267,6 +277,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     end
   end
 
+  @spec chrome_only_text?(list()) :: boolean()
   defp chrome_only_text?(children) do
     text =
       children
@@ -286,6 +297,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     text == "" or text == labels
   end
 
+  @spec collect_hrefs(list()) :: [String.t()]
   defp collect_hrefs(nodes) do
     nodes
     |> collect_anchor_nodes()
@@ -293,6 +305,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
   end
 
+  @spec collect_anchor_nodes(term()) :: list()
   defp collect_anchor_nodes(nodes) when is_list(nodes),
     do: Enum.flat_map(nodes, &collect_anchor_nodes/1)
 
@@ -303,6 +316,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
 
   defp collect_anchor_nodes(_), do: []
 
+  @spec has_paragraph?(term()) :: boolean()
   defp has_paragraph?(nodes) when is_list(nodes) do
     Enum.any?(nodes, fn
       {"p", _, children} -> String.trim(Floki.text(children)) != ""
@@ -313,12 +327,20 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Embeds do
 
   defp has_paragraph?(_), do: false
 
+  @spec language() :: String.t()
   defp language do
     Process.get({@parent, :language}, "en")
   end
 
+  @spec listen_on(String.t()) :: String.t()
   defp listen_on(platform), do: Labels.t(:listen_on, language(), platform: platform)
+
+  @spec watch_on(String.t()) :: String.t()
   defp watch_on(platform), do: Labels.t(:watch_on, language(), platform: platform)
+
+  @spec audio_label() :: String.t()
   defp audio_label, do: Labels.t(:audio, language())
+
+  @spec video_label() :: String.t()
   defp video_label, do: Labels.t(:video, language())
 end

@@ -8,7 +8,7 @@ defmodule Rss2Nostr.Nostr.Keys do
 
   require Logger
 
-  alias Rss2Nostr.Nostr.NIP19
+  alias Rss2Nostr.Nostr.{NIP19, NodeRunner}
 
   @doc """
   Generates a new random private key.
@@ -57,36 +57,22 @@ defmodule Rss2Nostr.Nostr.Keys do
         privkey: to_hex(private_key)
       })
 
-    # Use a temp file to avoid shell escaping issues with special characters
-    tmp_file = Path.join(System.tmp_dir!(), "nostr_sign_#{:rand.uniform(1_000_000)}.json")
-    script = sign_script()
+    case NodeRunner.run(sign_script(), input) do
+      {:ok, output} ->
+        case Jason.decode(output) do
+          {:ok, %{"id" => id, "sig" => sig, "pubkey" => pubkey}} ->
+            {:ok, %{id: id, sig: sig, pubkey: pubkey}}
 
-    try do
-      File.write!(tmp_file, input)
+          {:ok, %{"error" => error}} ->
+            {:error, error}
 
-      case System.cmd("node", [script],
-             cd: Path.dirname(script),
-             stderr_to_stdout: true,
-             env: [{"INPUT_FILE", tmp_file}]
-           ) do
-        {output, 0} ->
-          case Jason.decode(output) do
-            {:ok, %{"id" => id, "sig" => sig, "pubkey" => pubkey}} ->
-              {:ok, %{id: id, sig: sig, pubkey: pubkey}}
+          {:error, _} ->
+            {:error, :json_decode_failed}
+        end
 
-            {:ok, %{"error" => error}} ->
-              {:error, error}
-
-            {:error, _} ->
-              {:error, :json_decode_failed}
-          end
-
-        {error, _code} ->
-          Logger.error("Node.js signing failed: #{error}")
-          {:error, :signing_failed}
-      end
-    after
-      File.rm(tmp_file)
+      {:error, error} ->
+        Logger.error("Node.js signing failed: #{error}")
+        {:error, :signing_failed}
     end
   end
 
@@ -243,5 +229,6 @@ defmodule Rss2Nostr.Nostr.Keys do
 
   # Resolve at runtime: compile-time :code.priv_dir/1 bakes the Mix _build path
   # into releases and breaks Docker/prod.
+  @spec sign_script() :: String.t()
   defp sign_script, do: Path.join(:code.priv_dir(:rss2nostr), "sign_event.mjs")
 end

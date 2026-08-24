@@ -33,6 +33,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedItem do
 
   def with_enclosure_html(other, _item, _language), do: other
 
+  @spec enclosure_prefix(map(), String.t() | nil, String.t() | nil) :: String.t()
   defp enclosure_prefix(item, html, language) do
     url = field(item, :enclosure_url)
     html = to_string(html || "")
@@ -62,6 +63,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedItem do
     end
   end
 
+  @spec enclosure_title(map()) :: String.t() | nil
   defp enclosure_title(item) do
     parts =
       [field(item, :duration), field(item, :enclosure_length)]
@@ -71,10 +73,12 @@ defmodule Rss2Nostr.Processing.Composer.FeedItem do
     if parts == [], do: nil, else: Enum.join(parts, " ")
   end
 
+  @spec to_string_or_nil(integer() | String.t() | term()) :: String.t() | nil
   defp to_string_or_nil(value) when is_integer(value) and value > 0, do: Integer.to_string(value)
   defp to_string_or_nil(value) when is_binary(value) and value != "", do: value
   defp to_string_or_nil(_), do: nil
 
+  @spec html_attr(String.t()) :: String.t()
   defp html_attr(value) when is_binary(value) do
     value
     |> String.replace("&", "&amp;")
@@ -82,8 +86,10 @@ defmodule Rss2Nostr.Processing.Composer.FeedItem do
     |> String.replace("<", "&lt;")
   end
 
+  @spec blank?(term()) :: boolean()
   defp blank?(value), do: blank_to_nil(value) == nil
 
+  @spec blank_to_nil(term()) :: term()
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 

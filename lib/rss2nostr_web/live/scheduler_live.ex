@@ -7,6 +7,7 @@ defmodule Rss2NostrWeb.SchedulerLive do
   alias Rss2Nostr.Web.API.Scheduler
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
   def mount(_params, _session, socket) do
     {:ok,
      socket
@@ -16,6 +17,7 @@ defmodule Rss2NostrWeb.SchedulerLive do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("start", _params, socket) do
     case Scheduler.start() do
       {:ok, message} -> {:noreply, socket |> put_flash(:info, message) |> assign_status()}
@@ -37,6 +39,7 @@ defmodule Rss2NostrWeb.SchedulerLive do
   end
 
   @impl true
+  @spec render(map()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <h1>Scheduler</h1>
@@ -130,6 +133,7 @@ defmodule Rss2NostrWeb.SchedulerLive do
     """
   end
 
+  @spec task_row(map()) :: Phoenix.LiveView.Rendered.t()
   defp task_row(assigns) do
     task_atom = String.to_atom(assigns.task)
     status = assigns.status
@@ -160,6 +164,7 @@ defmodule Rss2NostrWeb.SchedulerLive do
     """
   end
 
+  @spec assign_status(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp assign_status(socket) do
     status =
       Scheduler.status()
@@ -171,6 +176,7 @@ defmodule Rss2NostrWeb.SchedulerLive do
     assign(socket, :status, status)
   end
 
+  @spec cleanup_last(map()) :: String.t()
   defp cleanup_last(status) do
     last_run = format_last_run(status.last_run[:cleanup])
     result = format_last_result(Map.get(status, :last_result, %{})[:cleanup])

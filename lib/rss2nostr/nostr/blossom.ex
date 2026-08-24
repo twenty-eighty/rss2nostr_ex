@@ -132,6 +132,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
   - `:server` — Blossom base URL (default: `NOSTR_UPLOAD_ENDPOINT` only)
   - `:content_type`
   """
+  @spec upload_file(String.t(), keyword()) :: {:ok, upload_result()} | {:error, term()}
   def upload_file(file_path, opts \\ []) do
     case File.read(file_path) do
       {:ok, data} ->
@@ -147,6 +148,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
   Uploads binary data. Filename is unused by Blossom (hash-addressed) but kept
   for call-site compatibility.
   """
+  @spec upload_data(binary(), String.t(), keyword()) :: {:ok, upload_result()} | {:error, term()}
   def upload_data(data, filename, opts \\ []), do: Client.upload_data(data, filename, opts)
 
   @doc """
@@ -184,6 +186,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
   @doc """
   Downloads an image from a URL and uploads it to Blossom.
   """
+  @spec upload_from_url(String.t(), keyword()) :: {:ok, upload_result()} | {:error, term()}
   def upload_from_url(image_url, opts \\ []), do: Client.upload_from_url(image_url, opts)
 
   @doc """
@@ -192,6 +195,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
   @spec parse_descriptor(map() | String.t()) :: {:ok, upload_result()} | {:error, atom()}
   def parse_descriptor(body), do: Client.parse_descriptor(body)
 
+  @spec server_host(String.t() | nil) :: String.t() | nil
   defp server_host(nil), do: nil
 
   defp server_host(url) do

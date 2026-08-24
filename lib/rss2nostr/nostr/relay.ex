@@ -9,6 +9,9 @@ defmodule Rss2Nostr.Nostr.Relay do
 
   alias Rss2Nostr.Nostr.WebSocketHandler
 
+  @type request ::
+          {:publish, map(), GenServer.from()} | {:query, map(), GenServer.from()}
+
   defmodule State do
     @moduledoc false
     defstruct [
@@ -26,11 +29,14 @@ defmodule Rss2Nostr.Nostr.Relay do
     ]
   end
 
+  @type state :: %State{}
+
   # Client API
 
   @doc """
   Starts a relay connection process.
   """
+  @spec start_link(String.t(), keyword()) :: GenServer.on_start()
   def start_link(relay_url, opts \\ []) do
     name = Keyword.get(opts, :name, via_name(relay_url))
     GenServer.start_link(__MODULE__, relay_url, name: name)
@@ -55,6 +61,7 @@ defmodule Rss2Nostr.Nostr.Relay do
   Publishes an event to a specific relay.
   Returns :ok on success, {:error, reason} on failure.
   """
+  @spec publish(String.t(), map(), timeout()) :: :ok | {:error, term()}
   def publish(relay_url, event, timeout \\ 15_000) do
     case get_or_start_relay(relay_url) do
       {:ok, pid} ->
@@ -69,6 +76,7 @@ defmodule Rss2Nostr.Nostr.Relay do
   Publishes an event to multiple relays concurrently.
   Returns a list of {relay_url, result} tuples.
   """
+  @spec publish_to_relays([String.t()], map(), timeout()) :: [{String.t(), :ok | {:error, term()}}]
   def publish_to_relays(relay_urls, event, timeout \\ 10_000) do
     tasks =
       Enum.map(relay_urls, fn url ->
@@ -132,6 +140,7 @@ defmodule Rss2Nostr.Nostr.Relay do
   @doc """
   Closes the connection to a relay.
   """
+  @spec disconnect(String.t()) :: :ok
   def disconnect(relay_url) do
     case Registry.lookup(Rss2Nostr.RelayRegistry, relay_url) do
       [{pid, _}] ->
@@ -149,6 +158,7 @@ defmodule Rss2Nostr.Nostr.Relay do
   # GenServer callbacks
 
   @impl true
+  @spec init(String.t()) :: {:ok, state()}
   def init(relay_url) do
     Process.flag(:trap_exit, true)
 
@@ -169,6 +179,7 @@ defmodule Rss2Nostr.Nostr.Relay do
   end
 
   @impl true
+  @spec handle_call({:publish, map()} | {:query, map()}, GenServer.from(), state()) :: {:noreply, state()}
   def handle_call({:publish, event}, from, state) do
     enqueue_or_run(state, {:publish, event, from})
   end
@@ -179,6 +190,7 @@ defmodule Rss2Nostr.Nostr.Relay do
   end
 
   @impl true
+  @spec handle_info(term(), state()) :: {:noreply, state()}
   def handle_info({:websockex_connected, conn}, state) do
     Logger.info("Connected to relay #{state.url}")
 
@@ -248,6 +260,7 @@ defmodule Rss2Nostr.Nostr.Relay do
 
   # Private functions
 
+  @spec enqueue_or_run(state(), request()) :: {:noreply, state()}
   defp enqueue_or_run(state, request) do
     case state.status do
       :connected ->
@@ -261,6 +274,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec run_request(state(), request()) :: state()
   defp run_request(state, {:publish, event, from}) do
     case send_event(state.conn, event) do
       :ok ->
@@ -294,12 +308,14 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec send_req(pid(), String.t(), map()) :: :ok | {:error, term()}
   defp send_req(conn, sub, filter) do
     WebSockex.send_frame(conn, {:text, Jason.encode!(["REQ", sub, filter])})
   rescue
     e -> {:error, e}
   end
 
+  @spec send_close(pid(), String.t()) :: :ok
   defp send_close(conn, sub) do
     _ = WebSockex.send_frame(conn, {:text, Jason.encode!(["CLOSE", sub])})
     :ok
@@ -307,15 +323,18 @@ defmodule Rss2Nostr.Nostr.Relay do
     _ -> :ok
   end
 
+  @spec idle_exceeded?(state()) :: boolean()
   defp idle_exceeded?(state) do
     now = System.monotonic_time(:millisecond)
     now - state.last_activity > state.idle_timeout
   end
 
+  @spec via_name(String.t()) :: {:via, module(), term()}
   defp via_name(relay_url) do
     {:via, Registry, {Rss2Nostr.RelayRegistry, relay_url}}
   end
 
+  @spec get_or_start_relay(String.t()) :: {:ok, pid()} | {:error, term()}
   defp get_or_start_relay(relay_url) do
     case Registry.lookup(Rss2Nostr.RelayRegistry, relay_url) do
       [{pid, _}] ->
@@ -326,6 +345,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec start_relay(String.t()) :: {:ok, pid()} | {:error, term()}
   defp start_relay(relay_url) do
     case GenServer.start(__MODULE__, relay_url, name: via_name(relay_url)) do
       {:ok, pid} -> {:ok, pid}
@@ -334,6 +354,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec connect(state()) :: state()
   defp connect(state) do
     Logger.debug("Connecting to relay #{state.url}")
 
@@ -352,6 +373,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec send_event(pid(), map()) :: :ok | {:error, term()}
   defp send_event(conn, event) do
     message = Jason.encode!(["EVENT", event])
     Logger.debug("Sending to relay: #{message}")
@@ -366,16 +388,19 @@ defmodule Rss2Nostr.Nostr.Relay do
       {:error, e}
   end
 
+  @spec get_event_id(map()) :: String.t() | nil
   defp get_event_id(event) when is_map(event) do
     event["id"] || event[:id] || Map.get(event, "id") || Map.get(event, :id)
   end
 
+  @spec process_pending_requests(state()) :: state()
   defp process_pending_requests(state) do
     Enum.reduce(state.pending_requests, %{state | pending_requests: []}, fn request, acc_state ->
       run_request(acc_state, request)
     end)
   end
 
+  @spec handle_relay_message(String.t(), state()) :: state()
   defp handle_relay_message(message, state) do
     case Jason.decode(message) do
       {:ok, ["OK", event_id, success, reason]} ->
@@ -401,6 +426,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec handle_query_event(String.t(), map(), state()) :: state()
   defp handle_query_event(sub, event, state) do
     case Map.get(state.pending_queries, sub) do
       nil ->
@@ -412,6 +438,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec handle_query_eose(String.t(), state()) :: state()
   defp handle_query_eose(sub, state) do
     case Map.pop(state.pending_queries, sub) do
       {nil, _} ->
@@ -427,6 +454,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec handle_ok_message(String.t(), boolean(), term(), state()) :: state()
   defp handle_ok_message(event_id, success, reason, state) do
     case Map.pop(state.pending_confirmations, event_id) do
       {nil, _} ->
@@ -448,6 +476,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec handle_connection_lost(state(), term()) :: state()
   defp handle_connection_lost(state, reason) do
     if fatal_connect_error?(reason) do
       Logger.warning("Relay #{state.url} connection failed: #{inspect(reason)}")
@@ -457,6 +486,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec fail_pending(state(), term()) :: state()
   defp fail_pending(state, reason) do
     if state.idle_timer, do: Process.cancel_timer(state.idle_timer)
 
@@ -485,15 +515,18 @@ defmodule Rss2Nostr.Nostr.Relay do
     }
   end
 
+  @spec fatal_connect_error?(term()) :: boolean()
   defp fatal_connect_error?(%WebSockex.ConnError{}), do: true
   defp fatal_connect_error?({:error, reason}), do: fatal_connect_error?(reason)
   defp fatal_connect_error?(%{reason: reason}), do: fatal_connect_error?(reason)
   defp fatal_connect_error?(:nxdomain), do: true
   defp fatal_connect_error?(_), do: false
 
+  @spec exit_reason(term()) :: term()
   defp exit_reason({:error, reason}), do: exit_reason(reason)
   defp exit_reason(reason), do: reason
 
+  @spec handle_disconnect(state()) :: state()
   defp handle_disconnect(state) do
     if state.idle_timer, do: Process.cancel_timer(state.idle_timer)
 
@@ -517,6 +550,7 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec schedule_reconnect(state()) :: state()
   defp schedule_reconnect(state) do
     if state.reconnect_attempts < state.max_reconnect_attempts do
       delay = round(:math.pow(2, state.reconnect_attempts) * 1000)
@@ -536,10 +570,12 @@ defmodule Rss2Nostr.Nostr.Relay do
     end
   end
 
+  @spec update_activity(state()) :: state()
   defp update_activity(state) do
     %{state | last_activity: System.monotonic_time(:millisecond)}
   end
 
+  @spec schedule_idle_timeout(state()) :: state()
   defp schedule_idle_timeout(state) do
     if state.idle_timer, do: Process.cancel_timer(state.idle_timer)
 

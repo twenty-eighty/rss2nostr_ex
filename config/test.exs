@@ -34,6 +34,10 @@ config :rss2nostr,
        :secret_key_base,
        "rss2nostr_test_secret_key_base_rss2nostr_test_secret_key_base"
 
+# Loopback MCP without token (local Plug tests). SSRF off so Req.Test / 127.0.0.1 work.
+config :rss2nostr, :mcp, allow_loopback: true
+config :rss2nostr, :http_ssrf_protection, false
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

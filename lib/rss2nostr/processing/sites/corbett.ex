@@ -38,6 +38,7 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
     _ -> html
   end
 
+  @spec corbett_host?(term()) :: boolean()
   defp corbett_host?(url) when is_binary(url) and url != "" do
     host = url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
     host == "corbettreport.com" or String.ends_with?(host, ".corbettreport.com")
@@ -47,12 +48,14 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
 
   defp corbett_host?(_), do: false
 
+  @spec corbett_selector?(term()) :: boolean()
   defp corbett_selector?(selector) when is_binary(selector) do
     String.trim(selector) == @selector
   end
 
   defp corbett_selector?(_), do: false
 
+  @spec iframe_watch_urls(list()) :: [String.t()]
   defp iframe_watch_urls(doc) do
     doc
     |> Floki.find("iframe")
@@ -70,10 +73,12 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
     end)
   end
 
+  @spec rewrite_nodes(list(), [String.t()]) :: list()
   defp rewrite_nodes(nodes, embeds) when is_list(nodes) do
     Enum.flat_map(nodes, &expand_or_rewrite(&1, embeds))
   end
 
+  @spec expand_or_rewrite(term(), [String.t()]) :: list()
   defp expand_or_rewrite({tag, attrs, children} = node, embeds) do
     if watch_on_row?(node) do
       expand_watch_on(children, embeds)
@@ -93,6 +98,7 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
     archive.org rokfin.com minds.com substack.com
   )
 
+  @spec watch_on_row?(Floki.html_node()) :: boolean()
   defp watch_on_row?({"p", _attrs, children}) do
     text = children |> Floki.text() |> String.downcase() |> String.trim()
     links = Conversion.links(children)
@@ -104,14 +110,17 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
 
   defp watch_on_row?(_), do: false
 
+  @spec watch_on_phrase?(String.t()) :: boolean()
   defp watch_on_phrase?(text) do
     String.match?(text, ~r/\Awatch(?:\s+\w+){0,4}\s+on(?:\s*:|\b)/u)
   end
 
+  @spec video_platform_count([{String.t(), String.t()}]) :: non_neg_integer()
   defp video_platform_count(links) do
     Enum.count(links, fn {_text, href} -> video_platform_href?(href) end)
   end
 
+  @spec video_platform_href?(term()) :: boolean()
   defp video_platform_href?(href) when is_binary(href) do
     uri = URI.parse(href)
     host = uri.host |> to_string() |> String.downcase()
@@ -124,6 +133,7 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
 
   defp video_platform_href?(_), do: false
 
+  @spec expand_watch_on(list(), [String.t()]) :: [Floki.html_node()]
   defp expand_watch_on(children, embeds) do
     links =
       children
@@ -148,10 +158,12 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
     end
   end
 
+  @spec watch_on_label(String.t(), String.t()) :: String.t()
   defp watch_on_label(text, href) do
     if youtube_url?(href), do: "YOUTUBE", else: text
   end
 
+  @spec youtube_url?(term()) :: boolean()
   defp youtube_url?(href) when is_binary(href) do
     host = href |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
     String.contains?(host, "youtube.com") or String.contains?(host, "youtu.be")
@@ -161,6 +173,7 @@ defmodule Rss2Nostr.Processing.Sites.Corbett do
 
   defp youtube_url?(_), do: false
 
+  @spec attr(list(), String.t()) :: String.t()
   defp attr(attrs, name) do
     case List.keyfind(attrs, name, 0) do
       {_, value} -> value

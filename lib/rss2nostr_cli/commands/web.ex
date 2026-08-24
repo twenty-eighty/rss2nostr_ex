@@ -6,6 +6,7 @@ defmodule Rss2Nostr.CLI.Commands.Web do
   alias Rss2Nostr.CLI.Output
   alias Rss2Nostr.Web.Server
 
+  @spec start(map()) :: term()
   def start(options) do
     port = options[:port] || Application.get_env(:rss2nostr, :web_port) || 4000
 
@@ -26,6 +27,7 @@ defmodule Rss2Nostr.CLI.Commands.Web do
     end
   end
 
+  @spec stop() :: :ok
   def stop do
     case Server.stop() do
       {:ok, :stopped} ->
@@ -36,6 +38,7 @@ defmodule Rss2Nostr.CLI.Commands.Web do
     end
   end
 
+  @spec status() :: :ok
   def status do
     if Server.running?() do
       Output.info("Web server is running")

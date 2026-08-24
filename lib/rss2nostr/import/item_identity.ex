@@ -98,6 +98,7 @@ defmodule Rss2Nostr.Import.ItemIdentity do
 
   def normalize_url(_), do: nil
 
+  @spec media_ref?(feed_item()) :: boolean()
   defp media_ref?(item) do
     media_type?(field(item, :enclosure_type)) or
       media_url?(field(item, :enclosure_url)) or
@@ -105,8 +106,10 @@ defmodule Rss2Nostr.Import.ItemIdentity do
       media_url?(field(item, :link))
   end
 
+  @spec page_url?(String.t()) :: boolean()
   defp page_url?(value), do: http_url?(value) and not media_url?(value)
 
+  @spec media_type?(term()) :: boolean()
   defp media_type?(type) when is_binary(type) do
     type = String.downcase(type)
     String.starts_with?(type, "audio/") or String.starts_with?(type, "video/")
@@ -114,6 +117,7 @@ defmodule Rss2Nostr.Import.ItemIdentity do
 
   defp media_type?(_), do: false
 
+  @spec media_url?(term()) :: boolean()
   defp media_url?(url) when is_binary(url) do
     ext =
       url
@@ -130,6 +134,7 @@ defmodule Rss2Nostr.Import.ItemIdentity do
 
   defp media_url?(_), do: false
 
+  @spec http_url?(term()) :: boolean()
   defp http_url?(value) when is_binary(value) do
     trimmed = String.trim(value)
     String.starts_with?(trimmed, "http://") or String.starts_with?(trimmed, "https://")
@@ -137,6 +142,7 @@ defmodule Rss2Nostr.Import.ItemIdentity do
 
   defp http_url?(_), do: false
 
+  @spec url_variants(String.t()) :: [String.t()]
   defp url_variants(value) do
     case normalize_url(value) do
       nil ->
@@ -155,6 +161,7 @@ defmodule Rss2Nostr.Import.ItemIdentity do
     end
   end
 
+  @spec field(feed_item(), atom()) :: term()
   defp field(item, key) do
     Map.get(item, key) || Map.get(item, Atom.to_string(key))
   end

@@ -120,12 +120,14 @@ defmodule Rss2Nostr.Processing.Processor do
     end
   end
 
+  @spec compose_and_store(Post.t()) :: {:ok, Post.t()} | {:error, any()}
   defp compose_and_store(%Post{} = post) do
     post = Posts.preload_source(post)
     composed = Composer.compose(post.source_html, compose_opts_for(post))
     store_composed(post, composed)
   end
 
+  @spec compose_opts_for(Post.t()) :: Composer.compose_opts()
   defp compose_opts_for(%Post{} = post) do
     source = post.source
 
@@ -139,9 +141,11 @@ defmodule Rss2Nostr.Processing.Processor do
     |> Map.put(:fetch_page_image, true)
   end
 
+  @spec feed_url(map() | term()) :: String.t() | nil
   defp feed_url(%{url: url}), do: url
   defp feed_url(_), do: nil
 
+  @spec store_composed(Post.t(), map()) :: {:ok, Post.t()} | {:error, any()}
   defp store_composed(%Post{} = post, composed) do
     {:ok, post} =
       Posts.update_post(post, %{
@@ -178,12 +182,14 @@ defmodule Rss2Nostr.Processing.Processor do
     end
   end
 
+  @spec finish_images(Post.t()) :: {:ok, Post.t()}
   defp finish_images(post) do
     {:ok, post} = Posts.enter_staging(post)
     Logger.info("Staging: #{post.title}")
     {:ok, post}
   end
 
+  @spec pend_images(Post.t(), String.t()) :: {:ok, Post.t()}
   defp pend_images(post, "Images still need uploading") do
     {:ok, post} =
       Posts.update_post(post, %{status: Post.status_pending_images(), last_error: nil})
@@ -198,6 +204,7 @@ defmodule Rss2Nostr.Processing.Processor do
     {:ok, post}
   end
 
+  @spec format_image_error(atom() | String.t() | term()) :: String.t()
   defp format_image_error(:no_upload_endpoint), do: "NOSTR_UPLOAD_ENDPOINT is not set"
 
   defp format_image_error(:no_app_private_key),
@@ -214,6 +221,7 @@ defmodule Rss2Nostr.Processing.Processor do
   defp format_image_error(reason) when is_binary(reason), do: reason
   defp format_image_error(reason), do: "Blossom upload failed: #{inspect(reason)}"
 
+  @spec present?(term()) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 
@@ -240,6 +248,7 @@ defmodule Rss2Nostr.Processing.Processor do
     end
   end
 
+  @spec summary_paragraph?(String.t()) :: boolean()
   defp summary_paragraph?(para) do
     trimmed = String.trim(para)
 
@@ -248,10 +257,12 @@ defmodule Rss2Nostr.Processing.Processor do
       not markdown_media_only?(trimmed)
   end
 
+  @spec markdown_media_only?(String.t()) :: boolean()
   defp markdown_media_only?(text) do
     Regex.match?(~r/\A!?(\[[^\]]*\]\([^)]+\)\s*)+\z/, text)
   end
 
+  @spec truncate_text(String.t(), pos_integer()) :: String.t()
   defp truncate_text(text, max_length) when byte_size(text) <= max_length, do: text
 
   defp truncate_text(text, max_length) do

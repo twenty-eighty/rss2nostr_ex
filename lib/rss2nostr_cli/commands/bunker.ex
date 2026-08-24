@@ -12,6 +12,7 @@ defmodule Rss2Nostr.CLI.Commands.Bunker do
   Generates a new bunker connection URL.
   This URL can be shared with a remote signer to establish a connection.
   """
+  @spec generate(map()) :: :ok
   def generate(options) do
     relay = Map.get(options, :relay, @default_relay)
 
@@ -34,6 +35,7 @@ defmodule Rss2Nostr.CLI.Commands.Bunker do
   @doc """
   Tests a bunker connection by connecting and getting the public key.
   """
+  @spec test(map()) :: :ok
   def test(options) do
     bunker_url = Map.get(options, :url)
 
@@ -66,6 +68,7 @@ defmodule Rss2Nostr.CLI.Commands.Bunker do
     end
   end
 
+  @spec test_bunker_connection(String.t()) :: :ok
   defp test_bunker_connection(bunker_url) do
     case NIP46.start_link(bunker_url: bunker_url) do
       {:ok, pid} ->
@@ -76,6 +79,7 @@ defmodule Rss2Nostr.CLI.Commands.Bunker do
     end
   end
 
+  @spec connect_and_get_pubkey(pid()) :: :ok
   defp connect_and_get_pubkey(pid) do
     case NIP46.connect(pid, 30_000) do
       {:ok, "ack"} ->
@@ -88,6 +92,7 @@ defmodule Rss2Nostr.CLI.Commands.Bunker do
     end
   end
 
+  @spec get_pubkey_and_disconnect(pid()) :: :ok
   defp get_pubkey_and_disconnect(pid) do
     case NIP46.get_public_key(pid, 10_000) do
       {:ok, pubkey} ->
@@ -103,6 +108,7 @@ defmodule Rss2Nostr.CLI.Commands.Bunker do
   @doc """
   Shows information about available bunker signers.
   """
+  @spec info() :: :ok
   def info do
     Output.info("NIP-46 Nostr Connect (Bunker) Support")
     Output.info("")
@@ -120,5 +126,6 @@ defmodule Rss2Nostr.CLI.Commands.Bunker do
     Output.info("  3. Use the bunker URL for export: rss2nostr export --bunker <url>")
   end
 
+  @spec return_error() :: :error
   defp return_error, do: :error
 end

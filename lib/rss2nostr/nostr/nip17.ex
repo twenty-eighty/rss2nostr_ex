@@ -40,6 +40,7 @@ defmodule Rss2Nostr.Nostr.NIP17 do
     end
   end
 
+  @spec rumor(String.t(), String.t(), String.t(), integer(), String.t() | nil) :: map()
   defp rumor(sender_pub, recipient, plaintext, created_at, subject) do
     tags = [["p", recipient]]
     tags = if subject, do: tags ++ [["subject", subject]], else: tags
@@ -55,6 +56,7 @@ defmodule Rss2Nostr.Nostr.NIP17 do
     Map.put(event, :id, Event.compute_id(event))
   end
 
+  @spec rumor_payload(map()) :: map()
   defp rumor_payload(event) do
     %{
       "id" => event.id,
@@ -66,6 +68,7 @@ defmodule Rss2Nostr.Nostr.NIP17 do
     }
   end
 
+  @spec gift_wrap(map(), String.t()) :: {:ok, map()} | {:error, term()}
   defp gift_wrap(seal, recipient) do
     ephemeral = Keys.generate_private_key()
     ephemeral_pub = ephemeral |> Keys.derive_public_key() |> Keys.to_hex()
@@ -81,14 +84,17 @@ defmodule Rss2Nostr.Nostr.NIP17 do
     end
   end
 
+  @spec stamp_created_at(map()) :: map()
   defp stamp_created_at(event) do
     %{event | created_at: System.os_time(:second) - :rand.uniform(2 * 24 * 60 * 60)}
   end
 
+  @spec field(map(), atom()) :: term()
   defp field(map, key) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
+  @spec signed_payload(map()) :: map()
   defp signed_payload(event) do
     %{
       "id" => event.id,

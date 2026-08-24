@@ -123,6 +123,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   def plain_summary(_), do: nil
 
   # Preprocess HTML before parsing
+  @spec preprocess_html(String.t()) :: String.t()
   defp preprocess_html(html) do
     html
     |> String.replace(~r/<script[^>]*>.*?<\/script>/is, "")
@@ -158,6 +159,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   def preserve_inline_spaces(html), do: html
 
   # Process DOM nodes to Markdown
+  @spec process_nodes(Floki.html_tree() | Floki.html_node()) :: String.t()
   defp process_nodes(nodes) when is_list(nodes) do
     nodes
     |> Inline.merge_adjacent()
@@ -166,6 +168,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   defp process_nodes(node), do: process_node(node)
 
+  @spec process_node(Floki.html_tree() | Floki.html_node()) :: String.t()
   defp process_node(text) when is_binary(text) do
     collapsed = String.replace(text, ~r/\s+/u, " ")
 
@@ -186,6 +189,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   defp process_node(_), do: ""
 
+  @spec process_tag(String.t(), [{String.t(), String.t()}], [Floki.html_node()]) :: String.t()
   defp process_tag(tag, attrs, children) do
     cond do
       skipped_tag?(tag) ->
@@ -217,19 +221,25 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end
   end
 
+  @spec skipped_tag?(String.t()) :: boolean()
   defp skipped_tag?(tag), do: tag in ~w(script style nav header footer noscript button form)
 
+  @spec heading_tag?(String.t()) :: boolean()
   defp heading_tag?(tag), do: tag in ~w(h1 h2 h3 h4 h5 h6)
 
+  @spec emphasis_tag?(String.t()) :: boolean()
   defp emphasis_tag?(tag),
     do: tag in ~w(strong b em i u code pre mark)
 
+  @spec process_heading_tag(String.t(), [Floki.html_node()]) :: String.t()
   defp process_heading_tag(tag, children),
     do: Inline.process_heading(tag, children, &process_nodes/1)
 
+  @spec process_emphasis_tag(String.t(), [{String.t(), String.t()}], [Floki.html_node()]) :: String.t()
   defp process_emphasis_tag(tag, attrs, children),
     do: Inline.process_emphasis(tag, attrs, children, &process_nodes/1)
 
+  @spec process_media_tag(String.t(), [{String.t(), String.t()}], [Floki.html_node()]) :: String.t()
   defp process_media_tag("a", attrs, children),
     do: LinkTags.process_link(attrs, children, &process_nodes/1)
 
@@ -254,6 +264,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp process_media_tag("audio", attrs, children), do: Embeds.process_audio(attrs, children)
   defp process_media_tag("video", attrs, children), do: Embeds.process_video(attrs, children)
 
+  @spec process_block(String.t(), [{String.t(), String.t()}], [Floki.html_node()]) :: String.t()
   defp process_block(tag, attrs, children) do
     case matching_conversion({tag, attrs, children}) do
       %{action: "links_as_paragraphs"} ->
@@ -269,12 +280,14 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end
   end
 
+  @spec matching_conversion(Floki.html_node()) :: map() | nil
   defp matching_conversion(node) do
     Enum.find(conversion_rules(), fn rule ->
       Rss2Nostr.Processing.Conversion.matches?(node, rule)
     end)
   end
 
+  @spec conversion_rules() :: [map()]
   defp conversion_rules do
     Process.get({__MODULE__, :conversion_rules}, [])
   end
@@ -303,6 +316,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   def remove_tracking_params(url), do: TrackingParams.remove(url)
 
   # Postprocess markdown
+  @spec postprocess_markdown(String.t()) :: String.t()
   defp postprocess_markdown(markdown) do
     markdown
     # Max 2 newlines
@@ -317,10 +331,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     |> String.trim()
   end
 
+  @spec skip_element?([{String.t(), String.t()}]) :: boolean()
   defp skip_element?(attrs) do
     Images.tracking_wrapper?(attrs) or skip_class?(attrs)
   end
 
+  @spec skip_class?([{String.t(), String.t()}]) :: boolean()
   defp skip_class?(attrs) do
     classes =
       attrs
@@ -330,10 +346,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     classes != [] and Enum.any?(skip_classes(), &(&1 in classes))
   end
 
+  @spec skip_classes() :: [String.t()]
   defp skip_classes do
     Process.get({__MODULE__, :skip_classes}, @default_skip_classes)
   end
 
+  @spec normalize_skip_classes(term()) :: [String.t()]
   defp normalize_skip_classes(classes) when is_list(classes) do
     classes
     |> Enum.map(&to_string/1)
@@ -343,8 +361,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   defp normalize_skip_classes(_), do: @default_skip_classes
 
+  @spec get_attr([{String.t(), String.t()}], String.t(), term()) :: term()
   defp get_attr(attrs, name, default), do: Dom.get_attr(attrs, name, default)
 
+  @spec blank_to_nil(String.t()) :: String.t() | nil
   defp blank_to_nil(""), do: nil
 
   defp blank_to_nil(value) when is_binary(value) do

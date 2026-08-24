@@ -5,6 +5,7 @@ defmodule Rss2Nostr.Web.API.Status do
 
   alias Rss2Nostr.{Sources, Posts}
 
+  @spec overview() :: map()
   def overview do
     %{
       sources: %{
@@ -26,6 +27,7 @@ defmodule Rss2Nostr.Web.API.Status do
     }
   end
 
+  @spec get_scheduler_status() :: %{running: boolean()}
   defp get_scheduler_status do
     %{running: Rss2Nostr.Web.API.Scheduler.status().running}
   end

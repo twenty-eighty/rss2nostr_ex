@@ -10,14 +10,17 @@ defmodule Rss2Nostr.Web.CodeReloader do
 
   require Logger
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @impl GenServer
+  @spec init(term()) :: {:ok, map()}
   def init(_opts), do: {:ok, %{}}
 
   @impl GenServer
+  @spec handle_call(:reload, GenServer.from(), map()) :: {:reply, :ok | :noop | :error, map()}
   def handle_call(:reload, _from, state) do
     {:reply, do_reload(), state}
   end
@@ -47,6 +50,7 @@ defmodule Rss2Nostr.Web.CodeReloader do
     conn
   end
 
+  @spec do_reload() :: :ok | :noop | :error
   defp do_reload do
     if Code.ensure_loaded?(Mix.Task) and function_exported?(Mix.Task, :reenable, 1) do
       Mix.Task.reenable("compile.elixir")
@@ -65,6 +69,7 @@ defmodule Rss2Nostr.Web.CodeReloader do
 
   # Mix compile is a no-op when another process already wrote fresh beams
   # (tests, migrate). Reload those into this VM so new function arities exist.
+  @spec reload_updated_modules() :: :ok
   defp reload_updated_modules do
     ebin = Application.app_dir(:rss2nostr, "ebin")
 
@@ -74,6 +79,7 @@ defmodule Rss2Nostr.Web.CodeReloader do
     end
   end
 
+  @spec reload_if_stale(module(), String.t()) :: :ok
   defp reload_if_stale(module, ebin) do
     beam = Path.join(ebin, Atom.to_string(module) <> ".beam")
 
@@ -88,10 +94,12 @@ defmodule Rss2Nostr.Web.CodeReloader do
     end
   end
 
+  @spec memory_compile_time(module()) :: term() | nil
   defp memory_compile_time(module) do
     Keyword.get(module.module_info(:compile), :time)
   end
 
+  @spec beam_compile_time(String.t()) :: {:ok, term()} | :error
   defp beam_compile_time(path) do
     case :beam_lib.chunks(String.to_charlist(path), [:compile_info]) do
       {:ok, {_mod, [compile_info: info]}} -> {:ok, Keyword.get(info, :time)}

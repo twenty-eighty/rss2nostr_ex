@@ -99,6 +99,7 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     |> Enum.any?()
   end
 
+  @spec upload_pending_images(Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}, Signer.open_signer()) :: {Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}, [term()]}
   defp upload_pending_images(post, mapping, open_signer) do
     targets = pending_image_records(post)
 
@@ -120,6 +121,7 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     end)
   end
 
+  @spec apply_image_mapping(Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}) :: {:ok, Rss2Nostr.Posts.Post.t()}
   defp apply_image_mapping(post, mapping) when mapping == %{}, do: {:ok, post}
 
   defp apply_image_mapping(post, mapping) do
@@ -129,6 +131,7 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     Posts.update_post(post, %{content: content, image: image, last_error: nil})
   end
 
+  @spec pending_image_records(Rss2Nostr.Posts.Post.t()) :: list()
   defp pending_image_records(post) do
     existing = post.images || []
     known = MapSet.new(existing, & &1.original_url)
@@ -152,6 +155,7 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     end)
   end
 
+  @spec pending_image_urls(Rss2Nostr.Posts.Post.t()) :: [String.t()]
   defp pending_image_urls(post) do
     images = post.images || []
     uploaded_urls = uploaded_url_set(images)
@@ -171,21 +175,25 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     Enum.uniq(featured ++ from_records)
   end
 
+  @spec uploaded_url_set(list()) :: MapSet.t()
   defp uploaded_url_set(images) do
     MapSet.new(for image <- images, present?(image.uploaded_url), do: image.uploaded_url)
   end
 
+  @spec image_ready?(map(), MapSet.t()) :: boolean()
   defp image_ready?(image, uploaded_urls) do
     present?(image.uploaded_url) or Blossom.already_hosted?(image.original_url) or
       MapSet.member?(uploaded_urls, image.original_url)
   end
 
+  @spec keep_original_media?(Rss2Nostr.Posts.Post.t(), String.t()) :: boolean()
   defp keep_original_media?(%{source: %Source{} = source}, url) do
     ImageExtractor.video_url?(url) and not Source.mirror_media?(source)
   end
 
   defp keep_original_media?(_, _), do: false
 
+  @spec mapping_or_hosted(String.t(), list()) :: String.t() | nil
   defp mapping_or_hosted(url, images) do
     cond do
       Blossom.already_hosted?(url) ->
@@ -202,9 +210,11 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     end
   end
 
+  @spec present?(term()) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 
+  @spec hosted_attrs(map()) :: map()
   defp hosted_attrs(image) do
     caption = ImageExtractor.parse_media_caption(image.caption)
     probed = probe_media(image, caption)
@@ -245,6 +255,7 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     })
   end
 
+  @spec probe_media(map(), map()) :: map()
   defp probe_media(image, caption) do
     url = image.original_url
 
@@ -262,6 +273,7 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     end
   end
 
+  @spec copy_upload_attrs(map()) :: map()
   defp copy_upload_attrs(image) do
     %{
       sha256: image.sha256,
@@ -273,6 +285,7 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     }
   end
 
+  @spec normalize_signer(Signer.signer() | binary()) :: Signer.signer()
   defp normalize_signer({:private_key, key}), do: {:private_key, key}
   defp normalize_signer({:bunker, value}), do: {:bunker, value}
   defp normalize_signer(key) when is_binary(key), do: {:private_key, key}

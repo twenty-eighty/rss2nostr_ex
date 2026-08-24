@@ -135,6 +135,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     }
   end
 
+  @spec preview_conversion_rules(map(), Source.t(), Composer.compose_opts()) :: [map()]
   defp preview_conversion_rules(params, source, opts) do
     if Map.has_key?(params, "conversion_rules") or Map.has_key?(params, :conversion_rules) do
       opts.conversion_rules
@@ -145,12 +146,14 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec event_hashtags(map()) :: [String.t()]
   defp event_hashtags(%{tags: tags}) when is_list(tags) do
     for ["t", tag] <- tags, do: tag
   end
 
   defp event_hashtags(_), do: []
 
+  @spec apply_excluded_hashtags(Source.t(), map()) :: Source.t()
   defp apply_excluded_hashtags(source, params) do
     if Map.has_key?(params, "excluded_hashtags") or Map.has_key?(params, :excluded_hashtags) do
       tags =
@@ -165,6 +168,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec load_source(map()) :: Source.t()
   defp load_source(params) do
     case load_existing_source(params) do
       %Source{} = source -> source
@@ -172,6 +176,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec load_existing_source(map()) :: Source.t() | nil
   defp load_existing_source(params) do
     id = params["source_id"] || params[:source_id]
 
@@ -193,6 +198,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec build_preview_source(map()) :: Source.t()
   defp build_preview_source(params) do
     publish_as = blank_to_nil(params["publish_as"] || params[:publish_as]) || "draft"
 
@@ -211,10 +217,12 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     }
   end
 
+  @spec preview_post_kind(String.t()) :: 30_023 | 30_024 | 34_235
   defp preview_post_kind("article"), do: 30_023
   defp preview_post_kind("video"), do: 34_235
   defp preview_post_kind(_), do: 30_024
 
+  @spec preview_options(map()) :: map()
   defp preview_options(params) do
     %{}
     |> maybe_preview_option("mirror_media", params)
@@ -224,6 +232,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     |> maybe_preview_conversion_rules(params)
   end
 
+  @spec maybe_preview_option(map(), String.t(), map()) :: map()
   defp maybe_preview_option(options, key, params) do
     case blank_to_nil(params[key] || params[String.to_atom(key)]) do
       nil -> options
@@ -231,6 +240,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec maybe_preview_skip_classes(map(), map()) :: map()
   defp maybe_preview_skip_classes(options, params) do
     if Map.has_key?(params, "skip_classes") or Map.has_key?(params, :skip_classes) do
       Map.put(
@@ -243,6 +253,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec maybe_preview_conversion_rules(map(), map()) :: map()
   defp maybe_preview_conversion_rules(options, params) do
     if Map.has_key?(params, "conversion_rules") or Map.has_key?(params, :conversion_rules) do
       Map.put(
@@ -257,12 +268,14 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec fetch_feed(String.t() | nil) :: {:ok, String.t()} | {:error, String.t()}
   defp fetch_feed(url) when is_binary(url) and url != "" do
     FeedFetcher.fetch(url)
   end
 
   defp fetch_feed(_), do: {:error, "Feed URL is required"}
 
+  @spec parse_items(String.t(), atom() | nil) :: {:ok, [map()]} | {:error, String.t()}
   defp parse_items(_body, nil), do: {:error, "Not an RSS or Atom feed"}
 
   defp parse_items(body, type) do
@@ -273,6 +286,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec find_item([map()], String.t() | nil) :: {:ok, map()} | {:error, String.t()}
   defp find_item([first | _], guid) when guid in [nil, ""], do: {:ok, first}
 
   defp find_item(items, guid) do
@@ -284,11 +298,13 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec preview_language(map(), Source.t()) :: String.t() | nil
   defp preview_language(params, source) do
     blank_to_nil(params["language"] || params[:language]) ||
       (source && blank_to_nil(source.language))
   end
 
+  @spec preview_selector(Composer.compose_opts(), map(), String.t() | nil, String.t() | nil) :: String.t() | nil
   defp preview_selector(opts, params, article_url, html) do
     cond do
       is_binary(opts.body_selector) and opts.body_selector != "" ->
@@ -302,6 +318,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec auto_body_selector?(map()) :: boolean()
   defp auto_body_selector?(params) do
     case params["body_selector_auto"] || params[:body_selector_auto] do
       value when value in [true, "true", "1", "on", "yes"] -> true
@@ -310,6 +327,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
+  @spec truncate_summary(String.t() | nil) :: String.t() | nil
   defp truncate_summary(nil), do: nil
 
   defp truncate_summary(text) when byte_size(text) > 500 do
@@ -318,6 +336,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
 
   defp truncate_summary(text), do: text
 
+  @spec blank_to_nil(term()) :: term()
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 

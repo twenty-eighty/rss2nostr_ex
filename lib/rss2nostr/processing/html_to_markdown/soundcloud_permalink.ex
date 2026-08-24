@@ -1,7 +1,7 @@
 defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
   @moduledoc false
 
-  @spec permalink(String.t()) :: String.t() | nil
+  @spec permalink(term()) :: String.t() | nil
   def permalink(html) when is_binary(html) do
     hydration_permalink(html) ||
       List.first(track_permalinks_in_html(html)) ||
@@ -10,11 +10,11 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
 
   def permalink(_), do: nil
 
-  @spec player_permalink(String.t()) :: String.t() | nil
+  @spec player_permalink(term()) :: String.t() | nil
   def player_permalink(src) when is_binary(src), do: permalink_from_player(src)
   def player_permalink(_), do: nil
 
-  @spec host?(String.t()) :: boolean()
+  @spec host?(term()) :: boolean()
   def host?(url) when is_binary(url) do
     host = url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
     host == "soundcloud.com" or String.ends_with?(host, ".soundcloud.com")
@@ -23,7 +23,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
   def host?(_), do: false
 
   @doc false
-  @spec player_color(String.t()) :: String.t() | nil
+  @spec player_color(term()) :: String.t() | nil
   def player_color(html) when is_binary(html) do
     html
     |> soundcloud_player_srcs()
@@ -53,8 +53,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
 
   def normalize_color(_), do: nil
 
+  @spec expand_short_hex(binary()) :: binary()
   defp expand_short_hex(<<a, b, c>>), do: <<a, a, b, b, c, c>>
 
+  @spec hydration_permalink(String.t()) :: String.t() | nil
   defp hydration_permalink(html) do
     case Regex.run(~r/window\.__sc_hydration\s*=\s*(\[.*?\])\s*;?/s, html) do
       [_, json] ->
@@ -71,6 +73,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
     end
   end
 
+  @spec hydration_sound_url(map()) :: String.t() | nil
   defp hydration_sound_url(%{"hydratable" => "sound", "data" => %{"permalink_url" => url}})
        when is_binary(url) and url != "" do
     url
@@ -78,6 +81,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
 
   defp hydration_sound_url(_), do: nil
 
+  @spec track_permalinks_in_html(String.t()) :: [String.t()]
   defp track_permalinks_in_html(html) do
     ~r/https?:\/\/(?:www\.)?soundcloud\.com\/[^\s"'<>]+/i
     |> Regex.scan(html)
@@ -87,12 +91,14 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
     |> Enum.uniq()
   end
 
+  @spec player_inner_url(String.t()) :: String.t() | nil
   defp player_inner_url(html) do
     html
     |> soundcloud_player_srcs()
     |> Enum.find_value(&permalink_from_player/1)
   end
 
+  @spec soundcloud_player_srcs(String.t()) :: [String.t()]
   defp soundcloud_player_srcs(html) do
     case Floki.parse_document(html) do
       {:ok, doc} ->
@@ -111,6 +117,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
     end
   end
 
+  @spec permalink_from_player(term()) :: String.t() | nil
   defp permalink_from_player(src) when is_binary(src) do
     src = String.replace(src, "&amp;", "&")
 
@@ -132,6 +139,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
 
   defp permalink_from_player(_), do: nil
 
+  @spec color_from_player(term()) :: String.t() | nil
   defp color_from_player(src) when is_binary(src) do
     src = String.replace(src, "&amp;", "&")
 
@@ -147,6 +155,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
 
   defp color_from_player(_), do: nil
 
+  @spec track_permalink?(term()) :: boolean()
   defp track_permalink?(url) when is_binary(url) do
     uri = URI.parse(url)
     host = uri.host |> to_string() |> String.downcase()
@@ -159,6 +168,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.SoundcloudPermalink do
 
   defp track_permalink?(_), do: false
 
+  @spec trim_url_punct(String.t()) :: String.t()
   defp trim_url_punct(url) do
     String.replace(url, ~r/[\.,;:)\]]+$/, "")
   end

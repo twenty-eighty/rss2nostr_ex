@@ -102,6 +102,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
     node |> strip_non_content() |> Floki.text() |> String.split(~r/\s+/, trim: true) |> length()
   end
 
+  @spec drop_nested(list()) :: list()
   defp drop_nested(nodes) do
     htmls = Enum.map(nodes, &{&1, Floki.raw_html(&1)})
 
@@ -114,6 +115,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
     |> Enum.map(&elem(&1, 0))
   end
 
+  @spec keep_substantial(list()) :: list()
   defp keep_substantial(nodes) do
     scored =
       Enum.map(nodes, fn node ->
@@ -131,6 +133,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
     if kept == [], do: Enum.map(scored, &elem(&1, 0)), else: kept
   end
 
+  @spec block_from_node(term()) :: [map()]
   defp block_from_node({tag, _attrs, _children} = node) do
     text = node |> Floki.text() |> normalize_space()
 
@@ -148,11 +151,13 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
 
   defp block_from_node(_), do: []
 
+  @spec start_xpath(String.t(), String.t()) :: String.t()
   defp start_xpath(tag, text) do
     snippet = text |> String.slice(0, 48) |> String.replace("'", " ")
     "//#{tag}[contains(., '#{snippet}')]"
   end
 
+  @spec drop_before(list(), String.t()) :: {:ok, list()} | :miss
   defp drop_before(children, xpath) do
     children = elements_only(children)
 
@@ -180,6 +185,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
     end
   end
 
+  @spec content_children(list()) :: list()
   defp content_children(doc) do
     case Floki.find(doc, "body") do
       [{"body", _, children} | _] -> unwrap(children)
@@ -187,6 +193,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
     end
   end
 
+  @spec unwrap(list()) :: list()
   defp unwrap(nodes) do
     case elements_only(List.wrap(nodes)) do
       [{"html", _, children}] -> unwrap(children)
@@ -199,10 +206,12 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
     end
   end
 
+  @spec elements_only(list()) :: list()
   defp elements_only(nodes) do
     Enum.filter(List.wrap(nodes), &match?({_, _, _}, &1))
   end
 
+  @spec contains_xpath?(term(), String.t()) :: boolean()
   defp contains_xpath?(node, xpath) do
     Conversion.matches?(node, %{xpath: xpath}) or
       case node do

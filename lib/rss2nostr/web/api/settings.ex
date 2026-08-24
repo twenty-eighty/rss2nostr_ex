@@ -7,6 +7,7 @@ defmodule Rss2Nostr.Web.API.Settings do
   alias Rss2Nostr.Processing.Composer
   alias Rss2NostrWeb.Language
 
+  @spec get() :: map()
   def get do
     %{
       nostr_nsec_configured: System.get_env("NOSTR_NSEC") != nil,
@@ -20,6 +21,7 @@ defmodule Rss2Nostr.Web.API.Settings do
     }
   end
 
+  @spec compose_options() :: map()
   defp compose_options do
     %{
       body_presets:
@@ -38,6 +40,7 @@ defmodule Rss2Nostr.Web.API.Settings do
     }
   end
 
+  @spec update(map()) :: {:ok, String.t()}
   def update(_params) do
     # Settings are managed via environment variables and config
     # This is a placeholder for future functionality

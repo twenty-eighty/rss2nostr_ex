@@ -11,6 +11,7 @@ defmodule Rss2Nostr.Nostr.Publisher.PostLoader do
     |> maybe_preload(:images)
   end
 
+  @spec maybe_preload(Post.t(), atom()) :: Post.t()
   defp maybe_preload(post, assoc) do
     if Ecto.assoc_loaded?(Map.get(post, assoc)), do: post, else: Repo.preload(post, [assoc])
   end

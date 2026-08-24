@@ -181,9 +181,63 @@ case System.get_env("ADMIN_NOSTR_PUBKEYS") do
     :ok
 end
 
-if mcp_token = System.get_env("MCP_TOKEN") || System.get_env("RSS2NOSTR_MCP_TOKEN") do
-  config :rss2nostr, :mcp, token: mcp_token
-end
+mcp_opts = Application.get_env(:rss2nostr, :mcp, [])
+
+mcp_opts =
+  case System.get_env("MCP_TOKEN") || System.get_env("RSS2NOSTR_MCP_TOKEN") do
+    token when is_binary(token) and token != "" ->
+      Keyword.put(mcp_opts, :token, token)
+
+    _ ->
+      mcp_opts
+  end
+
+mcp_opts =
+  case System.get_env("MCP_ALLOW_LOOPBACK") do
+    value when value in ["1", "true", "TRUE", "yes", "YES"] ->
+      Keyword.put(mcp_opts, :allow_loopback, true)
+
+    value when value in ["0", "false", "FALSE", "no", "NO"] ->
+      Keyword.put(mcp_opts, :allow_loopback, false)
+
+    _ ->
+      mcp_opts
+  end
+
+mcp_opts =
+  case System.get_env("MCP_CORS_ORIGINS") do
+    origins when is_binary(origins) and origins != "" ->
+      list =
+        origins
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+
+      Keyword.put(mcp_opts, :cors_origins, list)
+
+    _ ->
+      mcp_opts
+  end
+
+mcp_opts =
+  case System.get_env("MCP_ALLOWED_HOSTS") do
+    "any" ->
+      Keyword.put(mcp_opts, :allowed_hosts, :any)
+
+    hosts when is_binary(hosts) and hosts != "" ->
+      list =
+        hosts
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+
+      Keyword.put(mcp_opts, :allowed_hosts, list)
+
+    _ ->
+      mcp_opts
+  end
+
+config :rss2nostr, :mcp, mcp_opts
 
 secret = System.get_env("SECRET_KEY_BASE")
 
@@ -198,5 +252,44 @@ cond do
            "rss2nostr_test_secret_key_base_rss2nostr_test_secret_key_base"
 
   true ->
+    :ok
+end
+
+case System.get_env("SECURE_COOKIES") || System.get_env("FORCE_SSL") do
+  value when value in ["1", "true", "TRUE", "yes", "YES"] ->
+    config :rss2nostr, :secure_cookies, true
+
+  value when value in ["0", "false", "FALSE", "no", "NO"] ->
+    config :rss2nostr, :secure_cookies, false
+
+  _ ->
+    if config_env() == :prod do
+      config :rss2nostr, :secure_cookies, true
+    end
+end
+
+case System.get_env("PHX_HOST") || System.get_env("CHECK_ORIGIN") do
+  hosts when is_binary(hosts) and hosts != "" ->
+    host_list =
+      hosts
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    primary = List.first(host_list) || "localhost"
+    scheme = System.get_env("URL_SCHEME") || if(config_env() == :prod, do: "https", else: "http")
+
+    check_origin =
+      host_list
+      |> Enum.flat_map(fn host ->
+        ["#{scheme}://#{host}", "http://#{host}", "https://#{host}"]
+      end)
+      |> Enum.uniq()
+
+    config :rss2nostr, Rss2NostrWeb.Endpoint,
+      url: [host: primary, scheme: scheme],
+      check_origin: check_origin
+
+  _ ->
     :ok
 end

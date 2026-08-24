@@ -51,6 +51,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Identifiers do
     if slug == "", do: nil, else: slug
   end
 
+  @spec slug_from_url(String.t() | nil) :: String.t() | nil
   defp slug_from_url(url) when is_binary(url) and url != "" do
     path = url |> URI.parse() |> Map.get(:path) || ""
 
@@ -70,6 +71,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Identifiers do
 
   defp slug_from_url(_), do: nil
 
+  @spec fallback_identifier(map()) :: String.t()
   defp fallback_identifier(post) do
     field(post, :source_url_hash) ||
       case field(post, :id) do
@@ -78,6 +80,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Identifiers do
       end
   end
 
+  @spec field(map(), atom()) :: term()
   defp field(%{__struct__: _} = struct, key), do: Map.get(struct, key)
   defp field(map, key) when is_map(map), do: map[key] || map[Atom.to_string(key)]
   defp field(_, _), do: nil

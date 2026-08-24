@@ -76,6 +76,7 @@ defmodule Rss2Nostr.Sources do
     end
   end
 
+  @spec sync_post_kinds(Source.t()) :: {non_neg_integer(), nil}
   defp sync_post_kinds(%Source{id: id, default_post_kind: kind})
        when kind in [30023, 30024, 34235] do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
@@ -127,6 +128,7 @@ defmodule Rss2Nostr.Sources do
     |> create_source()
   end
 
+  @spec maybe_put_publish_as(map(), Source.t()) :: map()
   defp maybe_put_publish_as(attrs, source) do
     if source.publish_as in ["article", "video", "draft_plain"] or present_binary?(source.pubkey) do
       Map.put(attrs, :publish_as, source.publish_as)
@@ -135,9 +137,12 @@ defmodule Rss2Nostr.Sources do
     end
   end
 
+  @spec present_binary?(term()) :: boolean()
   defp present_binary?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_binary?(_), do: false
 
+  @spec attr(map(), atom()) :: String.t() | nil
+  @spec attr(map(), atom()) :: String.t() | nil
   defp attr(attrs, key) do
     value = Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
 
@@ -153,6 +158,7 @@ defmodule Rss2Nostr.Sources do
     end
   end
 
+  @spec unique_copy_url(String.t()) :: String.t()
   defp unique_copy_url(url) do
     marker = "rss2nostr_copy=#{System.unique_integer([:positive])}"
 
@@ -163,6 +169,7 @@ defmodule Rss2Nostr.Sources do
     end
   end
 
+  @spec copy_options(map() | term()) :: map()
   defp copy_options(options) when is_map(options), do: Map.drop(options, ["start_guid"])
   defp copy_options(_), do: %{}
 

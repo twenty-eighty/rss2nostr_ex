@@ -65,6 +65,7 @@ defmodule Rss2Nostr.Scheduler do
   end
 
   @doc false
+  @spec auto_start?(keyword()) :: boolean()
   def auto_start?(opts \\ []) do
     case Keyword.fetch(opts, :auto_start) do
       {:ok, value} ->
@@ -136,6 +137,7 @@ defmodule Rss2Nostr.Scheduler do
   # ============================================================================
 
   @impl true
+  @spec init(keyword()) :: {:ok, t()} | {:ok, t(), {:continue, :start_scheduling}}
   def init(opts) do
     config_intervals = Application.get_env(:rss2nostr, __MODULE__, [])[:intervals] || %{}
 
@@ -164,11 +166,13 @@ defmodule Rss2Nostr.Scheduler do
   end
 
   @impl true
+  @spec handle_continue(:start_scheduling, t()) :: {:noreply, t()}
   def handle_continue(:start_scheduling, state) do
     {:noreply, do_start(state)}
   end
 
   @impl true
+  @spec handle_call(term(), GenServer.from(), t()) :: {:reply, term(), t()}
   def handle_call(:start, _from, state) do
     if state.running do
       {:reply, {:error, :already_running}, state}
@@ -228,6 +232,7 @@ defmodule Rss2Nostr.Scheduler do
   end
 
   @impl true
+  @spec handle_info(term(), t()) :: {:noreply, t()}
   def handle_info({:execute, _task}, %{running: false} = state) do
     {:noreply, state}
   end
@@ -251,6 +256,7 @@ defmodule Rss2Nostr.Scheduler do
   # Private Functions
   # ============================================================================
 
+  @spec do_start(t()) :: t()
   defp do_start(state) do
     Logger.info("Starting scheduler...")
 
@@ -263,6 +269,7 @@ defmodule Rss2Nostr.Scheduler do
     %{state | running: true, timers: timers}
   end
 
+  @spec do_stop(t()) :: t()
   defp do_stop(state) do
     Logger.info("Stopping scheduler...")
 
@@ -273,16 +280,19 @@ defmodule Rss2Nostr.Scheduler do
     %{state | running: false, timers: %{}}
   end
 
+  @spec schedule_task(atom(), pos_integer()) :: reference()
   defp schedule_task(task, interval) do
     Process.send_after(self(), {:execute, task}, interval)
   end
 
+  @spec cancel_timer(reference() | nil) :: :ok | non_neg_integer() | false
   defp cancel_timer(nil), do: :ok
 
   defp cancel_timer(timer) do
     Process.cancel_timer(timer)
   end
 
+  @spec execute_task(atom(), t()) :: {{:ok, map()} | {:error, term()}, t()}
   defp execute_task(task, state) do
     Logger.info("Executing scheduled task: #{task}")
     state = %{state | task_status: Map.put(state.task_status, task, :running)}
@@ -313,9 +323,11 @@ defmodule Rss2Nostr.Scheduler do
     {result, state}
   end
 
+  @spec summarize_result({:ok, map()} | {:error, term()}) :: map()
   defp summarize_result({:ok, stats}) when is_map(stats), do: stats
   defp summarize_result({:error, reason}), do: %{error: inspect(reason)}
 
+  @spec format_intervals(map()) :: map()
   defp format_intervals(intervals) do
     Enum.map(intervals, fn {task, ms} ->
       {task, format_duration(ms)}
@@ -323,11 +335,13 @@ defmodule Rss2Nostr.Scheduler do
     |> Map.new()
   end
 
+  @spec format_duration(pos_integer()) :: String.t()
   defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
   defp format_duration(ms) when ms < 60_000, do: "#{div(ms, 1000)}s"
   defp format_duration(ms) when ms < 3_600_000, do: "#{div(ms, 60_000)}m"
   defp format_duration(ms), do: "#{div(ms, 3_600_000)}h"
 
+  @spec enabled?(term()) :: boolean()
   defp enabled?(true), do: true
 
   defp enabled?(value) when is_binary(value) do
@@ -336,6 +350,7 @@ defmodule Rss2Nostr.Scheduler do
 
   defp enabled?(_), do: false
 
+  @spec default_export_config() :: map()
   defp default_export_config do
     nsec = System.get_env("NOSTR_NSEC")
 

@@ -7,6 +7,8 @@ defmodule Rss2Nostr.Processing.Markdown do
   the HTML safely.
   """
 
+  @type block :: [String.t()]
+
   @spec to_html(String.t() | nil) :: String.t()
   def to_html(nil), do: ""
   def to_html(""), do: ""
@@ -19,6 +21,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     |> Enum.map_join("\n", &block_to_html/1)
   end
 
+  @spec split_blocks(String.t()) :: [block()]
   defp split_blocks(markdown) do
     markdown
     |> extract_segments()
@@ -29,6 +32,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     |> Enum.reject(&empty_block?/1)
   end
 
+  @spec extract_segments(String.t()) :: [{:fence | :text, String.t()}]
   defp extract_segments(markdown) do
     pattern = ~r/^```[^\n]*\n[\s\S]*?^```[ \t]*$/m
 
@@ -42,16 +46,19 @@ defmodule Rss2Nostr.Processing.Markdown do
     end)
   end
 
+  @spec split_text_blocks(String.t()) :: [block()]
   defp split_text_blocks(text) do
     text
     |> String.split(~r/\n{2,}/)
     |> Enum.map(&String.split(&1, "\n"))
   end
 
+  @spec empty_block?(block()) :: boolean()
   defp empty_block?(lines) do
     Enum.all?(lines, &(String.trim(&1) == ""))
   end
 
+  @spec block_to_html(block()) :: String.t()
   defp block_to_html(lines) do
     first = List.first(lines) |> to_string() |> String.trim_leading()
 
@@ -89,12 +96,15 @@ defmodule Rss2Nostr.Processing.Markdown do
     end
   end
 
+  @spec figure_only?(String.t()) :: boolean()
   defp figure_only?(html) do
     String.starts_with?(html, "<figure") and String.ends_with?(html, "</figure>")
   end
 
+  @spec footnote_def?(String.t()) :: boolean()
   defp footnote_def?(line), do: String.match?(String.trim_leading(line), ~r/^\[\^\d+\]:/)
 
+  @spec footnote_def_html(block()) :: String.t()
   defp footnote_def_html(lines) do
     text = lines |> Enum.join("\n") |> String.trim()
 
@@ -108,10 +118,14 @@ defmodule Rss2Nostr.Processing.Markdown do
     end
   end
 
+  @spec heading?(String.t()) :: boolean()
   defp heading?(line), do: String.match?(line, ~r/^\#{1,6}\s+\S/)
+  @spec hr?(String.t()) :: boolean()
   defp hr?(line), do: String.match?(String.trim(line), ~r/^(-{3,}|\*{3,}|_{3,})$/)
+  @spec list_item?(String.t()) :: boolean()
   defp list_item?(line), do: String.match?(line, ~r/^(?:[-*+]|\d+\.)\s+/)
 
+  @spec heading_html(String.t()) :: String.t()
   defp heading_html(line) do
     case Regex.run(~r/^(\#{1,6})\s+(.*)$/, line) do
       [_, hashes, text] ->
@@ -123,6 +137,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     end
   end
 
+  @spec quote_html(block()) :: String.t()
   defp quote_html(lines) do
     paragraphs =
       lines
@@ -137,6 +152,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     "<blockquote>#{paragraphs}</blockquote>"
   end
 
+  @spec list_html(block()) :: String.t()
   defp list_html(lines) do
     ordered? = String.match?(hd(lines) |> String.trim_leading(), ~r/^\d+\.\s+/)
     tag = if ordered?, do: "ol", else: "ul"
@@ -150,6 +166,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     "<#{tag}>#{items}</#{tag}>"
   end
 
+  @spec table_html(block()) :: String.t()
   defp table_html(lines) do
     rows =
       lines
@@ -168,10 +185,12 @@ defmodule Rss2Nostr.Processing.Markdown do
     "<table>#{rows}</table>"
   end
 
+  @spec table_separator?(String.t()) :: boolean()
   defp table_separator?(line) do
     String.match?(String.trim(line), ~r/^\|?[\s:|-]+\|[\s:|-]+\|?$/)
   end
 
+  @spec code_block_html(block()) :: String.t()
   defp code_block_html(lines) do
     body =
       lines
@@ -182,6 +201,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     "<pre><code>#{escape(body)}</code></pre>"
   end
 
+  @spec inline(String.t()) :: String.t()
   defp inline(text) do
     text
     |> escape()
@@ -193,18 +213,21 @@ defmodule Rss2Nostr.Processing.Markdown do
     |> replace_emphasis()
   end
 
+  @spec replace_hard_breaks(String.t()) :: String.t()
   defp replace_hard_breaks(text) do
     text
     |> String.replace("\\\n", "<br>\n")
     |> String.replace(~r/ {2,}\n/, "<br>\n")
   end
 
+  @spec replace_footnotes(String.t()) :: String.t()
   defp replace_footnotes(text) do
     Regex.replace(~r/\[\^(\d+)\](?!:)/, text, fn _, n ->
       ~s(<sup class="footnote-ref" id="fnref-#{n}"><a href="#fn-#{n}">#{n}</a></sup>)
     end)
   end
 
+  @spec replace_images(String.t()) :: String.t()
   defp replace_images(text) do
     Regex.replace(~r/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/, text, fn
       _, alt, url, title ->
@@ -224,6 +247,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     end)
   end
 
+  @spec replace_links(String.t()) :: String.t()
   defp replace_links(text) do
     Regex.replace(~r/\[([^\]]+)\]\(([^)\s]+)\)/, text, fn _, label, url ->
       case safe_url(unescape(url)) do
@@ -233,6 +257,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     end)
   end
 
+  @spec replace_code(String.t()) :: String.t()
   defp replace_code(text) do
     Regex.replace(~r/`([^`]+)`/, text, fn _, code -> "<code>#{code}</code>" end)
   end
@@ -240,6 +265,7 @@ defmodule Rss2Nostr.Processing.Markdown do
   # CommonMark flanking: a `*`/`_` run cannot open if followed by whitespace,
   # and cannot close if preceded by whitespace. Longer runs first so
   # `***bold italic***` does not leave a stray marker.
+  @spec replace_emphasis(String.t()) :: String.t()
   defp replace_emphasis(text) do
     text
     |> replace_delimited(~r/\*\*\*(?!\s)(.+?)(?<!\s)\*\*\*/, fn inner ->
@@ -259,10 +285,12 @@ defmodule Rss2Nostr.Processing.Markdown do
     end)
   end
 
+  @spec replace_delimited(String.t(), Regex.t(), (String.t() -> String.t())) :: String.t()
   defp replace_delimited(text, regex, fun) do
     Regex.replace(regex, text, fn _, inner -> fun.(inner) end)
   end
 
+  @spec safe_url(String.t()) :: String.t() | nil
   defp safe_url(url) do
     url = String.trim(url)
     uri = URI.parse(url)
@@ -281,6 +309,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     _ -> nil
   end
 
+  @spec safe_mailto(String.t()) :: String.t() | nil
   defp safe_mailto(url) do
     rest = String.replace_prefix(url, "mailto:", "")
     {address, suffix} = split_mailto_target(rest)
@@ -291,6 +320,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     end
   end
 
+  @spec split_mailto_target(String.t()) :: {String.t(), String.t()}
   defp split_mailto_target(rest) do
     case String.split(rest, "?", parts: 2) do
       [address, query] -> {address, "?" <> query}
@@ -298,12 +328,14 @@ defmodule Rss2Nostr.Processing.Markdown do
     end
   end
 
+  @spec valid_mailto_address?(String.t()) :: boolean()
   defp valid_mailto_address?(address) do
     address != "" and
       String.contains?(address, "@") and
       not String.contains?(address, [" ", "\n", "\r", "<", ">", "\"", "'"])
   end
 
+  @spec unescape(String.t()) :: String.t()
   defp unescape(text) do
     text
     |> String.replace("&amp;", "&")
@@ -313,9 +345,11 @@ defmodule Rss2Nostr.Processing.Markdown do
     |> String.replace("&gt;", ">")
   end
 
+  @spec escape(String.t() | term()) :: String.t()
   defp escape(text) when is_binary(text), do: Plug.HTML.html_escape(text)
   defp escape(_), do: ""
 
+  @spec escape_attr(String.t()) :: String.t()
   defp escape_attr(text) do
     text
     |> escape()

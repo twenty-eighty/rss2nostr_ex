@@ -11,6 +11,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
   Starts the scheduler daemon.
   This runs in the foreground and executes tasks on schedule.
   """
+  @spec start(map()) :: term()
   def start(options) do
     nsec = Map.get(options, :nsec)
     relays = parse_relays(Map.get(options, :relays))
@@ -81,6 +82,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
   @doc """
   Shows the current scheduler status.
   """
+  @spec status() :: :ok
   def status do
     case Process.whereis(Rss2Nostr.Scheduler) do
       nil ->
@@ -123,6 +125,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
   @doc """
   Runs a single task manually.
   """
+  @spec run_task(String.t()) :: :ok
   def run_task(task_name) do
     task =
       case task_name do
@@ -161,6 +164,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
     end
   end
 
+  @spec show_task_status({atom(), atom()}, map()) :: :ok
   defp show_task_status({task, task_status}, last_run_map) do
     last_run =
       case last_run_map[task] do
@@ -171,6 +175,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
     Output.info("  #{task}: #{task_status} (last run: #{last_run})")
   end
 
+  @spec ensure_scheduler_started() :: :ok | {:ok, pid()}
   defp ensure_scheduler_started do
     case Process.whereis(Rss2Nostr.Scheduler) do
       nil ->
@@ -182,6 +187,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
     end
   end
 
+  @spec get_private_key(String.t() | nil) :: {:ok, binary(), String.t()} | {:error, atom()}
   defp get_private_key(nil) do
     case System.get_env("NOSTR_NSEC") do
       nil -> {:error, :no_key}
@@ -191,6 +197,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
 
   defp get_private_key(nsec), do: decode_nsec(nsec)
 
+  @spec decode_nsec(String.t()) :: {:ok, binary(), String.t()} | {:error, atom()}
   defp decode_nsec(nsec) do
     cond do
       String.starts_with?(nsec, "nsec") ->
@@ -219,6 +226,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
     end
   end
 
+  @spec parse_relays(String.t() | list() | nil) :: [String.t()] | nil
   defp parse_relays(nil), do: nil
 
   defp parse_relays(relays) when is_binary(relays) do
@@ -230,6 +238,7 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
 
   defp parse_relays(relays) when is_list(relays), do: relays
 
+  @spec describe_relay_target([String.t()] | nil, atom() | nil) :: :ok
   defp describe_relay_target(relays, _audience) when is_list(relays) do
     Output.info("Relays: #{length(relays)} (explicit override)")
   end
@@ -242,9 +251,11 @@ defmodule Rss2Nostr.CLI.Commands.Scheduler do
     Output.info("Relays: per source (draft, test, or public)")
   end
 
+  @spec maybe_put(map(), atom(), term()) :: map()
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
+  @spec format_interval(integer()) :: String.t()
   defp format_interval(ms) when ms < 60_000, do: "#{div(ms, 1000)} seconds"
   defp format_interval(ms) when ms < 3_600_000, do: "#{div(ms, 60_000)} minutes"
   defp format_interval(ms), do: "#{div(ms, 3_600_000)} hours"

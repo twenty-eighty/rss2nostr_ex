@@ -35,6 +35,7 @@ defmodule Rss2Nostr.Processing.Soundcloud do
 
   def artwork_url(_, _), do: nil
 
+  @spec fetch_oembed_artwork(String.t()) :: String.t() | nil
   defp fetch_oembed_artwork(permalink) do
     url =
       "https://soundcloud.com/oembed?format=json&url=#{URI.encode_www_form(permalink)}"
@@ -53,6 +54,7 @@ defmodule Rss2Nostr.Processing.Soundcloud do
       nil
   end
 
+  @spec parse_artwork(map() | String.t() | term()) :: String.t() | nil
   defp parse_artwork(%{"thumbnail_url" => url}), do: safe_image_url(url)
 
   defp parse_artwork(body) when is_binary(body) do
@@ -64,6 +66,7 @@ defmodule Rss2Nostr.Processing.Soundcloud do
 
   defp parse_artwork(_), do: nil
 
+  @spec safe_image_url(String.t() | term()) :: String.t() | nil
   defp safe_image_url(url) when is_binary(url) do
     uri = URI.parse(String.trim(url))
 
@@ -76,10 +79,12 @@ defmodule Rss2Nostr.Processing.Soundcloud do
 
   defp safe_image_url(_), do: nil
 
+  @spec enabled?() :: boolean()
   defp enabled? do
     Application.get_env(:rss2nostr, :fetch_soundcloud_artwork, true)
   end
 
+  @spec cache_get(String.t()) :: {:ok, String.t() | nil} | :miss
   defp cache_get(permalink) do
     ensure_cache()
 
@@ -91,6 +96,7 @@ defmodule Rss2Nostr.Processing.Soundcloud do
     ArgumentError -> :miss
   end
 
+  @spec cache_put(String.t(), String.t() | nil) :: :ok
   defp cache_put(permalink, url) do
     ensure_cache()
     true = :ets.insert(__MODULE__, {permalink, url})
@@ -99,6 +105,7 @@ defmodule Rss2Nostr.Processing.Soundcloud do
     ArgumentError -> :ok
   end
 
+  @spec ensure_cache() :: :ok
   defp ensure_cache do
     case :ets.whereis(__MODULE__) do
       :undefined ->

@@ -48,6 +48,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
 
   Returns {:ok, %{pubkey: ..., relay: ..., secret: ...}} or {:error, reason}
   """
+  @spec parse_bunker_url(String.t()) :: {:ok, %{pubkey: String.t(), relay: String.t(), secret: String.t() | nil}} | {:error, atom()}
   def parse_bunker_url(url) when is_binary(url) do
     case URI.parse(url) do
       %URI{scheme: "bunker", host: pubkey, query: query} when is_binary(pubkey) ->
@@ -76,6 +77,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
 
   This is used when you want to connect a remote signer to this application.
   """
+  @spec generate_connection_url(String.t(), keyword()) :: {:ok, String.t(), binary(), String.t()}
   def generate_connection_url(relay_url, opts \\ []) do
     # Generate ephemeral client keypair
     client_privkey = Keyword.get_lazy(opts, :privkey, fn -> Keys.generate_private_key() end)
@@ -100,6 +102,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
     - :relay_url - The relay to use for communication
     - :secret - Optional connection secret
   """
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts)
   end
@@ -107,6 +110,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   @doc """
   Connects to the remote signer.
   """
+  @spec connect(pid(), timeout()) :: :ok | {:error, term()}
   def connect(pid, timeout \\ @request_timeout) do
     GenServer.call(pid, :connect, timeout)
   end
@@ -114,6 +118,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   @doc """
   Gets the public key from the remote signer.
   """
+  @spec get_public_key(pid(), timeout()) :: {:ok, String.t()} | {:error, term()}
   def get_public_key(pid, timeout \\ @request_timeout) do
     GenServer.call(pid, :get_public_key, timeout)
   end
@@ -126,6 +131,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
 
   Returns {:ok, signed_event} or {:error, reason}
   """
+  @spec sign_event(pid(), map(), timeout()) :: {:ok, map()} | {:error, term()}
   def sign_event(pid, event, timeout \\ @request_timeout) do
     GenServer.call(pid, {:sign_event, event}, timeout)
   end
@@ -133,6 +139,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   @doc """
   Disconnects from the remote signer.
   """
+  @spec disconnect(pid()) :: :ok
   def disconnect(pid) do
     GenServer.call(pid, :disconnect)
   end
@@ -142,6 +149,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   # ============================================================================
 
   @impl true
+  @spec init(keyword()) :: {:ok, t()}
   def init(opts) do
     # Parse bunker URL if provided
     {remote_pubkey, relay_url, secret} =
@@ -174,6 +182,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   end
 
   @impl true
+  @spec handle_call(term(), GenServer.from(), t()) :: {:reply, term(), t()} | {:noreply, t()}
   def handle_call(:connect, from, state) do
     case do_connect(state) do
       {:ok, new_state} ->
@@ -261,6 +270,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   end
 
   @impl true
+  @spec handle_info(term(), t()) :: {:noreply, t()}
   def handle_info({:ws_message, message}, state) do
     {:ok, new_state} = handle_relay_message(message, state)
     {:noreply, new_state}
@@ -281,6 +291,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   # Private Functions
   # ============================================================================
 
+  @spec do_connect(t()) :: {:ok, t()} | {:error, term()}
   defp do_connect(state) do
     Logger.info("Connecting to NIP-46 relay: #{state.relay_url}")
 
@@ -311,6 +322,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
     end
   end
 
+  @spec send_request(t(), String.t(), String.t(), list()) :: {:ok, t()} | {:error, term()}
   defp send_request(state, request_id, method, params) do
     # Build request object
     request = %{
@@ -359,6 +371,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
     end
   end
 
+  @spec handle_relay_message(String.t(), t()) :: {:ok, t()}
   defp handle_relay_message(message, state) do
     case Jason.decode(message) do
       {:ok, ["EVENT", _sub_id, event]} ->
@@ -379,6 +392,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
     end
   end
 
+  @spec handle_response_event(map(), t()) :: {:ok, t()}
   defp handle_response_event(event, state) do
     # Decrypt the response
     case NIP04.decrypt(event["content"], state.client_privkey, event["pubkey"]) do
@@ -398,6 +412,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
     end
   end
 
+  @spec handle_response(map(), t()) :: {:ok, t()}
   defp handle_response(%{"id" => request_id, "result" => result}, state) do
     case Map.pop(state.pending_requests, request_id) do
       {nil, _} ->
@@ -423,14 +438,17 @@ defmodule Rss2Nostr.Nostr.NIP46 do
 
   defp handle_response(_, state), do: {:ok, state}
 
+  @spec generate_request_id() :: String.t()
   defp generate_request_id do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
   end
 
+  @spec generate_subscription_id() :: String.t()
   defp generate_subscription_id do
     "nip46_#{:rand.uniform(1_000_000)}"
   end
 
+  @spec generate_secret() :: String.t()
   defp generate_secret do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
   end
@@ -440,23 +458,27 @@ end
 defmodule Rss2Nostr.Nostr.NIP46.WebSocketHandler do
   use WebSockex
 
+  @spec start_link(String.t(), map()) :: {:ok, pid()} | {:error, term()}
   def start_link(url, state) do
     WebSockex.start_link(url, __MODULE__, state)
   end
 
   @impl true
+  @spec handle_frame({:text, String.t()} | term(), map()) :: {:ok, map()}
   def handle_frame({:text, message}, state) do
     send(state.parent, {:ws_message, message})
     {:ok, state}
   end
 
   @impl true
+  @spec handle_disconnect(term(), map()) :: {:ok, map()}
   def handle_disconnect(_reason, state) do
     send(state.parent, {:ws_closed, :disconnected})
     {:ok, state}
   end
 
   @impl true
+  @spec handle_cast(:close, map()) :: {:close, map()}
   def handle_cast(:close, state) do
     {:close, state}
   end

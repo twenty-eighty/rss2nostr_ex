@@ -120,6 +120,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     _ -> nil
   end
 
+  @spec video_id_token(URI.t(), String.t()) :: String.t() | nil
   defp video_id_token(uri, url) do
     case Youtube.video_id(url) do
       id when is_binary(id) -> String.downcase(id)
@@ -127,6 +128,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     end
   end
 
+  @spec last_significant_token(URI.t()) :: String.t() | nil
   defp last_significant_token(uri) do
     (uri.path || "")
     |> String.split("/", trim: true)
@@ -148,6 +150,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     _ -> nil
   end
 
+  @spec normalize_video_host(term()) :: String.t()
   defp normalize_video_host(host) do
     host
     |> to_string()
@@ -157,6 +160,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     |> String.replace_prefix("m.", "")
   end
 
+  @spec odysee_watch_url(URI.t(), String.t()) :: String.t() | nil
   defp odysee_watch_url(uri, path) do
     rest =
       cond do
@@ -177,6 +181,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     end
   end
 
+  @spec bitchute_watch_url(URI.t(), String.t()) :: String.t() | nil
   defp bitchute_watch_url(uri, path) do
     case Regex.run(~r{/embed/([^/]+)/?}, path) do
       [_, id] -> uri_watch(uri, "/video/#{id}/")
@@ -184,6 +189,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     end
   end
 
+  @spec rumble_watch_url(URI.t(), String.t()) :: String.t() | nil
   defp rumble_watch_url(uri, path) do
     case Regex.run(~r{/embed/([^/]+)/?}, path) do
       [_, id] -> uri_watch(uri, "/embed/#{id}")
@@ -191,6 +197,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     end
   end
 
+  @spec archive_watch_url(URI.t(), String.t()) :: String.t() | nil
   defp archive_watch_url(uri, path) do
     case Regex.run(~r{/embed/([^/]+)/?}, path) do
       [_, id] -> uri_watch(uri, "/details/#{id}")
@@ -198,6 +205,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     end
   end
 
+  @spec rokfin_watch_url(URI.t(), String.t()) :: String.t() | nil
   defp rokfin_watch_url(uri, path) do
     case Regex.run(~r{/embed/(?:post/)?([^/]+)/?}, path) do
       [_, id] -> uri_watch(uri, "/post/#{id}")
@@ -205,10 +213,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     end
   end
 
+  @spec uri_watch(URI.t(), String.t()) :: String.t()
   defp uri_watch(uri, path) do
     URI.to_string(%{uri | path: path, query: nil, fragment: nil})
   end
 
+  @spec safe_decode_uri(String.t()) :: String.t()
   defp safe_decode_uri(url) do
     decoded = URI.decode(url)
     if decoded == url, do: url, else: safe_decode_uri(decoded)
@@ -216,6 +226,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     _ -> url
   end
 
+  @spec podbean_player_id(String.t()) :: String.t() | nil
   defp podbean_player_id(query) do
     id =
       query
@@ -228,6 +239,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
     end
   end
 
+  @spec podbean_path_id(term()) :: String.t() | nil
   defp podbean_path_id(path) when is_binary(path) do
     case Regex.run(~r{(?:^|/)pb-([A-Za-z0-9]+-[A-Za-z0-9]+)(?:/|$)}, path) do
       [_, id] -> id
@@ -237,6 +249,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.EmbedUrls do
 
   defp podbean_path_id(_), do: nil
 
+  @spec unescape_attr(String.t()) :: String.t()
   defp unescape_attr(value) when is_binary(value) do
     value
     |> String.replace("&amp;", "&")

@@ -7,6 +7,7 @@ defmodule Rss2Nostr.CLI.Commands.Import do
   alias Rss2Nostr.Import.Importer
   alias Rss2Nostr.Sources
 
+  @spec run(map(), map()) :: :ok
   def run(options, flags) do
     force = Map.get(flags, :force, false)
     source_id = Map.get(options, :source)

@@ -116,6 +116,7 @@ defmodule Rss2Nostr.Processing.Youtube do
     end
   end
 
+  @spec fetch_oembed_title(String.t()) :: String.t() | nil
   defp fetch_oembed_title(video_id) do
     watch = "https://www.youtube.com/watch?v=#{video_id}"
     url = "https://www.youtube.com/oembed?url=#{URI.encode_www_form(watch)}&format=json"
@@ -137,16 +138,19 @@ defmodule Rss2Nostr.Processing.Youtube do
       nil
   end
 
+  @spec escape_label(String.t()) :: String.t()
   defp escape_label(title) do
     title
     |> String.replace("[", "\\[")
     |> String.replace("]", "\\]")
   end
 
+  @spec enabled?() :: boolean()
   defp enabled? do
     Application.get_env(:rss2nostr, :enrich_youtube_titles, true)
   end
 
+  @spec cache_get(String.t()) :: {:ok, String.t() | nil} | :miss
   defp cache_get(video_id) do
     ensure_cache()
 
@@ -158,6 +162,7 @@ defmodule Rss2Nostr.Processing.Youtube do
     ArgumentError -> :miss
   end
 
+  @spec cache_put(String.t(), String.t() | nil) :: :ok
   defp cache_put(video_id, title) do
     ensure_cache()
     true = :ets.insert(__MODULE__, {video_id, title})
@@ -166,6 +171,7 @@ defmodule Rss2Nostr.Processing.Youtube do
     ArgumentError -> :ok
   end
 
+  @spec ensure_cache() :: :ok
   defp ensure_cache do
     case :ets.whereis(__MODULE__) do
       :undefined ->

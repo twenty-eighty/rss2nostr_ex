@@ -222,6 +222,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec source_to_map(Source.t()) :: map()
   defp source_to_map(source) do
     %{
       id: source.id,
@@ -240,6 +241,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     }
   end
 
+  @spec composition_options(map(), map()) :: map()
   defp composition_options(params, existing \\ %{}) do
     existing = existing || %{}
 
@@ -250,6 +252,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     |> maybe_infer_body_selector(params)
   end
 
+  @spec maybe_put_mirror_media(map(), map()) :: map()
   defp maybe_put_mirror_media(options, params) do
     if Map.has_key?(params, "mirror_media") do
       Map.put(options, "mirror_media", normalize_mirror_media(params["mirror_media"]))
@@ -258,11 +261,13 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec normalize_mirror_media(term()) :: String.t()
   defp normalize_mirror_media(value) when value in ["original", "false", false, "0"],
     do: "original"
 
   defp normalize_mirror_media(_), do: "blossom"
 
+  @spec maybe_infer_body_selector(map(), map()) :: map()
   defp maybe_infer_body_selector(options, params) do
     explicit_blank? =
       Map.has_key?(params, "body_selector") and
@@ -283,9 +288,11 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec present_selector?(term()) :: boolean()
   defp present_selector?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_selector?(_), do: false
 
+  @spec maybe_merge_compose(map(), map()) :: map()
   defp maybe_merge_compose(options, params) do
     if Map.has_key?(params, "body_selector") or Map.has_key?(params, "skip_classes") or
          Map.has_key?(params, "conversion_rules") or Map.has_key?(params, "start_at") do
@@ -299,10 +306,12 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec selected_ids(map()) :: [term()]
   defp selected_ids(params) do
     List.wrap(params["post_ids"] || params["post_ids[]"] || [])
   end
 
+  @spec maybe_put_conversion_rules(map(), map()) :: map()
   defp maybe_put_conversion_rules(options, params) do
     if Map.has_key?(params, "conversion_rules") do
       Map.put(options, "conversion_rules", Conversion.parse_rules(params["conversion_rules"]))
@@ -311,9 +320,11 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec maybe_put(map(), atom(), term()) :: map()
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
+  @spec maybe_put_bunker(map(), map()) :: map()
   defp maybe_put_bunker(attrs, params) do
     if Map.has_key?(params, "bunker_connection") do
       Map.put(attrs, :bunker_connection, blank_to_nil(params["bunker_connection"]))
@@ -322,6 +333,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec maybe_put_hold_minutes(map(), map()) :: map()
   defp maybe_put_hold_minutes(attrs, params) do
     if Map.has_key?(params, "staging_hold_minutes") do
       Map.put(
@@ -334,6 +346,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec maybe_put_notify_pubkey(map(), map()) :: map()
   defp maybe_put_notify_pubkey(attrs, params) do
     if Map.has_key?(params, "notify_pubkey") do
       Map.put(attrs, :notify_pubkey, params["notify_pubkey"] || "")
@@ -342,6 +355,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec maybe_put_fixed_hashtags(map(), map()) :: map()
   defp maybe_put_fixed_hashtags(attrs, params) do
     if Map.has_key?(params, "fixed_hashtags") do
       Map.put(attrs, :fixed_hashtags, params["fixed_hashtags"])
@@ -350,6 +364,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec maybe_put_excluded_hashtags(map(), map()) :: map()
   defp maybe_put_excluded_hashtags(attrs, params) do
     if Map.has_key?(params, "excluded_hashtags") do
       Map.put(attrs, :excluded_hashtags, params["excluded_hashtags"])
@@ -358,6 +373,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec parse_hold_minutes(term()) :: non_neg_integer() | nil
   defp parse_hold_minutes(nil), do: nil
   defp parse_hold_minutes(""), do: 0
   defp parse_hold_minutes(value) when is_integer(value) and value >= 0, do: value
@@ -371,6 +387,7 @@ defmodule Rss2Nostr.Web.API.Sources do
 
   defp parse_hold_minutes(_), do: nil
 
+  @spec maybe_put_public(map(), map(), Source.t()) :: map()
   defp maybe_put_public(attrs, params, source) do
     if Map.has_key?(params, "public") do
       Map.put(attrs, :public, truthy?(params["public"]))
@@ -379,6 +396,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec maybe_put_active(map(), map(), Source.t() | nil) :: map()
   defp maybe_put_active(attrs, params, _source \\ nil) do
     if Map.has_key?(params, "active") do
       Map.put(attrs, :active, truthy?(params["active"]))
@@ -387,14 +405,17 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec active?(map()) :: boolean()
   defp active?(params) do
     if Map.has_key?(params, "active"), do: truthy?(params["active"]), else: true
   end
 
+  @spec truthy?(term()) :: boolean()
   defp truthy?(value) when value in [true, "true", "1", "on", "yes"], do: true
   defp truthy?(list) when is_list(list), do: Enum.any?(list, &truthy?/1)
   defp truthy?(_), do: false
 
+  @spec blank_to_nil(term()) :: term()
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 
@@ -407,6 +428,7 @@ defmodule Rss2Nostr.Web.API.Sources do
 
   defp blank_to_nil(_), do: nil
 
+  @spec parse_datetime(term()) :: DateTime.t() | nil
   defp parse_datetime(nil), do: nil
   defp parse_datetime(""), do: nil
 
@@ -420,6 +442,7 @@ defmodule Rss2Nostr.Web.API.Sources do
   defp parse_datetime(%DateTime{} = datetime), do: DateTime.truncate(datetime, :second)
   defp parse_datetime(_), do: nil
 
+  @spec parse_id(term()) :: {:ok, pos_integer()} | {:error, :invalid_id}
   defp parse_id(id) when is_binary(id) do
     case Integer.parse(id) do
       {int_id, ""} when int_id > 0 -> {:ok, int_id}

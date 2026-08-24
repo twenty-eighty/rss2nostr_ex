@@ -128,11 +128,32 @@ defmodule Rss2Nostr.Web.RouterTest do
   end
 
   describe "GET /mcp" do
-    test "does not redirect loopback clients to login", %{conn: conn} do
+    test "allows loopback when MCP_ALLOW_LOOPBACK is enabled", %{conn: conn} do
+      original = Application.get_env(:rss2nostr, :mcp)
+
+      on_exit(fn ->
+        Application.put_env(:rss2nostr, :mcp, original)
+      end)
+
+      Application.put_env(:rss2nostr, :mcp, allow_loopback: true, token: nil)
+
       conn = get(conn, "/mcp")
 
       refute conn.status == 302
       refute conn.status == 401
+    end
+
+    test "rejects loopback when token is unset and loopback is not allowed", %{conn: conn} do
+      original = Application.get_env(:rss2nostr, :mcp)
+
+      on_exit(fn ->
+        Application.put_env(:rss2nostr, :mcp, original)
+      end)
+
+      Application.put_env(:rss2nostr, :mcp, allow_loopback: false, token: nil)
+
+      conn = get(conn, "/mcp")
+      assert conn.status == 401
     end
 
     test "requires a bearer token when MCP_TOKEN is set", %{conn: conn} do
@@ -142,7 +163,7 @@ defmodule Rss2Nostr.Web.RouterTest do
         Application.put_env(:rss2nostr, :mcp, original)
       end)
 
-      Application.put_env(:rss2nostr, :mcp, token: "secret-token")
+      Application.put_env(:rss2nostr, :mcp, token: "secret-token", allow_loopback: true)
 
       conn = get(conn, "/mcp")
       assert conn.status == 401

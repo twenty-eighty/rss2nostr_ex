@@ -345,6 +345,8 @@ defmodule Rss2Nostr.MCP.Server do
     end)
   end
 
+  @spec reply({:ok, term()} | {:error, term()}, term()) ::
+          {:ok, String.t(), term()} | {:error, String.t(), term()}
   defp reply({:ok, data}, state), do: {:ok, Jason.encode!(data, pretty: true), state}
   defp reply({:error, reason}, state) when is_binary(reason), do: {:error, reason, state}
   defp reply({:error, reason}, state), do: {:error, inspect(reason), state}

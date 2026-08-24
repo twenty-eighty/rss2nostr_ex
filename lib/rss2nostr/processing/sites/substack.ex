@@ -34,6 +34,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     _ -> html
   end
 
+  @spec substack_host?(term()) :: boolean()
   defp substack_host?(url) when is_binary(url) and url != "" do
     host = url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
     host == "substack.com" or String.ends_with?(host, ".substack.com")
@@ -43,15 +44,18 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
   defp substack_host?(_), do: false
 
+  @spec substack_selector?(term()) :: boolean()
   defp substack_selector?(selector) when is_binary(selector) do
     String.trim(selector) == @selector
   end
 
   defp substack_selector?(_), do: false
 
+  @spec rewrite_nodes(term()) :: term()
   defp rewrite_nodes(nodes) when is_list(nodes), do: Enum.map(nodes, &rewrite_node/1)
   defp rewrite_nodes(node), do: rewrite_node(node)
 
+  @spec rewrite_node(term()) :: term()
   defp rewrite_node({"a", attrs, children}) do
     cond do
       footnote = footnote_link(attr(attrs, "href"), children) ->
@@ -84,6 +88,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
   defp rewrite_node({tag, attrs, children}), do: {tag, attrs, rewrite_nodes(children)}
   defp rewrite_node(other), do: other
 
+  @spec footnote_link(term(), list()) :: {:reference | :definition, String.t()} | nil
   defp footnote_link(href, children) when is_binary(href) do
     case footnote_fragment(uri_fragment(href)) do
       {kind, frag_id} -> {kind, visible_footnote_id(children) || frag_id}
@@ -96,6 +101,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
   # Word/Substack pastes often keep the original-site URL. The fragment
   # (`#_ftnN`, `#_ednN`, and `*ref`) marks the note; the visible `[N]`
   # is the number readers see (endnote ids may continue from part I).
+  @spec uri_fragment(String.t()) :: String.t() | nil
   defp uri_fragment(href) do
     case URI.parse(href) do
       %URI{fragment: frag} when is_binary(frag) and frag != "" -> frag
@@ -105,6 +111,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     _ -> nil
   end
 
+  @spec footnote_fragment(term()) :: {:reference | :definition, String.t()} | nil
   defp footnote_fragment(frag) when is_binary(frag) do
     cond do
       match = Regex.run(~r/^_?(?:ftnref|fnref|footnoteref|ednref|endnoteref)(\d+)$/i, frag) ->
@@ -126,6 +133,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
   defp footnote_fragment(_), do: nil
 
+  @spec visible_footnote_id(list()) :: String.t() | nil
   defp visible_footnote_id(children) do
     text = {"a", [], List.wrap(children)} |> Floki.text() |> String.trim()
 
@@ -135,10 +143,12 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     end
   end
 
+  @spec footnote_definition_div?(list()) :: boolean()
   defp footnote_definition_div?(attrs) do
     attr(attrs, "data-component-name", "") == "FootnoteToDOM" or class_token?(attrs, "footnote")
   end
 
+  @spec rewrite_footnote_definition(list()) :: Floki.html_node()
   defp rewrite_footnote_definition(children) do
     id = footnote_definition_id(children)
 
@@ -151,6 +161,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     {"p", [], ["[^#{id}]: " | inner]}
   end
 
+  @spec footnote_definition_id(list()) :: String.t()
   defp footnote_definition_id(children) do
     case find_footnote_number_link(children) do
       {"a", attrs, link_children} = node ->
@@ -166,6 +177,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     end
   end
 
+  @spec id_from_footnote_attr(term()) :: String.t() | nil
   defp id_from_footnote_attr(id) when is_binary(id) do
     case Regex.run(~r/^footnote-(\d+)$/i, id) do
       [_, n] -> n
@@ -175,6 +187,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
   defp id_from_footnote_attr(_), do: nil
 
+  @spec find_footnote_number_link(term()) :: Floki.html_node() | nil
   defp find_footnote_number_link(nodes) when is_list(nodes) do
     Enum.find_value(nodes, &find_footnote_number_link/1)
   end
@@ -188,6 +201,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
   defp find_footnote_number_link({_, _, children}), do: find_footnote_number_link(children)
   defp find_footnote_number_link(_), do: nil
 
+  @spec footnote_content_inner(list()) :: list()
   defp footnote_content_inner(nodes) when is_list(nodes) do
     content =
       Enum.find_value(nodes, fn
@@ -207,8 +221,10 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     |> Enum.reject(&blank_node?/1)
   end
 
+  @spec footnote_number_link?(term()) :: boolean()
   defp footnote_number_link?(node), do: find_footnote_number_link(node) == node
 
+  @spec footnote_trailing_chrome?(term()) :: boolean()
   defp footnote_trailing_chrome?({"hr", _, _}), do: true
 
   defp footnote_trailing_chrome?({_, attrs, children}) do
@@ -217,6 +233,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
   defp footnote_trailing_chrome?(_), do: false
 
+  @spec subscribe_widget?(list()) :: boolean()
   defp subscribe_widget?(attrs) do
     class_token?(attrs, "subscription-widget-wrap") or
       class_token?(attrs, "subscription-widget") or
@@ -224,6 +241,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
       attr(attrs, "data-component-name", "") == "SubscribeWidget"
   end
 
+  @spec hr_only_wrapper?(list()) :: boolean()
   defp hr_only_wrapper?(children) do
     case Enum.reject(children, &blank_node?/1) do
       [{"hr", _, _}] -> true
@@ -231,6 +249,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     end
   end
 
+  @spec blank_node?(term()) :: boolean()
   defp blank_node?(text) when is_binary(text), do: String.trim(text) == ""
 
   defp blank_node?({"p", _, children}) do
@@ -239,6 +258,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
   defp blank_node?(_), do: false
 
+  @spec unwrap_single_paragraph(list()) :: list()
   defp unwrap_single_paragraph(nodes) do
     case Enum.reject(nodes, &blank_node?/1) do
       [{"p", _, inner}] -> inner
@@ -246,6 +266,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     end
   end
 
+  @spec class_token?(list(), String.t()) :: boolean()
   defp class_token?(attrs, token) do
     attrs
     |> attr("class", "")
@@ -253,9 +274,11 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     |> Enum.any?(&(&1 == token))
   end
 
+  @spec footnote_text({:reference | :definition, String.t()}) :: String.t()
   defp footnote_text({:reference, id}), do: "[^#{id}]"
   defp footnote_text({:definition, id}), do: "[^#{id}]: "
 
+  @spec tweet_paragraph(list(), list()) :: Floki.html_node()
   defp tweet_paragraph(attrs, children) do
     case tweet_url(attrs, children) do
       url when is_binary(url) -> {"p", [], [url]}
@@ -263,6 +286,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     end
   end
 
+  @spec tweet_embed?(list(), list()) :: boolean()
   defp tweet_embed?(attrs, children) do
     href = attr(attrs, "href", "")
 
@@ -270,6 +294,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
       (tweet_embed_attrs?(attrs) or tweet_card_children?(children))
   end
 
+  @spec tweet_embed_attrs?(list()) :: boolean()
   defp tweet_embed_attrs?(attrs) do
     class = attrs |> attr("class", "") |> String.downcase()
     component = attr(attrs, "data-component-name", "")
@@ -281,6 +306,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
       tweet_data_attrs?(data_attrs)
   end
 
+  @spec tweet_card_children?(list()) :: boolean()
   defp tweet_card_children?(children) do
     Enum.any?(children, fn
       {tag, _, _} when tag in ["div", "picture", "figure", "section", "article"] -> true
@@ -288,6 +314,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     end)
   end
 
+  @spec tweet_url(list(), list()) :: String.t() | nil
   defp tweet_url(attrs, children) do
     [
       attr(attrs, "href"),
@@ -297,6 +324,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     |> Enum.find(&tweet_status_url?/1)
   end
 
+  @spec tweet_url_from_children(term()) :: String.t() | nil
   defp tweet_url_from_children(nodes) when is_list(nodes) do
     Enum.find_value(nodes, fn
       {_, child_attrs, child_children} -> tweet_url(child_attrs, child_children)
@@ -306,6 +334,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
   defp tweet_url_from_children(_), do: nil
 
+  @spec tweet_url_from_data_attrs(term()) :: String.t() | nil
   defp tweet_url_from_data_attrs(data_attrs) when is_binary(data_attrs) and data_attrs != "" do
     case Jason.decode(data_attrs) do
       {:ok, %{"url" => url}} when is_binary(url) -> url
@@ -315,12 +344,14 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
   defp tweet_url_from_data_attrs(_), do: nil
 
+  @spec tweet_data_attrs?(term()) :: boolean()
   defp tweet_data_attrs?(data_attrs) when is_binary(data_attrs) and data_attrs != "" do
     tweet_status_url?(tweet_url_from_data_attrs(data_attrs))
   end
 
   defp tweet_data_attrs?(_), do: false
 
+  @spec tweet_status_url?(term()) :: boolean()
   defp tweet_status_url?(url) when is_binary(url) do
     uri = URI.parse(url)
     host = uri.host || ""
@@ -333,6 +364,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
   defp tweet_status_url?(_), do: false
 
+  @spec tweet_host?(String.t()) :: boolean()
   defp tweet_host?(host) do
     host = String.downcase(host)
 
@@ -346,6 +378,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
     ]
   end
 
+  @spec attr(list(), String.t(), term()) :: term()
   defp attr(attrs, name, default \\ nil) do
     case List.keyfind(attrs, name, 0) do
       {_, value} -> value

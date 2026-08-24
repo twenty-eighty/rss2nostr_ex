@@ -80,6 +80,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Blocks do
     "\n\n#{quoted}\n\n"
   end
 
+  @spec collapse_blank_quote_lines([String.t()]) :: [String.t()]
   defp collapse_blank_quote_lines(lines) do
     {kept, _} =
       Enum.reduce(lines, {[], false}, fn line, {acc, skipping} ->
@@ -97,6 +98,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Blocks do
     kept
   end
 
+  @spec callout_div?(String.t()) :: boolean()
   defp callout_div?(class) when is_binary(class) do
     class
     |> String.downcase()
@@ -104,6 +106,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Blocks do
     |> Enum.any?(&callout_class?/1)
   end
 
+  @spec callout_class?(String.t()) :: boolean()
   defp callout_class?(token) do
     token in ~w(message notice alert callout infobox) or
       String.starts_with?(token, "message--") or
@@ -111,6 +114,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Blocks do
       String.starts_with?(token, "notice-")
   end
 
+  @spec blockify_callout_children(list()) :: list()
   defp blockify_callout_children(children) do
     Enum.flat_map(List.wrap(children), fn
       {"span", attrs, inner} ->

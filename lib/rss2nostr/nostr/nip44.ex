@@ -5,11 +5,12 @@ defmodule Rss2Nostr.Nostr.NIP44 do
 
   require Logger
 
-  alias Rss2Nostr.Nostr.Keys
+  alias Rss2Nostr.Nostr.{Keys, NodeRunner}
 
   @doc """
   Encrypts plaintext to `recipient_pubkey` using the sender's private key.
   """
+  @spec encrypt(String.t(), binary(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def encrypt(plaintext, private_key, recipient_pubkey)
       when is_binary(plaintext) and byte_size(private_key) == 32 do
     run_nip44("encrypt", private_key, recipient_pubkey, plaintext: plaintext)
@@ -18,6 +19,7 @@ defmodule Rss2Nostr.Nostr.NIP44 do
   @doc """
   Decrypts a NIP-44 payload produced for this private key and peer pubkey.
   """
+  @spec decrypt(String.t(), binary(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def decrypt(ciphertext, private_key, peer_pubkey)
       when is_binary(ciphertext) and byte_size(private_key) == 32 do
     run_nip44("decrypt", private_key, peer_pubkey, ciphertext: ciphertext)
@@ -25,8 +27,10 @@ defmodule Rss2Nostr.Nostr.NIP44 do
 
   # Resolve at runtime: compile-time :code.priv_dir/1 bakes the Mix _build path
   # into releases and breaks Docker/prod.
+  @spec nip44_script() :: String.t()
   defp nip44_script, do: Path.join(:code.priv_dir(:rss2nostr), "nip44.mjs")
 
+  @spec run_nip44(String.t(), binary(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   defp run_nip44(action, private_key, pubkey, opts) do
     input =
       %{
@@ -37,35 +41,22 @@ defmodule Rss2Nostr.Nostr.NIP44 do
       |> Map.merge(Map.new(opts))
       |> Jason.encode!()
 
-    tmp_file = Path.join(System.tmp_dir!(), "nip44_#{:rand.uniform(1_000_000)}.json")
-    script = nip44_script()
+    case NodeRunner.run(nip44_script(), input) do
+      {:ok, output} ->
+        case Jason.decode(output) do
+          {:ok, %{"result" => result}} ->
+            {:ok, result}
 
-    try do
-      File.write!(tmp_file, input)
+          {:ok, %{"error" => error}} ->
+            {:error, error}
 
-      case System.cmd("node", [script],
-             cd: Path.dirname(script),
-             stderr_to_stdout: true,
-             env: [{"INPUT_FILE", tmp_file}]
-           ) do
-        {output, 0} ->
-          case Jason.decode(output) do
-            {:ok, %{"result" => result}} ->
-              {:ok, result}
+          {:error, _} ->
+            {:error, :json_decode_failed}
+        end
 
-            {:ok, %{"error" => error}} ->
-              {:error, error}
-
-            {:error, _} ->
-              {:error, :json_decode_failed}
-          end
-
-        {error, _code} ->
-          Logger.error("NIP-44 operation failed: #{error}")
-          {:error, :operation_failed}
-      end
-    after
-      File.rm(tmp_file)
+      {:error, error} ->
+        Logger.error("NIP-44 operation failed: #{error}")
+        {:error, :operation_failed}
     end
   end
 end

@@ -6,8 +6,10 @@ defmodule Rss2NostrWeb.Plugs.RequireAdmin do
 
   alias Rss2Nostr.Web.Auth
 
+  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
+  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     if Auth.logged_in?(conn) do
       Auth.put_current_pubkey(Auth.session_pubkey(conn))
@@ -19,6 +21,7 @@ defmodule Rss2NostrWeb.Plugs.RequireAdmin do
     end
   end
 
+  @spec login_path(Plug.Conn.t()) :: String.t()
   defp login_path(%Plug.Conn{method: "GET", request_path: path} = conn)
        when path not in ["", "/login"] do
     next =

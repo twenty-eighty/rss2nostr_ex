@@ -301,6 +301,7 @@ defmodule Rss2Nostr.Processing.Composer do
   @spec preview(map()) :: {:ok, preview_result()} | {:error, String.t()}
   def preview(params) when is_map(params), do: FeedPreview.preview(params)
 
+  @spec normalize_opts(Source.t() | keyword() | map()) :: compose_opts()
   defp normalize_opts(%Source{} = source), do: opts_from_source(source)
 
   defp normalize_opts(opts) when is_list(opts) do
@@ -326,6 +327,7 @@ defmodule Rss2Nostr.Processing.Composer do
     }
   end
 
+  @spec fetch_mode(Source.t() | map() | String.t() | nil) :: String.t()
   defp fetch_mode(%Source{fetch_source_from: mode}), do: fetch_mode(mode)
 
   defp fetch_mode(opts) when is_map(opts) do
@@ -335,6 +337,7 @@ defmodule Rss2Nostr.Processing.Composer do
   defp fetch_mode("content"), do: "content"
   defp fetch_mode(_), do: "fetch_from_url"
 
+  @spec resolve_body_selector(compose_opts(), String.t() | nil) :: String.t() | nil
   defp resolve_body_selector(opts, html) do
     cond do
       is_binary(opts.body_selector) and opts.body_selector != "" ->
@@ -348,10 +351,12 @@ defmodule Rss2Nostr.Processing.Composer do
     end
   end
 
+  @spec body_selector_auto?(map()) :: boolean()
   defp body_selector_auto?(opts) when is_map(opts) do
     auto_body_selector?(opts)
   end
 
+  @spec auto_body_selector?(map()) :: boolean()
   defp auto_body_selector?(params) do
     case params["body_selector_auto"] || params[:body_selector_auto] do
       value when value in [true, "true", "1", "on", "yes"] -> true
@@ -360,6 +365,7 @@ defmodule Rss2Nostr.Processing.Composer do
     end
   end
 
+  @spec soundcloud_artwork(String.t() | nil, compose_opts()) :: String.t() | nil
   defp soundcloud_artwork(_html, %{soundcloud_artwork: false}), do: nil
 
   defp soundcloud_artwork(html, opts) do
@@ -374,8 +380,10 @@ defmodule Rss2Nostr.Processing.Composer do
     end
   end
 
+  @spec blank?(term()) :: boolean()
   defp blank?(value), do: blank_to_nil(value) == nil
 
+  @spec blank_to_nil(term()) :: term()
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 

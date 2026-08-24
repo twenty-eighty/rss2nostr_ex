@@ -15,6 +15,7 @@ defmodule Mix.Tasks.Rss2nostr.Server do
   use Mix.Task
 
   @impl Mix.Task
+  @spec run(map()) :: term()
   def run(args) do
     Mix.Task.run("app.start")
 

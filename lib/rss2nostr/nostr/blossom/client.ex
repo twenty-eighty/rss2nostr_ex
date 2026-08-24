@@ -168,6 +168,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
   def format_error({:download_failed, other}), do: "download failed: #{inspect(other)}"
   def format_error(reason), do: inspect(reason)
 
+  @spec store_blob(String.t(), binary(), String.t(), String.t(), Signer.signer(), keyword()) :: {:ok, Blossom.upload_result()} | {:error, term()}
   defp store_blob(server, data, sha256, content_type, signer, opts) do
     source_url = opts[:source_url] || opts["source_url"]
 
@@ -192,16 +193,19 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec mirrorable?(String.t(), binary()) :: boolean()
   defp mirrorable?(url, data) when is_binary(url) and url != "" do
     byte_size(data) >= @mirror_min_bytes and String.starts_with?(url, "https://")
   end
 
   defp mirrorable?(_, _), do: false
 
+  @spec public_http_url(String.t()) :: String.t()
   defp public_http_url(url) when is_binary(url) do
     String.replace_prefix(String.trim(url), "http://", "https://")
   end
 
+  @spec mirror_blob(String.t(), String.t(), String.t(), non_neg_integer(), Signer.signer()) :: {:ok, Blossom.upload_result()} | {:error, term()}
   defp mirror_blob(server, source_url, sha256, byte_size, signer) do
     with {:ok, auth_header} <- create_auth(signer, sha256, server) do
       url = Blossom.mirror_url(server)
@@ -235,6 +239,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec put_blob(String.t(), binary(), String.t(), String.t(), Signer.signer()) :: {:ok, Blossom.upload_result()} | {:error, term()}
   defp put_blob(server, data, sha256, content_type, signer) do
     with {:ok, auth_header} <- create_auth(signer, sha256, server) do
       url = Blossom.upload_url(server)
@@ -269,6 +274,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec create_auth(Signer.signer(), String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   defp create_auth(signer, sha256, server_url) do
     with {:ok, pubkey_hex} <- Signer.pubkey_hex(normalize_signer(signer)) do
       now = System.os_time(:second) - 1
@@ -303,6 +309,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec upload_signer_from_opts(keyword()) :: Signer.signer()
   defp upload_signer_from_opts(opts) do
     cond do
       Keyword.has_key?(opts, :signer) -> normalize_signer(Keyword.fetch!(opts, :signer))
@@ -311,10 +318,12 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec normalize_signer(Signer.signer() | binary()) :: Signer.signer()
   defp normalize_signer({:private_key, key}), do: {:private_key, key}
   defp normalize_signer({:bunker, value}), do: {:bunker, value}
   defp normalize_signer(key) when is_binary(key), do: {:private_key, key}
 
+  @spec server_host(String.t() | nil) :: String.t() | nil
   defp server_host(nil), do: nil
 
   defp server_host(url) do
@@ -324,6 +333,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec normalize_content_type(term()) :: String.t()
   defp normalize_content_type(value) when is_binary(value) do
     value
     |> String.split(";", parts: 2)
@@ -337,10 +347,12 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
 
   defp normalize_content_type(_), do: "application/octet-stream"
 
+  @spec sha256_hex(binary()) :: String.t()
   defp sha256_hex(data) do
     :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
   end
 
+  @spec content_type_for(String.t(), list()) :: String.t()
   defp content_type_for(url, headers) do
     header =
       headers
@@ -353,6 +365,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec download_kind(String.t()) :: String.t()
   defp download_kind(url) do
     cond do
       ImageExtractor.video_url?(url) -> "video"
@@ -361,6 +374,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec download_timeout(String.t()) :: non_neg_integer()
   defp download_timeout(url) do
     if ImageExtractor.audio_url?(url) or ImageExtractor.video_url?(url) do
       @audio_download_ms
@@ -369,6 +383,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec upload_timeout(String.t(), non_neg_integer()) :: non_neg_integer()
   defp upload_timeout(content_type, byte_size) when is_integer(byte_size) and byte_size > 0 do
     base =
       if audio_content?(content_type) or video_content?(content_type) do
@@ -383,18 +398,21 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
 
   defp upload_timeout(content_type, _byte_size), do: upload_timeout(content_type, 1)
 
+  @spec audio_content?(term()) :: boolean()
   defp audio_content?(type) when is_binary(type) do
     String.starts_with?(normalize_content_type(type), "audio/")
   end
 
   defp audio_content?(_), do: false
 
+  @spec video_content?(term()) :: boolean()
   defp video_content?(type) when is_binary(type) do
     String.starts_with?(normalize_content_type(type), "video/")
   end
 
   defp video_content?(_), do: false
 
+  @spec familiar_blob_url(String.t()) :: String.t()
   defp familiar_blob_url(url) when is_binary(url) do
     uri = URI.parse(url)
     path = uri.path || ""
@@ -407,6 +425,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
+  @spec rewrite_nip94_urls(list()) :: list()
   defp rewrite_nip94_urls(tags) when is_list(tags) do
     Enum.map(tags, fn
       ["url", url] when is_binary(url) -> ["url", familiar_blob_url(url)]
@@ -416,10 +435,12 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
 
   defp rewrite_nip94_urls(_), do: []
 
+  @spec format_bytes(non_neg_integer()) :: String.t()
   defp format_bytes(n) when n >= 1_000_000, do: "#{Float.round(n / 1_000_000, 1)}MB"
   defp format_bytes(n) when n >= 1_000, do: "#{div(n, 1_000)}KB"
   defp format_bytes(n), do: "#{n}B"
 
+  @spec enrich_media_upload({:ok, Blossom.upload_result()} | {:error, term()}, binary(), String.t(), String.t()) :: {:ok, Blossom.upload_result()} | {:error, term()}
   defp enrich_media_upload({:ok, result}, data, url, content_type)
        when is_binary(data) do
     if ImageExtractor.audio_url?(url) or ImageExtractor.video_url?(url) do
@@ -443,6 +464,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
 
   defp enrich_media_upload(other, _data, _url, _content_type), do: other
 
+  @spec extract_filename(String.t(), String.t()) :: String.t()
   defp extract_filename(url, content_type) do
     path = URI.parse(url).path || ""
     basename = Path.basename(path)

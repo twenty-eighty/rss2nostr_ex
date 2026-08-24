@@ -147,21 +147,25 @@ defmodule Rss2Nostr.Nostr.NIP92 do
   def url_from_pairs(pairs) when is_list(pairs), do: pair_value(pairs, "url")
   def url_from_pairs(_), do: nil
 
+  @spec normalize_nip94(term()) :: list()
   defp normalize_nip94(tags) when is_list(tags), do: tags
   defp normalize_nip94(%{"tags" => tags}) when is_list(tags), do: tags
   defp normalize_nip94(_), do: []
 
+  @spec tag_to_pair(list()) :: [NIP92.pair()]
   defp tag_to_pair([key, value | _]) when is_binary(key) and not is_nil(value) do
     List.wrap(pair(key, value))
   end
 
   defp tag_to_pair(_), do: []
 
+  @spec pair(String.t(), term()) :: pair() | nil
   defp pair(_key, value) when value in [nil, ""], do: nil
   defp pair(key, value) when is_integer(value), do: "#{key} #{value}"
   defp pair(key, value) when is_binary(value), do: "#{key} #{String.trim(value)}"
   defp pair(_, _), do: nil
 
+  @spec maybe_put_pair([NIP92.pair()], String.t(), term()) :: [NIP92.pair()]
   defp maybe_put_pair(pairs, _key, value) when value in [nil, ""], do: pairs
 
   defp maybe_put_pair(pairs, key, value) do
@@ -172,6 +176,7 @@ defmodule Rss2Nostr.Nostr.NIP92 do
     end
   end
 
+  @spec sanitize_pairs([NIP92.pair()]) :: [NIP92.pair()]
   defp sanitize_pairs(pairs) do
     pairs
     |> Enum.reject(&is_nil/1)
@@ -182,6 +187,7 @@ defmodule Rss2Nostr.Nostr.NIP92 do
     |> put_url_first()
   end
 
+  @spec noise_pair?(pair()) :: boolean()
   defp noise_pair?(pair) do
     case String.split(pair, " ", parts: 2) do
       ["dim", dim] -> zero_dim?(dim)
@@ -190,14 +196,17 @@ defmodule Rss2Nostr.Nostr.NIP92 do
     end
   end
 
+  @spec zero_dim?(String.t()) :: boolean()
   defp zero_dim?(value) do
     String.match?(value, ~r/\A0+x0+\z/i)
   end
 
+  @spec pair_key(NIP92.pair()) :: String.t()
   defp pair_key(pair) do
     pair |> String.split(" ", parts: 2) |> hd()
   end
 
+  @spec pair_value([NIP92.pair()], String.t()) :: String.t() | nil
   defp pair_value(pairs, key) do
     prefix = key <> " "
 
@@ -207,25 +216,30 @@ defmodule Rss2Nostr.Nostr.NIP92 do
     end)
   end
 
+  @spec put_url_first([NIP92.pair()]) :: [NIP92.pair()]
   defp put_url_first(pairs) do
     {urls, rest} = Enum.split_with(pairs, &String.starts_with?(&1, "url "))
     urls ++ rest
   end
 
+  @spec valid_pairs?(term()) :: boolean()
   defp valid_pairs?(pairs) when is_list(pairs) do
     match?("url " <> _, List.first(pairs)) and length(pairs) >= 2
   end
 
   defp valid_pairs?(_), do: false
 
+  @spec image_alt(map()) :: String.t() | nil
   defp image_alt(image) do
     alt = Map.get(image, :alt_text) || Map.get(image, :caption)
     if present?(alt), do: alt
   end
 
+  @spec present?(term()) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 
+  @spec guess_mime(String.t()) :: String.t() | nil
   defp guess_mime(url) do
     case url
          |> URI.parse()

@@ -210,6 +210,7 @@ defmodule Rss2Nostr.Nostr.Relays do
     |> Enum.reject(&(&1 == ""))
   end
 
+  @spec configured_publish_relays(Post.t() | Source.t() | map(), audience() | nil) :: [String.t()]
   defp configured_publish_relays(post_or_source, forced) do
     cond do
       draft?(post_or_source) ->
@@ -226,13 +227,16 @@ defmodule Rss2Nostr.Nostr.Relays do
     end
   end
 
+  @spec restrict_public?(Post.t() | Source.t() | map()) :: boolean()
   defp restrict_public?(post_or_source) do
     not draft?(post_or_source) and audience_of(post_or_source) == :test
   end
 
+  @spec audience_of(Post.t() | Source.t() | map()) :: :test | :public
   defp audience_of(%Source{} = source), do: audience_for_source(source)
   defp audience_of(post), do: audience_for_post(post)
 
+  @spec draft?(Post.t() | Source.t() | map()) :: boolean()
   defp draft?(%Source{} = source), do: Signer.draft?(source)
 
   defp draft?(%{source: %Source{} = source}), do: draft?(source)
@@ -246,6 +250,7 @@ defmodule Rss2Nostr.Nostr.Relays do
   defp draft?(%{publish_as: value}) when value in ["draft", "draft_plain"], do: true
   defp draft?(_), do: false
 
+  @spec draft_or_test() :: [String.t()]
   defp draft_or_test do
     case draft() do
       [] -> test()
@@ -253,6 +258,7 @@ defmodule Rss2Nostr.Nostr.Relays do
     end
   end
 
+  @spec reject_public([String.t()]) :: [String.t()]
   defp reject_public([]), do: []
 
   defp reject_public(list) do
@@ -261,6 +267,7 @@ defmodule Rss2Nostr.Nostr.Relays do
     if filtered == [], do: test(), else: filtered
   end
 
+  @spec list(audience()) :: [String.t()]
   defp list(audience) do
     configured_relays()
     |> Map.get(audience, [])
@@ -270,6 +277,7 @@ defmodule Rss2Nostr.Nostr.Relays do
     |> Enum.reject(&(&1 == ""))
   end
 
+  @spec configured_relays() :: %{draft: [String.t()], test: [String.t()], public: [String.t()], inbox: [String.t()]}
   defp configured_relays do
     case Application.get_env(:rss2nostr, :nostr, []) |> Access.get(:relays) do
       %{test: test, public: public} = map ->
@@ -296,6 +304,7 @@ defmodule Rss2Nostr.Nostr.Relays do
     end
   end
 
+  @spec wrap_list(term()) :: list()
   defp wrap_list(list) when is_list(list), do: list
   defp wrap_list(nil), do: []
   defp wrap_list(other), do: List.wrap(other)

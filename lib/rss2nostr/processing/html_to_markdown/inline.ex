@@ -55,6 +55,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Inline do
   def process_emphasis(_, _attrs, children, process_nodes),
     do: process_nodes.(children)
 
+  @spec merge_next(term(), list()) :: list()
   defp merge_next(node, acc) do
     last = List.last(acc)
 
@@ -72,14 +73,19 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Inline do
     end
   end
 
+  @spec concat_inline({String.t(), list(), list()}, {String.t(), list(), list()}) ::
+          {String.t(), list(), list()}
   defp concat_inline({tag, attrs, left}, {_, _, right}) do
     {tag, attrs, left ++ right}
   end
 
+  @spec concat_inline({String.t(), list(), list()}, String.t(), {String.t(), list(), list()}) ::
+          {String.t(), list(), list()}
   defp concat_inline({tag, attrs, left}, ws, {_, _, right}) when is_binary(ws) do
     {tag, attrs, left ++ [ws] ++ right}
   end
 
+  @spec same_inline_role?(term(), term()) :: boolean()
   defp same_inline_role?({left, _, _}, {right, _, _}) do
     role = inline_role(left)
     role != nil and role == inline_role(right)
@@ -87,10 +93,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Inline do
 
   defp same_inline_role?(_, _), do: false
 
+  @spec inline_role(String.t()) :: :em | :strong | nil
   defp inline_role(tag) when tag in ~w(em i), do: :em
   defp inline_role(tag) when tag in ~w(strong b), do: :strong
   defp inline_role(_), do: nil
 
+  @spec unwrap_same_role(list(), :em | :strong) :: list()
   defp unwrap_same_role(children, role) do
     Enum.flat_map(children, fn
       {tag, attrs, inner} ->
@@ -105,9 +113,11 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Inline do
     end)
   end
 
+  @spec whitespace_only?(term()) :: boolean()
   defp whitespace_only?(text) when is_binary(text), do: String.match?(text, ~r/\A\s*\z/u)
   defp whitespace_only?(_), do: false
 
+  @spec wrap_inline(String.t(), String.t()) :: String.t()
   defp wrap_inline(content, marker) do
     case Regex.run(~r/\A(\s*)(.*?)(\s*)\z/us, content) do
       [_, lead, mid, trail] when mid != "" ->

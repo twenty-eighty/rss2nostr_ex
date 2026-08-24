@@ -27,4 +27,5 @@ config :rss2nostr, :web_port, 4000
 config :rss2nostr, Rss2NostrWeb.Endpoint,
   http: [ip: {0, 0, 0, 0}, port: 4000],
   server: true,
-  check_origin: false
+  check_origin: true,
+  url: [host: "localhost"]

@@ -60,6 +60,7 @@ defmodule Rss2Nostr.Processing.Composer.PageMeta do
     end
   end
 
+  @spec meta_content(Floki.html_tree(), String.t()) :: String.t() | nil
   defp meta_content(doc, selector) do
     doc
     |> Floki.find(selector)
@@ -68,6 +69,7 @@ defmodule Rss2Nostr.Processing.Composer.PageMeta do
     |> blank_to_nil()
   end
 
+  @spec link_href(Floki.html_tree(), String.t()) :: String.t() | nil
   defp link_href(doc, selector) do
     doc
     |> Floki.find(selector)
@@ -76,6 +78,7 @@ defmodule Rss2Nostr.Processing.Composer.PageMeta do
     |> blank_to_nil()
   end
 
+  @spec first_featured_img(Floki.html_tree(), String.t()) :: String.t() | nil
   defp first_featured_img(doc, selector) do
     doc
     |> Floki.find(selector)
@@ -86,6 +89,7 @@ defmodule Rss2Nostr.Processing.Composer.PageMeta do
     end)
   end
 
+  @spec featured_img_node?(Floki.html_node()) :: boolean()
   defp featured_img_node?({_, attrs, _}) do
     class = html_attr_value(attrs, "class") || ""
     width = parse_px(html_attr_value(attrs, "width"))
@@ -96,6 +100,7 @@ defmodule Rss2Nostr.Processing.Composer.PageMeta do
       (is_nil(height) or height >= 50)
   end
 
+  @spec html_attr_value([{String.t(), String.t()}], String.t()) :: String.t() | nil
   defp html_attr_value(attrs, name) do
     case List.keyfind(attrs, name, 0) do
       {_, value} -> value
@@ -103,6 +108,7 @@ defmodule Rss2Nostr.Processing.Composer.PageMeta do
     end
   end
 
+  @spec parse_px(String.t() | term()) :: integer() | nil
   defp parse_px(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
       {n, _} -> n
@@ -112,9 +118,11 @@ defmodule Rss2Nostr.Processing.Composer.PageMeta do
 
   defp parse_px(_), do: nil
 
+  @spec full_html_document?(String.t() | term()) :: boolean()
   defp full_html_document?(html) when is_binary(html), do: String.match?(html, ~r/<html[\s>]/i)
   defp full_html_document?(_), do: false
 
+  @spec document_title(Floki.html_tree()) :: String.t() | nil
   defp document_title(doc) do
     doc
     |> Floki.find("title")
@@ -123,6 +131,7 @@ defmodule Rss2Nostr.Processing.Composer.PageMeta do
     |> blank_to_nil()
   end
 
+  @spec blank_to_nil(term()) :: term()
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 

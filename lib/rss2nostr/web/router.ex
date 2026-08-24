@@ -26,19 +26,31 @@ defmodule Rss2Nostr.Web.Router do
   # ============================================================================
 
   get "/auth/challenge" do
-    {conn, payload} = Auth.new_challenge(conn)
-    send_json(conn, 200, payload)
+    conn = rate_limit_auth!(conn)
+
+    if conn.halted do
+      conn
+    else
+      {conn, payload} = Auth.new_challenge(conn)
+      send_json(conn, 200, payload)
+    end
   end
 
   post "/auth/login" do
-    event = conn.body_params["event"] || conn.body_params[:event]
+    conn = rate_limit_auth!(conn)
 
-    case Auth.login(conn, event) do
-      {:ok, conn} ->
-        send_json(conn, 200, %{ok: true})
+    if conn.halted do
+      conn
+    else
+      event = conn.body_params["event"] || conn.body_params[:event]
 
-      {:error, conn, reason} ->
-        send_json(conn, 401, %{error: login_error_message(reason)})
+      case Auth.login(conn, event) do
+        {:ok, conn} ->
+          send_json(conn, 200, %{ok: true})
+
+        {:error, conn, reason} ->
+          send_json(conn, 401, %{error: login_error_message(reason)})
+      end
     end
   end
 
@@ -52,18 +64,7 @@ defmodule Rss2Nostr.Web.Router do
     send_resp(conn, 200, "ok")
   end
 
-  forward("/mcp",
-    to: ExMCP.HttpPlug,
-    init_opts: [
-      handler: Rss2Nostr.MCP.Server,
-      protocol_mode: :prefer_modern,
-      server_info: %{name: "rss2nostr", version: "0.1.0"},
-      handler_call_timeout: 60_000,
-      cors_enabled: true,
-      allowed_origins: :any,
-      allowed_hosts: :any
-    ]
-  )
+  forward("/mcp", to: Rss2Nostr.MCP.Http)
 
   # ============================================================================
   # Sources
@@ -419,6 +420,7 @@ defmodule Rss2Nostr.Web.Router do
   # Helpers
   # ============================================================================
 
+  @spec send_html(Plug.Conn.t(), non_neg_integer(), iodata()) :: Plug.Conn.t()
   defp send_html(conn, status, html) do
     conn
     |> put_resp_content_type("text/html")
@@ -426,8 +428,10 @@ defmodule Rss2Nostr.Web.Router do
     |> send_resp(status, html)
   end
 
+  @spec reload_code(Plug.Conn.t(), Plug.opts()) :: Plug.Conn.t()
   defp reload_code(conn, _opts), do: CodeReloader.plug(conn, [])
 
+  @spec maybe_disable_cache(Plug.Conn.t()) :: Plug.Conn.t()
   defp maybe_disable_cache(conn) do
     if CodeReloader.enabled?() do
       put_resp_header(conn, "cache-control", "no-store")
@@ -436,12 +440,14 @@ defmodule Rss2Nostr.Web.Router do
     end
   end
 
+  @spec wants_json?(Plug.Conn.t()) :: boolean()
   defp wants_json?(conn) do
     conn
     |> get_req_header("accept")
     |> Enum.any?(&String.contains?(&1, "application/json"))
   end
 
+  @spec process_result(Rss2Nostr.Posts.Post.t()) :: map()
   defp process_result(post) do
     %{
       id: post.id,
@@ -458,18 +464,21 @@ defmodule Rss2Nostr.Web.Router do
     }
   end
 
+  @spec send_json(Plug.Conn.t(), non_neg_integer(), term()) :: Plug.Conn.t()
   defp send_json(conn, status, data) do
     conn
     |> put_resp_content_type("application/json")
     |> send_resp(status, Jason.encode!(data))
   end
 
+  @spec redirect(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
   defp redirect(conn, path) do
     conn
     |> put_resp_header("location", path)
     |> send_resp(302, "")
   end
 
+  @spec return_to(Plug.Conn.t(), String.t()) :: String.t()
   defp return_to(conn, fallback) do
     case conn.body_params["return_to"] do
       "//" <> _ -> fallback
@@ -478,13 +487,16 @@ defmodule Rss2Nostr.Web.Router do
     end
   end
 
+  @spec maybe_parse(Plug.Conn.t(), Plug.opts()) :: Plug.Conn.t()
   defp maybe_parse(conn, _opts) do
     if mcp_path?(conn), do: conn, else: Plug.Parsers.call(conn, @parsers)
   end
 
+  @spec mcp_path?(Plug.Conn.t()) :: boolean()
   defp mcp_path?(%Plug.Conn{path_info: ["mcp" | _]}), do: true
   defp mcp_path?(_), do: false
 
+  @spec setup_session(Plug.Conn.t(), Plug.opts()) :: Plug.Conn.t()
   defp setup_session(conn, _opts) do
     cond do
       mcp_path?(conn) ->
@@ -501,6 +513,7 @@ defmodule Rss2Nostr.Web.Router do
     end
   end
 
+  @spec require_admin(Plug.Conn.t(), Plug.opts()) :: Plug.Conn.t()
   defp require_admin(conn, _opts) do
     cond do
       mcp_path?(conn) ->
@@ -530,9 +543,11 @@ defmodule Rss2Nostr.Web.Router do
     end
   end
 
+  @spec api_path?(Plug.Conn.t()) :: boolean()
   defp api_path?(%Plug.Conn{path_info: ["api" | _]}), do: true
   defp api_path?(_), do: false
 
+  @spec login_redirect_path(Plug.Conn.t()) :: String.t()
   defp login_redirect_path(%Plug.Conn{method: "GET", request_path: path} = conn)
        when path not in ["", "/login"] do
     query = conn.query_string
@@ -549,6 +564,7 @@ defmodule Rss2Nostr.Web.Router do
 
   defp login_redirect_path(_), do: "/login"
 
+  @spec login_error_message(atom()) :: String.t()
   defp login_error_message(:unauthorized_pubkey), do: "This Nostr key is not an admin."
   defp login_error_message(:missing_challenge), do: "Login challenge missing or already used."
   defp login_error_message(:challenge_expired), do: "Login challenge expired. Try again."
@@ -557,6 +573,21 @@ defmodule Rss2Nostr.Web.Router do
   defp login_error_message(:invalid_id), do: "Invalid event id."
   defp login_error_message(reason), do: "Login failed (#{reason})."
 
+  @spec rate_limit_auth!(Plug.Conn.t()) :: Plug.Conn.t()
+  defp rate_limit_auth!(conn) do
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+
+    if Rss2Nostr.Web.RateLimit.allow?({:auth, ip}, 30, 60_000) do
+      conn
+    else
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(429, Jason.encode!(%{error: "Too many login attempts. Try again later."}))
+      |> halt()
+    end
+  end
+
+  @spec import_notice(map()) :: String.t()
   defp import_notice(result) do
     skipped =
       if result.skipped > 0 do
@@ -574,6 +605,7 @@ defmodule Rss2Nostr.Web.Router do
     "Imported #{result.imported} articles, processed #{result.processed}.#{skipped}#{errors}"
   end
 
+  @spec publish_notice(map()) :: {String.t(), String.t()}
   defp publish_notice(result) do
     base = "Published #{result.published}. Failed #{result.failed}."
 
@@ -594,6 +626,7 @@ defmodule Rss2Nostr.Web.Router do
     {message, kind}
   end
 
+  @spec publish_result_notice(map()) :: {String.t(), String.t()}
   defp publish_result_notice(%{failed_relays: [_ | _], report: report}) when is_binary(report) do
     {"Published, with issues. #{report}", "warning"}
   end
@@ -604,14 +637,17 @@ defmodule Rss2Nostr.Web.Router do
 
   defp publish_result_notice(_), do: {"Published.", "success"}
 
+  @spec issues?(map()) :: boolean()
   defp issues?(%{errors: [_ | _]}), do: true
   defp issues?(_), do: false
 
+  @spec with_flash(String.t(), String.t(), String.t()) :: String.t()
   defp with_flash(path, message, kind) do
     sep = if String.contains?(path, "?"), do: "&", else: "?"
     path <> sep <> URI.encode_query(%{"notice" => message, "notice_kind" => kind})
   end
 
+  @spec post_show_path(Plug.Conn.t(), term(), String.t(), String.t()) :: String.t()
   defp post_show_path(conn, id, notice, kind \\ "success") do
     path = with_flash("/posts/#{id}", notice, kind)
 
@@ -622,13 +658,16 @@ defmodule Rss2Nostr.Web.Router do
     end
   end
 
+  @spec format_error(term()) :: String.t()
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: Rss2Nostr.Nostr.Relay.format_error(reason)
 
+  @spec reprocess_notice(map()) :: String.t()
   defp reprocess_notice(result) do
     "Reprocessed #{result.processed}. Failed #{result.errors}."
   end
 
+  @spec format_update_error(Ecto.Changeset.t() | term()) :: String.t()
   defp format_update_error(%Ecto.Changeset{} = changeset) do
     changeset
     |> Ecto.Changeset.traverse_errors(fn {msg, _opts} -> msg end)

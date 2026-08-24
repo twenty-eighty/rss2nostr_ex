@@ -108,6 +108,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Media do
 
   def clock_to_seconds(_), do: nil
 
+  @spec extract_markdown_links(String.t()) :: [ImageExtractor.image_info()]
   defp extract_markdown_links(markdown) when is_binary(markdown) do
     pattern = ~r/(?<!!)\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/
 

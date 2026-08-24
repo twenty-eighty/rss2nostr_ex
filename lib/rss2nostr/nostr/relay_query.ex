@@ -46,6 +46,7 @@ defmodule Rss2Nostr.Nostr.RelayQuery do
     |> Enum.reject(&is_nil(event_id(&1)))
   end
 
+  @spec event_id(map()) :: String.t() | nil
   defp event_id(%{"id" => id}) when is_binary(id), do: id
   defp event_id(%{id: id}) when is_binary(id), do: id
   defp event_id(_), do: nil

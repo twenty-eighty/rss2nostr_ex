@@ -7,6 +7,7 @@ defmodule Rss2Nostr.CLI.Commands.Process do
   alias Rss2Nostr.Processing.Processor
   alias Rss2Nostr.Posts
 
+  @spec run(map()) :: :ok
   def run(options) do
     limit = Map.get(options, :limit, 10)
 

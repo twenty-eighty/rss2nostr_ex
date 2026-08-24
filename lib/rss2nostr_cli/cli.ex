@@ -5,6 +5,7 @@ defmodule Rss2Nostr.CLI do
 
   alias Rss2Nostr.CLI.Commands
 
+  @spec main([String.t()]) :: term()
   def main(args) do
     # Ensure the application is started
     Application.ensure_all_started(:rss2nostr)

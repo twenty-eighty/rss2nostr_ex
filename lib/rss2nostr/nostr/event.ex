@@ -250,6 +250,7 @@ defmodule Rss2Nostr.Nostr.Event do
   end
 
   # Generate a URL-safe identifier from title
+  @spec generate_identifier(String.t()) :: String.t()
   defp generate_identifier(title) do
     title
     |> String.downcase()
@@ -389,12 +390,15 @@ defmodule Rss2Nostr.Nostr.Event do
     end
   end
 
+  @spec maybe_summary_or_alt(list(), integer(), String.t() | nil) :: list()
   defp maybe_summary_or_alt(tags, @kind_video, summary), do: maybe_tag(tags, "alt", summary)
   defp maybe_summary_or_alt(tags, _kind, summary), do: maybe_tag(tags, "summary", summary)
 
+  @spec maybe_tag(list(), String.t(), String.t() | nil) :: list()
   defp maybe_tag(tags, _name, value) when value in [nil, ""], do: tags
   defp maybe_tag(tags, name, value) when is_binary(value), do: tags ++ [[name, value]]
 
+  @spec maybe_published_at(list(), integer() | nil) :: list()
   defp maybe_published_at(tags, published_at) when is_integer(published_at) do
     tags ++ [["published_at", to_string(published_at)]]
   end
@@ -435,12 +439,14 @@ defmodule Rss2Nostr.Nostr.Event do
     |> Enum.reject(&MapSet.member?(skip, &1))
   end
 
+  @spec maybe_hashtag_tags(list(), term()) :: list()
   defp maybe_hashtag_tags(tags, hashtags) do
     hashtags
     |> normalize_hashtags()
     |> Enum.reduce(tags, fn tag, acc -> acc ++ [["t", tag]] end)
   end
 
+  @spec maybe_language_tags(list(), term()) :: list()
   defp maybe_language_tags(tags, language) do
     case normalize_language(language) do
       {code, namespace} -> tags ++ [["L", namespace], ["l", code, namespace]]
@@ -448,6 +454,7 @@ defmodule Rss2Nostr.Nostr.Event do
     end
   end
 
+  @spec maybe_canonical_url(list(), String.t() | nil) :: list()
   defp maybe_canonical_url(tags, url) when is_binary(url) do
     trimmed = String.trim(url)
 
@@ -460,6 +467,7 @@ defmodule Rss2Nostr.Nostr.Event do
 
   defp maybe_canonical_url(tags, _), do: tags
 
+  @spec maybe_imeta_tags(list(), list()) :: list()
   defp maybe_imeta_tags(tags, imeta) when is_list(imeta) do
     tags ++
       Enum.flat_map(imeta, fn item ->
@@ -472,6 +480,7 @@ defmodule Rss2Nostr.Nostr.Event do
 
   defp maybe_imeta_tags(tags, _), do: tags
 
+  @spec normalize_imeta_tag(term()) :: NIP92.tag() | nil
   defp normalize_imeta_tag(["imeta" | pairs]), do: NIP92.tag(pairs)
 
   defp normalize_imeta_tag(pairs) when is_list(pairs) do
@@ -480,6 +489,7 @@ defmodule Rss2Nostr.Nostr.Event do
 
   defp normalize_imeta_tag(_), do: nil
 
+  @spec hashtag_tokens(term()) :: [String.t()]
   defp hashtag_tokens(tag) when is_binary(tag) do
     normalized =
       tag
@@ -494,6 +504,7 @@ defmodule Rss2Nostr.Nostr.Event do
 
   defp hashtag_tokens(_), do: []
 
+  @spec normalize_language(term()) :: {String.t(), String.t()} | nil
   defp normalize_language(language) when is_binary(language) do
     code =
       language
@@ -518,6 +529,7 @@ defmodule Rss2Nostr.Nostr.Event do
 
   defp normalize_language(_), do: nil
 
+  @spec maybe_author_tag(list(), String.t() | nil) :: list()
   defp maybe_author_tag(tags, author_pubkey)
        when is_binary(author_pubkey) and author_pubkey != "" do
     tags ++ [["p", String.downcase(author_pubkey)]]
@@ -525,9 +537,11 @@ defmodule Rss2Nostr.Nostr.Event do
 
   defp maybe_author_tag(tags, _), do: tags
 
+  @spec maybe_client_tag(list(), boolean(), integer()) :: list()
   defp maybe_client_tag(tags, true, @kind_long_form), do: tags ++ [@pareto_client_tag]
   defp maybe_client_tag(tags, _, _), do: tags
 
+  @spec signer_pubkey_hex(binary()) :: {:ok, String.t()} | {:error, term()}
   defp signer_pubkey_hex(private_key) do
     case Keys.derive_public_key(private_key) do
       pubkey when is_binary(pubkey) -> {:ok, Keys.to_hex(pubkey)}
@@ -535,11 +549,13 @@ defmodule Rss2Nostr.Nostr.Event do
     end
   end
 
+  @spec nip44_base64_len(non_neg_integer()) :: non_neg_integer()
   defp nip44_base64_len(plaintext_len) do
     payload_len = nip44_padded_len(plaintext_len) + 65
     4 * div(payload_len + 2, 3)
   end
 
+  @spec json_size(term()) :: non_neg_integer()
   defp json_size(value) do
     case Jason.encode(value) do
       {:ok, json} -> byte_size(json)
@@ -547,6 +563,7 @@ defmodule Rss2Nostr.Nostr.Event do
     end
   end
 
+  @spec inner_payload(map()) :: map()
   defp inner_payload(event) do
     %{
       "kind" => event[:kind] || event["kind"] || @kind_long_form,
@@ -557,6 +574,7 @@ defmodule Rss2Nostr.Nostr.Event do
     }
   end
 
+  @spec event_identifier(map()) :: String.t()
   defp event_identifier(event) do
     tags = event[:tags] || event["tags"] || []
 

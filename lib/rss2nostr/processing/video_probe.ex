@@ -70,10 +70,12 @@ defmodule Rss2Nostr.Processing.VideoProbe do
     end
   end
 
+  @spec ffprobe_enabled?(keyword()) :: boolean()
   defp ffprobe_enabled?(opts) do
     Keyword.get(opts, :ffprobe, Application.get_env(:rss2nostr, :video_ffprobe, true))
   end
 
+  @spec head_enabled?(keyword()) :: boolean()
   defp head_enabled?(opts) do
     Keyword.get(opts, :head, Application.get_env(:rss2nostr, :video_head, true))
   end
@@ -111,6 +113,7 @@ defmodule Rss2Nostr.Processing.VideoProbe do
 
   def parse_ffprobe(_), do: %{}
 
+  @spec known_info(keyword()) :: info()
   defp known_info(opts) do
     %{}
     |> maybe_put(:duration, opts[:duration])
@@ -118,6 +121,7 @@ defmodule Rss2Nostr.Processing.VideoProbe do
     |> maybe_put(:type, opts[:type])
   end
 
+  @spec head_info(String.t()) :: info()
   defp head_info(url) do
     case HTTP.head(url, receive_timeout: @head_ms, retry: false) do
       {:ok, %{status: status, headers: headers}} when status in 200..399 ->
@@ -129,7 +133,19 @@ defmodule Rss2Nostr.Processing.VideoProbe do
     end
   end
 
+  @spec ffprobe_info(String.t()) :: info()
   defp ffprobe_info(url) do
+    case Rss2Nostr.HTTP.SafeURL.validate(url) do
+      :ok ->
+        do_ffprobe(url)
+
+      {:error, reason} ->
+        Logger.debug("ffprobe skipped for #{url}: #{inspect(reason)}")
+        %{}
+    end
+  end
+
+  defp do_ffprobe(url) do
     case System.find_executable("ffprobe") do
       nil ->
         %{}
@@ -146,6 +162,7 @@ defmodule Rss2Nostr.Processing.VideoProbe do
           "2M",
           "-analyzeduration",
           "2M",
+          "--",
           url
         ]
 
@@ -162,6 +179,7 @@ defmodule Rss2Nostr.Processing.VideoProbe do
     end
   end
 
+  @spec media_mime(String.t() | nil) :: String.t() | nil
   defp media_mime(nil), do: nil
 
   defp media_mime(value) when is_binary(value) do
@@ -179,6 +197,7 @@ defmodule Rss2Nostr.Processing.VideoProbe do
     end
   end
 
+  @spec dimensions(map()) :: String.t() | nil
   defp dimensions(%{"width" => w, "height" => h})
        when is_integer(w) and is_integer(h) and w > 0 and h > 0 do
     "#{w}x#{h}"
@@ -186,6 +205,7 @@ defmodule Rss2Nostr.Processing.VideoProbe do
 
   defp dimensions(_), do: nil
 
+  @spec parse_duration(String.t() | number() | term()) :: integer() | nil
   defp parse_duration(value) when is_binary(value) do
     case Float.parse(value) do
       {n, _} when n > 0 -> round(n)
@@ -196,6 +216,7 @@ defmodule Rss2Nostr.Processing.VideoProbe do
   defp parse_duration(value) when is_number(value) and value > 0, do: round(value)
   defp parse_duration(_), do: nil
 
+  @spec parse_int(integer() | String.t() | term()) :: integer() | nil
   defp parse_int(value) when is_integer(value) and value > 0, do: value
 
   defp parse_int(value) when is_binary(value) do
@@ -207,6 +228,7 @@ defmodule Rss2Nostr.Processing.VideoProbe do
 
   defp parse_int(_), do: nil
 
+  @spec maybe_put(info(), atom(), term()) :: info()
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

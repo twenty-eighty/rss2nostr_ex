@@ -45,6 +45,7 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     _ -> :ok
   end
 
+  @spec resolve(String.t(), keyword()) :: [String.t()]
   defp resolve(hex, opts) do
     profile = profile(hex, opts)
     identifier = nip05_identifier(profile)
@@ -59,6 +60,7 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     end
   end
 
+  @spec profile(String.t(), keyword()) :: map() | nil
   defp profile(hex, opts) do
     cond do
       Keyword.has_key?(opts, :profile) ->
@@ -72,12 +74,14 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     end
   end
 
+  @spec fetch_profile(String.t()) :: map() | nil
   defp fetch_profile(hex) do
     discovery_relays()
     |> RelayQuery.query_relays(%{"authors" => [hex], "kinds" => [0], "limit" => 5})
     |> Enum.max_by(&created_at/1, fn -> nil end)
   end
 
+  @spec nip05_identifier(map() | nil) :: String.t() | nil
   defp nip05_identifier(profile) when is_map(profile) do
     content = field(profile, "content") || field(profile, :content) || ""
 
@@ -95,6 +99,7 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
 
   defp nip05_identifier(_), do: nil
 
+  @spec nip05_relays(String.t() | nil, String.t(), keyword()) :: [String.t()]
   defp nip05_relays(nil, _hex, _opts), do: []
 
   defp nip05_relays(identifier, hex, opts) do
@@ -129,16 +134,20 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     end
   end
 
+  @spec with_inbox([String.t()]) :: [String.t()]
   defp with_inbox(relays) do
     Enum.uniq(List.wrap(relays) ++ Relays.inbox())
   end
 
+  @spec fallback() :: [String.t()]
   defp fallback, do: Relays.public()
 
+  @spec discovery_relays() :: [String.t()]
   defp discovery_relays do
     Relays.public()
   end
 
+  @spec cache_get(String.t()) :: {:ok, [String.t()]} | :miss
   defp cache_get(hex) do
     case Cachex.get(@cache, hex) do
       {:ok, %{relays: relays}} when is_list(relays) -> {:ok, relays}
@@ -148,6 +157,7 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     _ -> :miss
   end
 
+  @spec cache_put(String.t(), [String.t()]) :: :ok
   defp cache_put(hex, relays) do
     _ = Cachex.put(@cache, hex, %{relays: relays}, expire: @ttl_ms)
     :ok
@@ -155,6 +165,7 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     _ -> :ok
   end
 
+  @spec created_at(map()) :: integer()
   defp created_at(event) do
     case field(event, "created_at") || field(event, :created_at) do
       value when is_integer(value) -> value
@@ -162,8 +173,10 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     end
   end
 
+  @spec field(map(), atom() | String.t()) :: term()
   defp field(map, key), do: Map.get(map, key)
 
+  @spec decode_content(term()) :: {:ok, map()} | :error
   defp decode_content(content) when is_binary(content), do: Jason.decode(content)
   defp decode_content(_), do: :error
 end

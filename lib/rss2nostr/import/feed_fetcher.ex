@@ -41,6 +41,7 @@ defmodule Rss2Nostr.Import.FeedFetcher do
 
   def fetch_article(_), do: {:error, "Invalid URL"}
 
+  @spec request(String.t(), keyword()) :: {:ok, String.t()} | {:error, String.t()}
   defp request(url, opts) do
     Logger.debug("Fetching #{url}")
 
@@ -57,6 +58,7 @@ defmodule Rss2Nostr.Import.FeedFetcher do
   end
 
   # Ensure the body is valid UTF-8
+  @spec ensure_utf8(binary()) :: binary()
   defp ensure_utf8(body) when is_binary(body) do
     case :unicode.characters_to_binary(body, :utf8) do
       {:error, _, _} ->

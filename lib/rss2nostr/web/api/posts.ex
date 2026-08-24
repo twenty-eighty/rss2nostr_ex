@@ -138,6 +138,7 @@ defmodule Rss2Nostr.Web.API.Posts do
      }}
   end
 
+  @spec classify_publish({Post.t(), {:ok, map()} | {:error, term()}}) :: map()
   defp classify_publish({post, {:ok, %{success: true, failed_relays: []} = result}}) do
     %{status: :published, issue: nil, result: Map.put(result, :title, post.title)}
   end
@@ -162,11 +163,13 @@ defmodule Rss2Nostr.Web.API.Posts do
     %{status: :failed, issue: post_issue(post, format_error(reason)), result: nil}
   end
 
+  @spec post_issue(Post.t(), String.t()) :: String.t()
   defp post_issue(post, message) do
     title = post.title || "Post #{post.id}"
     "#{title}: #{message}"
   end
 
+  @spec publish_one(Post.t()) :: {:ok, map()} | {:error, atom() | String.t()}
   defp publish_one(%Post{} = post) do
     post = Posts.preload_source(post)
 
@@ -217,6 +220,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
+  @spec require_ready(Post.t()) :: {:ok, Post.t()} | {:error, String.t()}
   defp require_ready(post) do
     cond do
       post.status == Post.status_published() and not Blossom.pending_images?(post) ->
@@ -239,6 +243,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
+  @spec editable?(Post.t()) :: :ok | {:error, :not_editable}
   defp editable?(post) do
     if post.status in [Post.status_processed(), Post.status_published()] do
       :ok
@@ -247,6 +252,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
+  @spec editor_attrs(map()) :: map()
   defp editor_attrs(params) do
     %{}
     |> maybe_put(:title, params["title"])
@@ -256,9 +262,11 @@ defmodule Rss2Nostr.Web.API.Posts do
     |> maybe_put_categories(params)
   end
 
+  @spec maybe_put(map(), atom(), term()) :: map()
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
+  @spec maybe_put_categories(map(), map()) :: map()
   defp maybe_put_categories(attrs, params) do
     cond do
       Map.has_key?(params, "categories") ->
@@ -272,6 +280,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
+  @spec parse_categories(term()) :: [String.t()]
   defp parse_categories(nil), do: []
 
   defp parse_categories(list) when is_list(list),
@@ -286,11 +295,13 @@ defmodule Rss2Nostr.Web.API.Posts do
 
   defp parse_categories(_), do: []
 
+  @spec blank_to_nil(term()) :: term()
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value) when is_binary(value), do: String.trim(value)
   defp blank_to_nil(value), do: value
 
+  @spec format_error(term()) :: String.t()
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: Rss2Nostr.Nostr.Relay.format_error(reason)
 
@@ -305,6 +316,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
+  @spec stats() :: map()
   def stats do
     %{
       total: Posts.count_posts(),
@@ -317,6 +329,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     }
   end
 
+  @spec post_to_map(Post.t()) :: map()
   defp post_to_map(post) do
     %{
       id: post.id,
@@ -332,6 +345,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     }
   end
 
+  @spec status_to_int(String.t()) :: integer()
   defp status_to_int(status) do
     case status do
       "new" ->
@@ -363,6 +377,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
+  @spec parse_id(term()) :: {:ok, pos_integer()} | {:error, :invalid_id}
   defp parse_id(id) when is_binary(id) do
     case Integer.parse(id) do
       {int_id, ""} when int_id > 0 -> {:ok, int_id}
@@ -372,6 +387,7 @@ defmodule Rss2Nostr.Web.API.Posts do
 
   defp parse_id(_), do: {:error, :invalid_id}
 
+  @spec parse_integer(term(), pos_integer()) :: pos_integer()
   defp parse_integer(nil, default), do: default
 
   defp parse_integer(value, default) when is_binary(value) do

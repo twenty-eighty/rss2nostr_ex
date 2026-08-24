@@ -6,6 +6,7 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
   alias Rss2Nostr.CLI.Output
   alias Rss2Nostr.Nostr.{Blossom, NIP19, Keys}
 
+  @spec run(map()) :: :ok
   def run(options) do
     file_or_url = Map.get(options, :file)
     nsec = Map.get(options, :nsec)
@@ -59,6 +60,7 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
   @doc """
   Lists configured Blossom servers and whether they respond.
   """
+  @spec list_servers() :: :ok
   def list_servers do
     servers = Blossom.servers()
 
@@ -71,6 +73,7 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
     end
   end
 
+  @spec show_upload_result({:ok, map()} | {:error, term()}) :: :ok
   defp show_upload_result({:ok, upload_result}) do
     Output.success("\nUpload successful!")
     Output.info("  URL: #{upload_result.url}")
@@ -88,6 +91,7 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
     Output.error("Upload failed: #{inspect(reason)}")
   end
 
+  @spec check_server(String.t()) :: :ok
   defp check_server(server) do
     case Blossom.probe_server(server) do
       {:ok, status} ->
@@ -100,6 +104,7 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
     Output.info("")
   end
 
+  @spec get_private_key(String.t() | nil) :: {:ok, binary(), String.t()} | {:error, atom()}
   defp get_private_key(nil) do
     case System.get_env("NOSTR_NSEC") do
       nil ->
@@ -114,6 +119,7 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
 
   defp get_private_key(nsec), do: decode_nsec(nsec)
 
+  @spec decode_nsec(String.t()) :: {:ok, binary(), String.t()} | {:error, atom()}
   defp decode_nsec(nsec) do
     cond do
       String.starts_with?(nsec, "nsec") ->
@@ -142,6 +148,7 @@ defmodule Rss2Nostr.CLI.Commands.Upload do
     end
   end
 
+  @spec format_size(number()) :: String.t()
   defp format_size(bytes) when bytes < 1024, do: "#{bytes} B"
   defp format_size(bytes) when bytes < 1024 * 1024, do: "#{Float.round(bytes / 1024, 1)} KB"
   defp format_size(bytes), do: "#{Float.round(bytes / 1024 / 1024, 2)} MB"

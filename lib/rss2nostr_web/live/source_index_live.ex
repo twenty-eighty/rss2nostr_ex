@@ -7,6 +7,7 @@ defmodule Rss2NostrWeb.SourceIndexLive do
   alias Rss2Nostr.Web.API.Sources, as: SourcesAPI
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
   def mount(_params, _session, socket) do
     {:ok,
      socket
@@ -16,6 +17,7 @@ defmodule Rss2NostrWeb.SourceIndexLive do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle", %{"id" => id}, socket) do
     case SourcesAPI.toggle(id) do
       {:ok, _} ->
@@ -47,6 +49,7 @@ defmodule Rss2NostrWeb.SourceIndexLive do
   end
 
   @impl true
+  @spec render(map()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <div class="page-header">
@@ -123,6 +126,7 @@ defmodule Rss2NostrWeb.SourceIndexLive do
     """
   end
 
+  @spec assign_sources(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp assign_sources(socket) do
     assign(socket, :sources, Sources.list_sources())
   end

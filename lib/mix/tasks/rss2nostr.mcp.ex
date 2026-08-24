@@ -15,6 +15,7 @@ defmodule Mix.Tasks.Rss2nostr.Mcp do
   use Mix.Task
 
   @impl Mix.Task
+  @spec run([String.t()]) :: :ok | no_return()
   def run(_args) do
     Mix.Task.run("app.start")
 

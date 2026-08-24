@@ -14,6 +14,13 @@ defmodule Rss2Nostr.Processing.Conversion do
           optional(:label) => String.t()
         }
 
+  @type xpath_spec :: %{
+          tag: String.t(),
+          contains_text: String.t() | nil,
+          contains_class: String.t() | nil,
+          class: String.t() | nil
+        }
+
   @type link_group :: %{
           xpath: String.t(),
           description: String.t(),
@@ -153,6 +160,7 @@ defmodule Rss2Nostr.Processing.Conversion do
 
   def describe_xpath(_), do: ""
 
+  @spec normalize_rule(map()) :: [rule()]
   defp normalize_rule(rule) when is_map(rule) do
     xpath = blank_to_nil(rule["xpath"] || rule[:xpath])
     action = rule["action"] || rule[:action] || "links_as_paragraphs"
@@ -172,10 +180,12 @@ defmodule Rss2Nostr.Processing.Conversion do
 
   defp normalize_rule(_), do: []
 
+  @spec collect_elements(Floki.html_tree() | [Floki.html_node()]) :: [Floki.html_node()]
   defp collect_elements(nodes) do
     Floki.find(nodes, "p, div, li, section")
   end
 
+  @spec link_row?(Floki.html_node()) :: boolean()
   defp link_row?({_tag, _attrs, children} = node) do
     links = extract_links(children)
 
@@ -186,6 +196,7 @@ defmodule Rss2Nostr.Processing.Conversion do
 
   defp link_row?(_), do: false
 
+  @spec watch_like?(Floki.html_node()) :: boolean()
   defp watch_like?({_tag, _attrs, children}) do
     text = children |> Floki.text() |> String.downcase()
 
@@ -195,6 +206,7 @@ defmodule Rss2Nostr.Processing.Conversion do
       String.match?(text, ~r/\bdownload\b/)
   end
 
+  @spec icon_row?([Floki.html_node()]) :: boolean()
   defp icon_row?(children) do
     anchors = find_tags(children, "a")
 
@@ -210,11 +222,13 @@ defmodule Rss2Nostr.Processing.Conversion do
       end)
   end
 
+  @spec separator_row?(Floki.html_node()) :: boolean()
   defp separator_row?({_tag, _attrs, children}) do
     text = children |> Floki.text() |> normalize_space()
     String.contains?(text, " / ") or String.contains?(text, " | ")
   end
 
+  @spec link_text_dominates?(Floki.html_node(), [{String.t(), String.t()}]) :: boolean()
   defp link_text_dominates?({_tag, _attrs, children}, links) do
     full = children |> Floki.text() |> normalize_space()
     labels = links |> Enum.map_join("", &elem(&1, 0)) |> normalize_space()
@@ -222,6 +236,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     full != "" and String.length(labels) / max(String.length(full), 1) >= 0.55
   end
 
+  @spec group_from_node(Floki.html_node()) :: link_group()
   defp group_from_node({_tag, _attrs, children} = node) do
     xpath = suggest_xpath(node)
     links = extract_links(children)
@@ -238,6 +253,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     }
   end
 
+  @spec extract_links(Floki.html_tree() | Floki.html_node()) :: [{String.t(), String.t()}]
   defp extract_links(nodes) when is_list(nodes) do
     Enum.flat_map(nodes, &extract_links/1)
   end
@@ -256,6 +272,7 @@ defmodule Rss2Nostr.Processing.Conversion do
   defp extract_links({_tag, _attrs, children}), do: extract_links(children)
   defp extract_links(_), do: []
 
+  @spec link_label([Floki.html_node()], String.t()) :: String.t()
   defp link_label(children, href) do
     alt =
       children
@@ -274,6 +291,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     end
   end
 
+  @spec platform_name(String.t()) :: String.t()
   defp platform_name(url) do
     host = url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
 
@@ -293,6 +311,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     _ -> "Link"
   end
 
+  @spec valid_href?(term()) :: boolean()
   defp valid_href?(href) do
     is_binary(href) and href != "" and
       not String.starts_with?(href, "/") and
@@ -300,6 +319,7 @@ defmodule Rss2Nostr.Processing.Conversion do
       (String.starts_with?(href, "http://") or String.starts_with?(href, "https://"))
   end
 
+  @spec row_heading(String.t()) :: String.t() | nil
   defp row_heading(text) do
     cond do
       String.match?(text, ~r/watch\s+on\s*:/i) -> "WATCH ON:"
@@ -310,6 +330,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     end
   end
 
+  @spec distinctive_class([{String.t(), String.t()}]) :: String.t() | nil
   defp distinctive_class(attrs) do
     attrs
     |> attr("class", "")
@@ -318,6 +339,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     |> List.first()
   end
 
+  @spec distinctive_prefix(String.t()) :: String.t() | nil
   defp distinctive_prefix(text) do
     cond do
       match = Regex.run(~r/(WATCH\s+ON\s*:)/i, text) -> hd(match)
@@ -328,6 +350,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     end
   end
 
+  @spec parse_xpath(term()) :: {:ok, xpath_spec()} | :error
   defp parse_xpath(xpath) when is_binary(xpath) do
     xpath = String.trim(xpath)
 
@@ -351,6 +374,7 @@ defmodule Rss2Nostr.Processing.Conversion do
 
   defp parse_xpath(_), do: :error
 
+  @spec xpath_pred(String.t(), Regex.t()) :: String.t() | nil
   defp xpath_pred(preds, regex) do
     case Regex.run(regex, preds) do
       [_, value] -> value
@@ -358,6 +382,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     end
   end
 
+  @spec predicates_match?(Floki.html_node(), xpath_spec()) :: boolean()
   defp predicates_match?(node, spec) do
     text = node |> elem(2) |> Floki.text()
     class = attr(elem(node, 1), "class", "")
@@ -367,6 +392,7 @@ defmodule Rss2Nostr.Processing.Conversion do
       (is_nil(spec.class) or class == spec.class)
   end
 
+  @spec find_tags(Floki.html_tree() | Floki.html_node(), String.t()) :: [Floki.html_node()]
   defp find_tags(nodes, tag) when is_list(nodes) do
     Enum.flat_map(nodes, &find_tags(&1, tag))
   end
@@ -376,6 +402,7 @@ defmodule Rss2Nostr.Processing.Conversion do
   defp find_tags({_, _, children}, tag), do: find_tags(children, tag)
   defp find_tags(_, _), do: []
 
+  @spec attr([{String.t(), String.t()}], String.t(), term()) :: term()
   defp attr(attrs, name, default \\ nil) do
     case List.keyfind(attrs, name, 0) do
       {_, value} -> value
@@ -383,22 +410,26 @@ defmodule Rss2Nostr.Processing.Conversion do
     end
   end
 
+  @spec human_tag(String.t()) :: String.t()
   defp human_tag("*"), do: "Elements"
   defp human_tag("p"), do: "Paragraphs"
   defp human_tag("div"), do: "Divs"
   defp human_tag("li"), do: "List items"
   defp human_tag(tag), do: String.capitalize(tag) <> "s"
 
+  @spec normalize_space(String.t()) :: String.t()
   defp normalize_space(text) do
     text
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
   end
 
+  @spec xpath_escape(String.t()) :: String.t()
   defp xpath_escape(text) do
     String.replace(text, "'", " ")
   end
 
+  @spec blank_to_nil(term()) :: term()
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 

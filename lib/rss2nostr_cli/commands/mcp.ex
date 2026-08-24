@@ -5,6 +5,7 @@ defmodule Rss2Nostr.CLI.Commands.MCP do
 
   alias Rss2Nostr.CLI.Output
 
+  @spec run() :: term()
   def run do
     Output.info("Starting RSS2Nostr MCP server on stdio")
 

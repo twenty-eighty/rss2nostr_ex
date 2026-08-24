@@ -47,6 +47,7 @@ defmodule Rss2Nostr.Sources.Source do
   end
 
   @doc false
+  @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(source, attrs) do
     source
     |> cast(normalize_hashtag_attrs(attrs), [
@@ -116,12 +117,14 @@ defmodule Rss2Nostr.Sources.Source do
 
   def mirror_media?(_), do: true
 
+  @spec option(t() | map(), String.t()) :: term()
   defp option(%{options: options}, key) when is_map(options) do
     Map.get(options, key) || Map.get(options, String.to_atom(key))
   end
 
   defp option(_, _), do: nil
 
+  @spec normalize_hashtag_attrs(map()) :: map()
   defp normalize_hashtag_attrs(attrs) when is_map(attrs) do
     attrs
     |> normalize_hashtag_field(:fixed_hashtags)
@@ -130,6 +133,7 @@ defmodule Rss2Nostr.Sources.Source do
 
   defp normalize_hashtag_attrs(attrs), do: attrs
 
+  @spec normalize_hashtag_field(map(), atom()) :: map()
   defp normalize_hashtag_field(attrs, field) do
     string = Atom.to_string(field)
 
@@ -145,14 +149,17 @@ defmodule Rss2Nostr.Sources.Source do
     end
   end
 
+  @spec normalize_pubkey(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp normalize_pubkey(changeset) do
     normalize_hex_pubkey(changeset, :pubkey)
   end
 
+  @spec normalize_notify_pubkey(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp normalize_notify_pubkey(changeset) do
     normalize_hex_pubkey(changeset, :notify_pubkey)
   end
 
+  @spec normalize_hex_pubkey(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
   defp normalize_hex_pubkey(changeset, field) do
     case get_change(changeset, field) do
       nil ->
@@ -172,6 +179,7 @@ defmodule Rss2Nostr.Sources.Source do
     end
   end
 
+  @spec encrypt_signing_nsec(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp encrypt_signing_nsec(changeset) do
     case get_change(changeset, :signing_nsec) do
       value when is_binary(value) and value != "" ->
@@ -188,6 +196,7 @@ defmodule Rss2Nostr.Sources.Source do
     end
   end
 
+  @spec sync_post_kind(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp sync_post_kind(changeset) do
     case get_field(changeset, :publish_as) do
       "article" ->
@@ -204,6 +213,7 @@ defmodule Rss2Nostr.Sources.Source do
     end
   end
 
+  @spec validate_publish_identity(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp validate_publish_identity(changeset) do
     if publish_as_submitted?(changeset) do
       case get_field(changeset, :publish_as) do
@@ -222,11 +232,13 @@ defmodule Rss2Nostr.Sources.Source do
     end
   end
 
+  @spec publish_as_submitted?(Ecto.Changeset.t()) :: boolean()
   defp publish_as_submitted?(changeset) do
     params = changeset.params || %{}
     Map.has_key?(params, "publish_as") or Map.has_key?(params, :publish_as)
   end
 
+  @spec validate_article_signer(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp validate_article_signer(changeset) do
     nsec = get_field(changeset, :signing_nsec)
     cipher = get_field(changeset, :signing_nsec_ciphertext)
@@ -239,9 +251,11 @@ defmodule Rss2Nostr.Sources.Source do
     end
   end
 
+  @spec present?(term()) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 
+  @spec validate_automated_signer(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp validate_automated_signer(changeset) do
     mode = get_field(changeset, :mode)
 
@@ -262,6 +276,7 @@ defmodule Rss2Nostr.Sources.Source do
     end
   end
 
+  @spec changing_to_automated?(Ecto.Changeset.t()) :: boolean()
   defp changing_to_automated?(changeset) do
     changed?(changeset, :mode) or changed?(changeset, :publish_as) or
       changed?(changeset, :signing_nsec) or changed?(changeset, :bunker_connection)

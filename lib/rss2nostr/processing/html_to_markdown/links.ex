@@ -192,6 +192,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
   @spec fa_brand_url(String.t()) :: String.t()
   def fa_brand_url(slug), do: "#{@fa_brand_cdn}/#{slug}.svg"
 
+  @spec fa_brand_slug(list()) :: String.t() | nil
   defp fa_brand_slug(nodes) do
     skip = MapSet.new(~w(lg sm xs 2x 3x 4x 5x fw spin pulse border))
 
@@ -211,6 +212,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
     end)
   end
 
+  @spec first_link_signal(list()) :: :icon | :text | nil
   defp first_link_signal(nodes) do
     Enum.find_value(List.wrap(nodes), fn
       {tag, attrs, inner} when tag in ~w(i em span) ->
@@ -236,6 +238,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
     end)
   end
 
+  @spec element_classes(list()) :: [String.t()]
   defp element_classes(nodes) do
     Enum.flat_map(List.wrap(nodes), fn
       {_, attrs, inner} ->
@@ -246,12 +249,14 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
     end)
   end
 
+  @spec class_tokens(term()) :: [String.t()]
   defp class_tokens(class) when is_binary(class) do
     class |> String.downcase() |> String.split(~r/\s+/, trim: true)
   end
 
   defp class_tokens(_), do: []
 
+  @spec split_url_trail(String.t()) :: {String.t(), String.t()}
   defp split_url_trail(url) do
     case Regex.run(~r/\A(.*?)([.,;:!?]+)\z/, url) do
       [_, bare, trail] -> {bare, trail}
@@ -259,6 +264,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
     end
   end
 
+  @spec normalize_mailto_target(String.t()) :: String.t()
   defp normalize_mailto_target(rest) do
     {address, suffix} =
       case String.split(rest, "?", parts: 2) do
@@ -269,9 +275,11 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
     (address |> URI.decode() |> String.trim()) <> suffix
   end
 
+  @spec present_title?(term()) :: boolean()
   defp present_title?(title) when is_binary(title), do: String.trim(title) != ""
   defp present_title?(_), do: false
 
+  @spec attr(list(), String.t(), term()) :: term()
   defp attr(attrs, name, default) do
     case List.keyfind(attrs, name, 0) do
       {_, value} -> value

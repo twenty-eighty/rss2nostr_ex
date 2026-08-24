@@ -7,6 +7,7 @@ defmodule Rss2Nostr.Web.API.Scheduler do
   alias Rss2Nostr.Scheduler
   alias Rss2Nostr.Scheduler.Tasks
 
+  @spec status() :: map()
   def status do
     case Process.whereis(Rss2Nostr.Scheduler) do
       nil ->
@@ -24,6 +25,7 @@ defmodule Rss2Nostr.Web.API.Scheduler do
     end
   end
 
+  @spec start() :: {:ok, String.t()} | {:error, term()}
   def start do
     with :ok <- ensure_started() do
       case Scheduler.start() do
@@ -33,6 +35,7 @@ defmodule Rss2Nostr.Web.API.Scheduler do
     end
   end
 
+  @spec stop() :: {:ok, String.t()}
   def stop do
     case Process.whereis(Rss2Nostr.Scheduler) do
       nil ->
@@ -44,6 +47,7 @@ defmodule Rss2Nostr.Web.API.Scheduler do
     end
   end
 
+  @spec run_task(String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def run_task(task) when task in ["import", "process", "export", "cleanup"] do
     task_atom = String.to_atom(task)
 
@@ -68,6 +72,7 @@ defmodule Rss2Nostr.Web.API.Scheduler do
 
   def run_task(_task), do: {:error, "Invalid task"}
 
+  @spec ensure_started() :: :ok | {:error, term()}
   defp ensure_started do
     case Process.whereis(Rss2Nostr.Scheduler) do
       pid when is_pid(pid) ->
@@ -83,6 +88,7 @@ defmodule Rss2Nostr.Web.API.Scheduler do
     end
   end
 
+  @spec get_export_config() :: %{optional(:private_key) => binary() | nil}
   defp get_export_config do
     nsec = System.get_env("NOSTR_NSEC")
 

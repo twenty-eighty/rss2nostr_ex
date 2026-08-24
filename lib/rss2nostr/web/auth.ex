@@ -46,6 +46,7 @@ defmodule Rss2Nostr.Web.Auth do
     hex in pubkeys()
   end
 
+  @spec allowed?(term()) :: boolean()
   def allowed?(_), do: false
 
   @spec secret_key_base() :: String.t()
@@ -78,16 +79,28 @@ defmodule Rss2Nostr.Web.Auth do
       signing_salt: "rss2nostr.auth",
       same_site: "Lax",
       http_only: true,
+      secure: secure_cookies?(),
       max_age: @session_max_age
     ]
   end
 
+  @spec secure_cookies?() :: boolean()
+  def secure_cookies? do
+    case System.get_env("SECURE_COOKIES") || System.get_env("FORCE_SSL") do
+      value when value in ["1", "true", "TRUE", "yes", "YES"] -> true
+      value when value in ["0", "false", "FALSE", "no", "NO"] -> false
+      _ -> Application.get_env(:rss2nostr, :secure_cookies, false)
+    end
+  end
+
+  @spec read_or_create_secret_file() :: String.t()
   defp read_or_create_secret_file do
     path = secret_file_path()
 
     case File.read(path) do
       {:ok, secret} ->
         secret = String.trim(secret)
+        _ = File.chmod(path, 0o600)
         if byte_size(secret) >= 64, do: secret, else: write_secret_file(path)
 
       _ ->
@@ -95,12 +108,15 @@ defmodule Rss2Nostr.Web.Auth do
     end
   end
 
+  @spec write_secret_file(String.t()) :: String.t()
   defp write_secret_file(path) do
     secret = Base.encode64(:crypto.strong_rand_bytes(48))
     File.write!(path, secret <> "\n")
+    _ = File.chmod(path, 0o600)
     secret
   end
 
+  @spec secret_file_path() :: String.t()
   defp secret_file_path do
     root = System.get_env("RELEASE_ROOT") || File.cwd!()
     Path.join(root, @secret_file)
@@ -229,6 +245,7 @@ defmodule Rss2Nostr.Web.Auth do
     end
   end
 
+  @spec normalize_event(term()) :: {:ok, map()} | {:error, :invalid_event}
   defp normalize_event(event) when is_map(event) do
     id = event["id"] || event[:id]
     pubkey = event["pubkey"] || event[:pubkey]
@@ -261,6 +278,7 @@ defmodule Rss2Nostr.Web.Auth do
 
   defp normalize_event(_), do: {:error, :invalid_event}
 
+  @spec verify_challenge(map(), map() | nil) :: :ok | {:error, atom()}
   defp verify_challenge(_event, nil), do: {:error, :missing_challenge}
 
   defp verify_challenge(event, %{"token" => token, "url" => url, "issued_at" => issued_at}) do
@@ -286,12 +304,15 @@ defmodule Rss2Nostr.Web.Auth do
 
   defp verify_challenge(_, _), do: {:error, :missing_challenge}
 
+  @spec verify_kind(map()) :: :ok | {:error, :invalid_kind}
   defp verify_kind(%{kind: kind}) when kind == @kind_http_auth, do: :ok
   defp verify_kind(_), do: {:error, :invalid_kind}
 
+  @spec verify_content(map()) :: :ok | {:error, :invalid_content}
   defp verify_content(%{content: @content}), do: :ok
   defp verify_content(_), do: {:error, :invalid_content}
 
+  @spec verify_timestamp(map()) :: :ok | {:error, atom()}
   defp verify_timestamp(%{created_at: created_at}) do
     now = System.os_time(:second)
 
@@ -302,10 +323,12 @@ defmodule Rss2Nostr.Web.Auth do
     end
   end
 
+  @spec verify_admin(String.t()) :: :ok | {:error, :unauthorized_pubkey}
   defp verify_admin(pubkey) do
     if allowed?(pubkey), do: :ok, else: {:error, :unauthorized_pubkey}
   end
 
+  @spec find_tag(list(), String.t()) :: String.t() | nil
   defp find_tag(tags, name) when is_list(tags) do
     case Enum.find(tags, fn
            [tag | _] when is_binary(tag) -> tag == name

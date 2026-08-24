@@ -136,6 +136,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   @spec download_urls(String.t() | nil) :: [String.t()]
   def download_urls(url), do: Urls.download_urls(url)
 
+  @spec known_image_urls(Post.t()) :: MapSet.t(String.t())
   defp known_image_urls(post) do
     (post.images || [])
     |> Enum.flat_map(fn image ->
@@ -145,10 +146,12 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
     |> MapSet.new()
   end
 
+  @spec known_url?(MapSet.t(String.t()), String.t()) :: boolean()
   defp known_url?(known, url) do
     MapSet.member?(known, url) or MapSet.member?(known, normalize_url(url))
   end
 
+  @spec repair_post_urls(Post.t()) :: Post.t()
   defp repair_post_urls(%Post{} = post) do
     content = repair_content(post.content)
     image = normalize_optional_url(post.image)
@@ -161,6 +164,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
     end
   end
 
+  @spec repair_content(String.t() | nil) :: String.t() | nil
   defp repair_content(content) when is_binary(content) do
     content
     |> strip_tracking_pixel_images()
@@ -176,6 +180,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   defp repair_content(content), do: content
 
+  @spec strip_tracking_pixel_images(String.t()) :: String.t()
   defp strip_tracking_pixel_images(content) do
     Regex.replace(
       ~r/!?\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/,
@@ -186,6 +191,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
     )
   end
 
+  @spec normalize_optional_url(String.t() | nil) :: String.t() | nil
   defp normalize_optional_url(url) when is_binary(url) and url != "" do
     cond do
       Urls.tracking_pixel?(url) ->
@@ -201,6 +207,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   defp normalize_optional_url(url), do: url
 
+  @spec prune_unreferenced_images(Post.t(), [image_info()]) :: Post.t()
   defp prune_unreferenced_images(post, wanted) do
     wanted_urls = referenced_url_set(wanted)
 
@@ -213,6 +220,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
     post
   end
 
+  @spec referenced_url_set([image_info()]) :: MapSet.t(String.t())
   defp referenced_url_set(images) do
     images
     |> Enum.flat_map(fn %{url: url} -> url_variants(url) end)
@@ -220,12 +228,14 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
     |> MapSet.new()
   end
 
+  @spec image_referenced?(map(), MapSet.t(String.t())) :: boolean()
   defp image_referenced?(image, wanted) do
     [image.original_url, image.uploaded_url]
     |> Enum.flat_map(&url_variants/1)
     |> Enum.any?(&MapSet.member?(wanted, &1))
   end
 
+  @spec url_variants(String.t() | nil) :: [String.t()]
   defp url_variants(url) when is_binary(url) and url != "" do
     [url, Urls.normalize(url), Urls.display(url) | Urls.download_urls(url)]
   end

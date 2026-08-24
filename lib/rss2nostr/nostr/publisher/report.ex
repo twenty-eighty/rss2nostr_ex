@@ -22,12 +22,14 @@ defmodule Rss2Nostr.Nostr.Publisher.Report do
     |> Enum.reverse()
   end
 
+  @spec format_reached([String.t()]) :: String.t() | nil
   defp format_reached([]), do: nil
 
   defp format_reached(urls) do
     "Reached #{length(urls)} #{relay_word(length(urls))}: #{Enum.map_join(urls, ", ", &relay_label/1)}."
   end
 
+  @spec format_missed([Report.relay_failure()]) :: String.t() | nil
   defp format_missed([]), do: nil
 
   defp format_missed(failed) do
@@ -40,9 +42,11 @@ defmodule Rss2Nostr.Nostr.Publisher.Report do
     "Missed #{length(failed)}: #{items}."
   end
 
+  @spec relay_word(integer()) :: String.t()
   defp relay_word(1), do: "relay"
   defp relay_word(_), do: "relays"
 
+  @spec relay_label(String.t()) :: String.t()
   defp relay_label(url) do
     case URI.parse(to_string(url)) do
       %URI{host: host} when is_binary(host) and host != "" -> host

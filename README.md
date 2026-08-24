@@ -43,7 +43,7 @@ The app ships as an Elixir release in a multi-stage Docker image. Coolify (or an
 | `ADMIN_NOSTR_PUBKEYS` | Comma-separated npub/hex keys for admin login |
 | `NOSTR_NSEC` | Nostr private key for publishing |
 
-Also set `MCP_TOKEN` if remote MCP clients will call `/mcp`, and relay variables as needed (`NOSTR_RELAYS_PUBLIC`, etc.). Set `SCHEDULER_AUTO_START=true` if the import/process/export timers should run as soon as the container starts.
+Also set `MCP_TOKEN` whenever `/mcp` is reachable through a reverse proxy or the public internet (do not rely on loopback auth). Set relay variables as needed (`NOSTR_RELAYS_PUBLIC`, etc.). Set `SCHEDULER_AUTO_START=true` if the import/process/export timers should run as soon as the container starts.
 
 On startup the container runs database migrations automatically. Set `SKIP_MIGRATIONS=true` to disable that.
 
@@ -98,8 +98,9 @@ Copy `.env.example` to `.env`. Values are loaded at runtime (OS environment vari
 | `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_DB` | Dev database connection | No |
 | `PORT` or `WEB_PORT` | Web server port (default 4000) | No |
 | `ADMIN_NOSTR_PUBKEYS` | Comma-separated npub or hex keys allowed to log into the admin UI via [NIP-07](https://nips.nostr.com/7) | For the web UI |
-| `MCP_TOKEN` | Bearer token for the HTTP MCP endpoint at `/mcp` | For remote MCP clients |
-| `SECRET_KEY_BASE` | Signs the admin session cookie. Generate with `openssl rand -base64 48` | Recommended |
+| `MCP_TOKEN` | Bearer token for the HTTP MCP endpoint at `/mcp` | Required for remote / proxied MCP |
+| `MCP_ALLOW_LOOPBACK` | Allow unauthenticated `/mcp` from loopback when token unset | Local dev only |
+| `SECRET_KEY_BASE` | Signs the admin session cookie and encrypts source nsecs. Generate with `openssl rand -base64 48` | Recommended |
 | `NOSTR_NSEC` | Nostr private key (nsec or hex format) | For publishing |
 | `NOSTR_RELAYS_DRAFT` | Comma-separated relays for NIP-37 drafts (Pareto client). Falls back to the test list if unset | No |
 | `NOSTR_RELAYS_TEST` | Comma-separated relays for article sources that are not public | No |
@@ -239,7 +240,12 @@ Copy `.cursor/mcp.json.example` to `.cursor/mcp.json` (that file is gitignored).
 http://localhost:4000/mcp
 ```
 
-Loopback clients (`127.0.0.1` / `::1`) need no token. For anything else, set `MCP_TOKEN` and send `Authorization: Bearer <token>`.
+Loopback clients need `MCP_ALLOW_LOOPBACK=true` **and** no `MCP_TOKEN` (local
+dev only). Behind reverse proxies every client looks like `127.0.0.1`, so leave
+loopback auth off and set `MCP_TOKEN`, then send `Authorization: Bearer <token>`.
+
+Optional: `MCP_CORS_ORIGINS` (comma-separated) enables browser CORS for those
+origins only. `MCP_ALLOWED_HOSTS` restricts the HTTP `Host` header.
 
 ##### Resources and prompts
 

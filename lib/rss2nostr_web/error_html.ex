@@ -1,6 +1,7 @@
 defmodule Rss2NostrWeb.ErrorHTML do
   @moduledoc false
 
+  @spec render(String.t(), map()) :: String.t()
   def render(template, assigns) do
     case template do
       "404.html" ->
@@ -17,6 +18,7 @@ defmodule Rss2NostrWeb.ErrorHTML do
     end
   end
 
+  @spec error_page(map(), String.t(), String.t()) :: String.t()
   defp error_page(_assigns, heading, message) do
     """
     <!DOCTYPE html>

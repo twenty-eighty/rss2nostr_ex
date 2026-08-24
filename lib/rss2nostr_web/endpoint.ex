@@ -36,6 +36,7 @@ defmodule Rss2NostrWeb.Endpoint do
                )
 
   # ExMCP reads the raw body. Skip parsers for /mcp, matching the Plug router.
+  @spec maybe_parse(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   defp maybe_parse(%Plug.Conn{path_info: ["mcp" | _]} = conn, _opts), do: conn
   defp maybe_parse(conn, _opts), do: Plug.Parsers.call(conn, @parser_opts)
 end

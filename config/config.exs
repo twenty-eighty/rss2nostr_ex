@@ -44,9 +44,19 @@ config :rss2nostr, :nostr,
 # Admin UI: NIP-07 allowlist (overridden by ADMIN_NOSTR_PUBKEYS)
 config :rss2nostr, :admin, pubkeys: []
 
-# MCP server (stdio via `mix rss2nostr.mcp`, HTTP at /mcp)
+# MCP server (stdio via `mix rss2nostr.mcp`, HTTP at /mcp).
+# Loopback-without-token is off by default (set allow_loopback: true only for local dev).
 config :ex_mcp, protocol_mode: :prefer_modern
-config :rss2nostr, :mcp, token: nil
+
+config :rss2nostr, :mcp,
+  token: nil,
+  allow_loopback: false,
+  cors_origins: [],
+  allowed_hosts: :any
+
+# Block outbound HTTP to private/loopback/link-local addresses (SSRF).
+config :rss2nostr, :http_ssrf_protection, true
+config :rss2nostr, :secure_cookies, false
 
 config :tzdata, :http_client, Rss2Nostr.TzdataHTTPClient
 

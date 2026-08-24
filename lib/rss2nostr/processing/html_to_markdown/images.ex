@@ -25,7 +25,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
   end
 
   @doc false
-  @spec tracking_pixel?(list()) :: boolean()
+  @spec tracking_pixel?(term()) :: boolean()
   def tracking_pixel?(attrs) when is_list(attrs) do
     tracking_pixel_marker?(attrs) or tracking_pixel_src?(attrs) or one_by_one_pixel?(attrs)
   end
@@ -33,7 +33,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
   def tracking_pixel?(_), do: false
 
   @doc false
-  @spec tracking_wrapper?(list()) :: boolean()
+  @spec tracking_wrapper?(term()) :: boolean()
   def tracking_wrapper?(attrs) when is_list(attrs), do: tracking_pixel_marker?(attrs)
   def tracking_wrapper?(_), do: false
 
@@ -96,6 +96,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     process_image(attrs)
   end
 
+  @spec get_best_image_src(list()) :: String.t() | nil
   defp get_best_image_src(attrs) do
     srcset = Dom.get_attr(attrs, "srcset") || Dom.get_attr(attrs, "data-srcset")
 
@@ -114,6 +115,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     end)
   end
 
+  @spec parse_srcset(String.t()) :: [{String.t(), integer()}]
   defp parse_srcset(srcset) do
     width_matches = Regex.scan(~r/(\S+)\s+(\d+)w/i, srcset)
 
@@ -136,6 +138,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
       []
   end
 
+  @spec parse_srcset_entry(String.t()) :: {String.t(), integer()} | nil
   defp parse_srcset_entry(entry) do
     case String.split(String.trim(entry), ~r/\s+/, parts: 2) do
       [url, size] ->
@@ -155,10 +158,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     end
   end
 
+  @spec usable_srcset_url?(String.t()) :: boolean()
   defp usable_srcset_url?(url) do
     String.starts_with?(url, ["http://", "https://", "//"])
   end
 
+  @spec get_largest_image([{String.t(), integer()}]) :: String.t() | nil
   defp get_largest_image([]), do: nil
 
   defp get_largest_image(images) do
@@ -167,6 +172,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     |> elem(0)
   end
 
+  @spec clean_image_url(String.t()) :: String.t()
   defp clean_image_url(url) do
     url
     |> remove_wp_cdn_wrapper()
@@ -174,6 +180,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     |> TrackingParams.remove()
   end
 
+  @spec http_url?(String.t()) :: boolean()
   defp http_url?(url) when is_binary(url) do
     uri = URI.parse(url)
     uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != ""
@@ -181,6 +188,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     _ -> false
   end
 
+  @spec remove_wp_cdn_wrapper(String.t()) :: String.t()
   defp remove_wp_cdn_wrapper(url) do
     case Regex.run(~r/https?:\/\/i\d\.wp\.com\/(.+)/, url) do
       [_, inner_url] -> "https://#{inner_url}"
@@ -188,6 +196,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     end
   end
 
+  @spec figure_wrap_href(list(), list(), String.t()) :: String.t() | nil
   defp figure_wrap_href(children, img_attrs, image_src) do
     href =
       case Dom.find_element(children, "a") do
@@ -199,6 +208,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     keep_figure_href(href, image_src)
   end
 
+  @spec href_from_data_attrs(list()) :: String.t() | nil
   defp href_from_data_attrs(attrs) do
     case Dom.get_attr(attrs, "data-attrs") do
       json when is_binary(json) and json != "" ->
@@ -212,6 +222,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     end
   end
 
+  @spec keep_figure_href(term(), term()) :: String.t() | nil
   defp keep_figure_href(href, image_src) when is_binary(href) and href != "" do
     cond do
       relative_path?(href) or discard_link?(href) or not http_url?(href) ->
@@ -227,6 +238,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
 
   defp keep_figure_href(_, _), do: nil
 
+  @spec same_image_ref?(String.t(), String.t()) :: boolean()
   defp same_image_ref?(left, right) do
     a = ImageExtractor.normalize_url(left)
     b = ImageExtractor.normalize_url(right)
@@ -235,6 +247,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
       (a == b or Path.basename(a) == Path.basename(b))
   end
 
+  @spec image_like_href?(String.t()) :: boolean()
   defp image_like_href?(href) do
     path = href |> URI.parse() |> Map.get(:path, "") |> to_string() |> String.downcase()
     ext = path |> Path.extname() |> String.trim_leading(".")
@@ -245,6 +258,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     _ -> false
   end
 
+  @spec image_alt(list()) :: String.t()
   defp image_alt(attrs) do
     case Dom.get_attr(attrs, "alt", "") do
       value when value in [nil, "", "alt"] -> ""
@@ -252,16 +266,19 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     end
   end
 
+  @spec figcaption_text(term()) :: String.t()
   defp figcaption_text(nil), do: ""
 
   defp figcaption_text(figcaption) do
     figcaption |> Floki.text() |> String.trim()
   end
 
+  @spec relative_path?(String.t()) :: boolean()
   defp relative_path?(href) do
     String.starts_with?(href, "/") and not String.starts_with?(href, "//")
   end
 
+  @spec discard_link?(String.t()) :: boolean()
   defp discard_link?(href) do
     uri = URI.parse(href)
     path = uri.path || ""
@@ -273,6 +290,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     _ -> false
   end
 
+  @spec share_action?(term()) :: boolean()
   defp share_action?(nil), do: false
 
   defp share_action?(query) when is_binary(query) do
@@ -282,6 +300,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     |> Kernel.==("share")
   end
 
+  @spec tracking_pixel_marker?(list()) :: boolean()
   defp tracking_pixel_marker?(attrs) do
     haystack =
       [Dom.get_attr(attrs, "id", ""), Dom.get_attr(attrs, "class", "")]
@@ -293,16 +312,19 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
       String.contains?(haystack, "worthy-pixel")
   end
 
+  @spec tracking_pixel_src?(list()) :: boolean()
   defp tracking_pixel_src?(attrs) do
     [Dom.get_attr(attrs, "src"), Dom.get_attr(attrs, "data-src")]
     |> Enum.any?(&ImageExtractor.Urls.tracking_pixel?/1)
   end
 
+  @spec one_by_one_pixel?(list()) :: boolean()
   defp one_by_one_pixel?(attrs) do
     parse_px(Dom.get_attr(attrs, "width")) == 1 and
       parse_px(Dom.get_attr(attrs, "height")) == 1
   end
 
+  @spec parse_px(term()) :: integer() | nil
   defp parse_px(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
       {n, _} -> n

@@ -7,6 +7,7 @@ defmodule Rss2NostrWeb.SourceComponents do
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Processing.Composer
 
+  @spec tab_link(map()) :: Phoenix.LiveView.Rendered.t()
   def tab_link(assigns) do
     assigns =
       assign(
@@ -20,6 +21,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     """
   end
 
+  @spec mode_badge(map()) :: Phoenix.LiveView.Rendered.t()
   def mode_badge(%{source: %{mode: "automated"}} = assigns) do
     ~H"""
     <button
@@ -60,6 +62,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     end
   end
 
+  @spec feed_tab(map()) :: Phoenix.LiveView.Rendered.t()
   def feed_tab(assigns) do
     ~H"""
     <form phx-submit="save_feed" class="form form-wide">
@@ -132,6 +135,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     """
   end
 
+  @spec compose_tab(map()) :: Phoenix.LiveView.Rendered.t()
   def compose_tab(assigns) do
     ~H"""
     <form
@@ -345,6 +349,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     """
   end
 
+  @spec compose_preview(map()) :: Phoenix.LiveView.Rendered.t()
   def compose_preview(assigns) do
     parts = preview_parts(assigns.preview)
     assigns = assign(assigns, :parts, parts)
@@ -446,6 +451,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     """
   end
 
+  @spec articles_tab(map()) :: Phoenix.LiveView.Rendered.t()
   def articles_tab(assigns) do
     selectable? = Enum.any?(assigns.posts, &reprocessable?/1)
     selected = assigns.selected_ids
@@ -560,6 +566,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     """
   end
 
+  @spec publishing_tab(map()) :: Phoenix.LiveView.Rendered.t()
   def publishing_tab(assigns) do
     publish_as = assigns.publishing["publish_as"]
     signer_ok? = Signer.configured?(assigns.source)
@@ -792,6 +799,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     """
   end
 
+  @spec selected_article_link(term(), term()) :: String.t() | nil
   defp selected_article_link(:not_loaded, _), do: nil
 
   defp selected_article_link(items, guid) when is_list(items) do
@@ -803,10 +811,12 @@ defmodule Rss2NostrWeb.SourceComponents do
 
   defp selected_article_link(_, _), do: nil
 
+  @spec preview_parts(map() | nil) :: list()
   defp preview_parts(nil), do: []
   defp preview_parts(%{nostr_parts_preview: parts}) when is_list(parts), do: parts
   defp preview_parts(_), do: []
 
+  @spec event_preview_text(map()) :: String.t()
   defp event_preview_text(preview) do
     relays = Enum.join(preview.nostr_relays || [], "\n")
     parts = preview.nostr_parts_json || []
@@ -815,6 +825,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     intro <> split_note(preview, parts) <> event_preview_body(preview, parts)
   end
 
+  @spec split_note(map(), list()) :: String.t()
   defp split_note(preview, parts) do
     cond do
       preview.nostr_draft and length(parts) > 1 ->
@@ -831,6 +842,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     end
   end
 
+  @spec event_preview_body(map(), list()) :: String.t()
   defp event_preview_body(preview, []), do: preview.nostr_event_json || "{}"
 
   defp event_preview_body(_preview, list) do
@@ -841,6 +853,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     |> Enum.map_join("\n\n", fn {json, i} -> part_prefix(total, i) <> json end)
   end
 
+  @spec part_prefix(integer(), integer()) :: String.t()
   defp part_prefix(total, i) when total > 1, do: "Part #{i}/#{total}:\n"
   defp part_prefix(_total, _i), do: ""
 end

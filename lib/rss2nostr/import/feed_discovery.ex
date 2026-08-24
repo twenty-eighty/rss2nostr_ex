@@ -141,6 +141,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
 
   def normalize_url(_), do: {:error, "Invalid URL"}
 
+  @spec discover_from_html(String.t(), String.t()) :: {:ok, result()} | {:error, String.t()}
   defp discover_from_html(url, body) do
     page_title = page_title(body)
     feeds = feeds_from_html(body, url)
@@ -196,6 +197,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     end
   end
 
+  @spec feed_result(String.t(), String.t(), String.t(), String.t() | nil) :: result()
   defp feed_result(url, body, type, title) do
     items =
       case FeedParser.parse(body, type) do
@@ -215,6 +217,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     }
   end
 
+  @spec preview_item(FeedParser.feed_item()) :: item()
   defp preview_item(item) do
     %{
       guid: item.guid || item.link,
@@ -224,9 +227,11 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     }
   end
 
+  @spec datetime_to_iso(DateTime.t() | term()) :: String.t() | nil
   defp datetime_to_iso(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp datetime_to_iso(_), do: nil
 
+  @spec document_title(Floki.html_tree()) :: String.t() | nil
   defp document_title(doc) do
     og =
       doc
@@ -245,6 +250,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     og || title
   end
 
+  @spec feed_from_link(Floki.html_tree(), String.t()) :: [feed()]
   defp feed_from_link(link, base_url) do
     rel = link |> Floki.attribute("rel") |> List.first() || ""
     type = link |> Floki.attribute("type") |> List.first() || ""
@@ -269,10 +275,12 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     end
   end
 
+  @spec feed_mime?(String.t()) :: boolean()
   defp feed_mime?(type) do
     Enum.any?(@feed_link_types, &String.starts_with?(type, &1))
   end
 
+  @spec type_from_mime(String.t()) :: String.t() | nil
   defp type_from_mime(type) do
     cond do
       String.contains?(type, "atom") -> "atom"
@@ -282,6 +290,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     end
   end
 
+  @spec looks_like_html?(String.t()) :: boolean()
   defp looks_like_html?(body) do
     prefix =
       body
@@ -292,6 +301,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     String.contains?(prefix, "<html") or String.contains?(prefix, "<!doctype html")
   end
 
+  @spec maybe_add_scheme(String.t()) :: String.t()
   defp maybe_add_scheme(url) do
     case URI.parse(url) do
       %URI{scheme: scheme} when is_binary(scheme) and scheme != "" ->
@@ -302,6 +312,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     end
   end
 
+  @spec resolve_url(String.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
   defp resolve_url(base, href) do
     case URI.merge(base, href) |> URI.to_string() |> normalize_url() do
       {:ok, url} -> {:ok, url}
@@ -311,6 +322,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     _ -> {:error, "Invalid feed URL"}
   end
 
+  @spec blank_to_nil(term()) :: String.t() | nil
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 
@@ -321,6 +333,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     end
   end
 
+  @spec preview_type(result()) :: String.t() | nil
   defp preview_type(%{feeds: [%{type: type} | _]}), do: type
   defp preview_type(_), do: nil
 end

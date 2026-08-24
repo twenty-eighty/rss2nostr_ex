@@ -6,6 +6,7 @@ defmodule Rss2Nostr.CLI.Commands.Source do
   alias Rss2Nostr.Sources
   alias Rss2Nostr.CLI.Output
 
+  @spec add(map()) :: :ok
   def add(options) do
     attrs = %{
       name: options.name,
@@ -33,6 +34,7 @@ defmodule Rss2Nostr.CLI.Commands.Source do
     end
   end
 
+  @spec list() :: :ok
   def list do
     sources = Sources.list_sources()
 
@@ -61,6 +63,7 @@ defmodule Rss2Nostr.CLI.Commands.Source do
     end
   end
 
+  @spec enable(integer()) :: :ok
   def enable(id) do
     case Sources.enable_source(id) do
       {:ok, source} ->
@@ -74,6 +77,7 @@ defmodule Rss2Nostr.CLI.Commands.Source do
     end
   end
 
+  @spec disable(integer()) :: :ok
   def disable(id) do
     case Sources.disable_source(id) do
       {:ok, source} ->
@@ -87,6 +91,7 @@ defmodule Rss2Nostr.CLI.Commands.Source do
     end
   end
 
+  @spec duplicate(integer(), map()) :: :ok
   def duplicate(id, options \\ %{}) do
     case Sources.get_source(id) do
       nil ->
@@ -115,6 +120,7 @@ defmodule Rss2Nostr.CLI.Commands.Source do
     end
   end
 
+  @spec delete(integer()) :: :ok
   def delete(id) do
     case Sources.get_source(id) do
       nil ->
@@ -131,10 +137,12 @@ defmodule Rss2Nostr.CLI.Commands.Source do
     end
   end
 
+  @spec maybe_opt(map(), atom(), term()) :: map()
   defp maybe_opt(attrs, _key, nil), do: attrs
   defp maybe_opt(attrs, _key, ""), do: attrs
   defp maybe_opt(attrs, key, value), do: Map.put(attrs, key, value)
 
+  @spec print_source(Rss2Nostr.Sources.Source.t()) :: :ok
   defp print_source(source) do
     active = if source.active, do: "yes", else: "no"
 

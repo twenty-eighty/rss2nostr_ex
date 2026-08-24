@@ -185,18 +185,21 @@ defmodule Rss2Nostr.Processing.Labels do
 
   def generic_watch_on_youtube?(_), do: false
 
+  @spec lookup(map(), String.t(), keyword(), String.t() | nil) :: String.t()
   defp lookup(map, language, binds, fallback \\ nil) do
     lang = normalize(language)
     template = Map.get(map, lang) || fallback || Map.fetch!(map, @default)
     interpolate(template, binds)
   end
 
+  @spec interpolate(String.t(), keyword()) :: String.t()
   defp interpolate(template, binds) do
     Enum.reduce(binds, template, fn {key, value}, acc ->
       String.replace(acc, "%{#{key}}", to_string(value))
     end)
   end
 
+  @spec squash(String.t()) :: String.t()
   defp squash(text) do
     text
     |> String.downcase()

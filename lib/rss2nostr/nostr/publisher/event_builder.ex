@@ -87,6 +87,7 @@ defmodule Rss2Nostr.Nostr.Publisher.EventBuilder do
     base + (index - 1)
   end
 
+  @spec images_of(Post.t() | map()) :: list()
   defp images_of(%Post{} = post) do
     post = if Ecto.assoc_loaded?(post.images), do: post, else: Posts.preload_images(post)
     post.images || []
@@ -94,6 +95,7 @@ defmodule Rss2Nostr.Nostr.Publisher.EventBuilder do
 
   defp images_of(_), do: []
 
+  @spec unix_published_at(DateTime.t() | integer() | nil) :: integer() | nil
   defp unix_published_at(%DateTime{} = dt), do: DateTime.to_unix(dt)
   defp unix_published_at(unix) when is_integer(unix), do: unix
   defp unix_published_at(_), do: nil

@@ -67,6 +67,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     end
   end
 
+  @spec discovered_selectors(String.t()) :: [String.t()]
   defp discovered_selectors(html) do
     case Floki.parse_document(html) do
       {:ok, doc} ->
@@ -83,6 +84,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     _ -> []
   end
 
+  @spec node_selectors(term()) :: [String.t()]
   defp node_selectors({tag, attrs, _}) when is_binary(tag) do
     classes =
       attrs
@@ -111,6 +113,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
 
   defp node_selectors(_), do: []
 
+  @spec usable_class?(String.t()) :: boolean()
   defp usable_class?(class) do
     String.match?(class, ~r/^[A-Za-z][A-Za-z0-9_-]{3,}$/) and
       not MapSet.member?(@skip_classes, String.downcase(class)) and
@@ -119,6 +122,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
       String.match?(class, @discover_class)
   end
 
+  @spec attr(list(), String.t()) :: String.t()
   defp attr(attrs, name) do
     case List.keyfind(attrs, name, 0) do
       {_, value} when is_binary(value) -> value
@@ -126,6 +130,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     end
   end
 
+  @spec prefer_distinct_regions([region()]) :: [region()]
   defp prefer_distinct_regions(regions) do
     preset_keys = MapSet.new(["" | Map.keys(Presets.preset_labels())])
 
@@ -143,8 +148,10 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     Enum.uniq_by(presets, & &1.selector) ++ discovered
   end
 
+  @spec same_region?(region(), region()) :: boolean()
   defp same_region?(a, b), do: a.word_count == b.word_count and a.first_line == b.first_line
 
+  @spec semantic_rank(region()) :: {integer(), integer(), String.t()}
   defp semantic_rank(%{selector: selector}) do
     page_builder_selectors = Presets.page_builder_selectors()
 
@@ -169,6 +176,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     end
   end
 
+  @spec keep_visible([region()], String.t()) :: [region()]
   defp keep_visible(regions, selected) do
     preset_keys = MapSet.new(Map.keys(Presets.preset_labels()))
 
@@ -187,6 +195,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     pinned ++ extras
   end
 
+  @spec region(String.t(), String.t(), String.t(), Presets.schema() | nil) :: region()
   defp region(html, selector, label, schema) do
     excerpt = excerpt(html, selector)
     recommended? = schema != nil and schema.selector == selector
@@ -201,6 +210,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     }
   end
 
+  @spec excerpt(String.t(), String.t()) :: %{first_line: String.t(), word_count: non_neg_integer()}
   defp excerpt(html, ""), do: excerpt_from_html(html)
 
   defp excerpt(html, selector) do
@@ -210,6 +220,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     end
   end
 
+  @spec excerpt_from_html(String.t()) :: %{first_line: String.t(), word_count: non_neg_integer()}
   defp excerpt_from_html(html) do
     {:ok, doc} = Floki.parse_document(html)
 
@@ -229,6 +240,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     _ -> %{first_line: "", word_count: 0}
   end
 
+  @spec mark_selected([region()], String.t() | nil) :: [region()]
   defp mark_selected(regions, selected) do
     selected = selected || ""
 
@@ -237,6 +249,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     end)
   end
 
+  @spec mark_recommended([region()], Presets.schema() | nil) :: [region()]
   defp mark_recommended(regions, schema) do
     chosen =
       cond do
@@ -259,6 +272,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     end)
   end
 
+  @spec recommended_selector([region()]) :: String.t() | nil
   defp recommended_selector(regions) do
     case Enum.find(regions, & &1.recommended) do
       %{selector: selector} when selector != "" -> selector
@@ -266,6 +280,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     end
   end
 
+  @spec article_selector([region()]) :: String.t() | nil
   defp article_selector(regions) do
     Enum.find_value(Presets.article_selectors(), fn selector ->
       case Enum.find(regions, &(&1.selector == selector and &1.word_count >= 80)) do
@@ -275,6 +290,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     end)
   end
 
+  @spec page_builder_selector([region()]) :: String.t() | nil
   defp page_builder_selector(regions) do
     page_builder_selectors = Presets.page_builder_selectors()
 
@@ -298,6 +314,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     end
   end
 
+  @spec tightest_content_selector([region()]) :: String.t()
   defp tightest_content_selector(regions) do
     content = Enum.filter(regions, &(&1.selector != "" and &1.word_count > 0))
 

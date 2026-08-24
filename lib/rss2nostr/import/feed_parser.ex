@@ -98,6 +98,7 @@ defmodule Rss2Nostr.Import.FeedParser do
   def feed_language(_), do: nil
 
   # RSS Parsing
+  @spec parse_rss(String.t()) :: {:ok, [feed_item()]} | {:error, String.t()}
   defp parse_rss(xml_body) do
     try do
       items =
@@ -139,6 +140,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  @spec normalize_rss_item(map()) :: feed_item()
   defp normalize_rss_item(item) do
     %{
       title: decode_html(item.title),
@@ -157,6 +159,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     }
   end
 
+  @spec extract_rss_image(map()) :: String.t() | nil
   defp extract_rss_image(item) do
     cond do
       # Enclosure with image type
@@ -181,6 +184,7 @@ defmodule Rss2Nostr.Import.FeedParser do
   end
 
   # Atom Parsing
+  @spec parse_atom(String.t()) :: {:ok, [feed_item()]} | {:error, String.t()}
   defp parse_atom(xml_body) do
     try do
       items =
@@ -239,6 +243,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  @spec normalize_atom_item(map()) :: feed_item()
   defp normalize_atom_item(item) do
     link = if item.link_href != "", do: item.link_href, else: item.link_default
     published = if item.published != "", do: item.published, else: item.updated
@@ -263,6 +268,7 @@ defmodule Rss2Nostr.Import.FeedParser do
 
   # Helper functions
 
+  @spec atom_feed_language(String.t()) :: String.t()
   defp atom_feed_language(xml_body) do
     with_ns =
       xpath_text(
@@ -278,6 +284,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  @spec normalize_feed_language(String.t() | nil) :: String.t() | nil
   defp normalize_feed_language(nil), do: nil
   defp normalize_feed_language(""), do: nil
 
@@ -294,6 +301,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  @spec atom_feed_title(String.t()) :: String.t()
   defp atom_feed_title(xml_body) do
     titled =
       xml_body
@@ -309,6 +317,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  @spec xpath_text(String.t(), term()) :: String.t()
   defp xpath_text(xml_body, spec) do
     try do
       xpath(xml_body, spec)
@@ -317,6 +326,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  @spec parse_length(term()) :: pos_integer() | nil
   defp parse_length(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
       {n, _} when n > 0 -> n
@@ -327,6 +337,7 @@ defmodule Rss2Nostr.Import.FeedParser do
   defp parse_length(n) when is_integer(n) and n > 0, do: n
   defp parse_length(_), do: nil
 
+  @spec clean_text(term()) :: String.t() | nil
   defp clean_text(nil), do: nil
   defp clean_text(""), do: nil
 
@@ -339,6 +350,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  @spec decode_html(term()) :: String.t() | nil
   defp decode_html(nil), do: nil
   defp decode_html(""), do: nil
 
@@ -356,6 +368,7 @@ defmodule Rss2Nostr.Import.FeedParser do
       String.trim(text)
   end
 
+  @spec unescape_entities(String.t(), non_neg_integer()) :: String.t()
   defp unescape_entities(text, remaining \\ 3)
   defp unescape_entities(text, remaining) when remaining <= 0, do: text
 
@@ -369,6 +382,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
+  @spec parse_date(term()) :: DateTime.t() | nil
   defp parse_date(nil), do: nil
   defp parse_date(""), do: nil
 
@@ -398,6 +412,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end)
   end
 
+  @spec naive_to_utc(term()) :: DateTime.t()
   defp naive_to_utc(datetime) do
     case DateTime.from_naive(datetime, "Etc/UTC") do
       {:ok, dt} -> dt
@@ -420,6 +435,7 @@ defmodule HtmlEntities do
     "&#39;" => "'"
   }
 
+  @spec decode(String.t()) :: String.t()
   def decode(text) when is_binary(text) do
     Enum.reduce(@entities, text, fn {entity, char}, acc ->
       String.replace(acc, entity, char)
@@ -427,12 +443,14 @@ defmodule HtmlEntities do
     |> decode_numeric_entities()
   end
 
+  @spec decode_numeric_entities(String.t()) :: String.t()
   defp decode_numeric_entities(text) do
     text
     |> decode_decimal_entities()
     |> decode_hex_entities()
   end
 
+  @spec decode_decimal_entities(String.t()) :: String.t()
   defp decode_decimal_entities(text) do
     Regex.replace(~r/&#(\d+);/, text, fn _, code ->
       try do
@@ -444,6 +462,7 @@ defmodule HtmlEntities do
     end)
   end
 
+  @spec decode_hex_entities(String.t()) :: String.t()
   defp decode_hex_entities(text) do
     Regex.replace(~r/&#x([0-9a-fA-F]+);/, text, fn _, code ->
       try do

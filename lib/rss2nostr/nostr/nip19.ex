@@ -186,6 +186,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
   end
 
   # Decodes based on HRP type
+  @spec decode_by_hrp(String.t(), binary()) :: {:ok, atom(), any()} | {:error, any()}
   defp decode_by_hrp(@npub_hrp, data) when byte_size(data) >= 32 do
     pubkey = binary_part(data, 0, 32)
     {:ok, :npub, Base.encode16(pubkey, case: :lower)}
@@ -235,6 +236,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
     {:error, {:unsupported_hrp, hrp}}
   end
 
+  @spec maybe_add_author(binary(), String.t() | nil) :: binary()
   defp maybe_add_author(tlv_data, nil), do: tlv_data
 
   defp maybe_add_author(tlv_data, author_pubkey) do
@@ -248,6 +250,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
   end
 
   # TLV extraction helpers
+  @spec extract_tlv_pubkey_and_relays(binary()) :: {:ok, String.t(), [String.t()]} | {:error, atom()}
   defp extract_tlv_pubkey_and_relays(<<@tlv_special, 32, pubkey::binary-size(32), rest::binary>>) do
     relays = extract_relays(rest)
     {:ok, Base.encode16(pubkey, case: :lower), relays}
@@ -255,6 +258,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
 
   defp extract_tlv_pubkey_and_relays(_), do: {:error, :invalid_tlv}
 
+  @spec extract_tlv_event_data(binary()) :: {:ok, String.t(), String.t() | nil, [String.t()]} | {:error, atom()}
   defp extract_tlv_event_data(<<@tlv_special, 32, event_id::binary-size(32), rest::binary>>) do
     {author, relays} = extract_author_and_relays(rest)
     {:ok, Base.encode16(event_id, case: :lower), author, relays}
@@ -262,6 +266,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
 
   defp extract_tlv_event_data(_), do: {:error, :invalid_tlv}
 
+  @spec extract_tlv_naddr_data(binary()) :: {:ok, integer(), String.t(), String.t(), [String.t()]} | {:error, atom()}
   defp extract_tlv_naddr_data(data) do
     case extract_naddr_fields(data, nil, nil, nil, []) do
       {identifier, pubkey, kind, relays}
@@ -273,6 +278,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
     end
   end
 
+  @spec extract_naddr_fields(binary(), String.t() | nil, String.t() | nil, integer() | nil, [String.t()]) :: {String.t() | nil, String.t() | nil, integer() | nil, [String.t()]}
   defp extract_naddr_fields(<<>>, id, pubkey, kind, relays), do: {id, pubkey, kind, relays}
 
   defp extract_naddr_fields(<<type, len, rest::binary>>, id, pubkey, kind, relays) do
@@ -304,6 +310,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
 
   defp extract_naddr_fields(_, id, pubkey, kind, relays), do: {id, pubkey, kind, relays}
 
+  @spec extract_relays(binary()) :: [String.t()]
   defp extract_relays(<<@tlv_relay, len, rest::binary>>) when byte_size(rest) >= len do
     relay = binary_part(rest, 0, len)
     remaining = binary_part(rest, len, byte_size(rest) - len)
@@ -312,6 +319,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
 
   defp extract_relays(_), do: []
 
+  @spec extract_author_and_relays(binary()) :: {String.t() | nil, [String.t()]}
   defp extract_author_and_relays(data) do
     extract_author_and_relays(data, nil, [])
   end
@@ -341,6 +349,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
   defp extract_author_and_relays(_, author, relays), do: {author, relays}
 
   # Bech32 encoding helper
+  @spec encode_bech32(String.t(), binary()) :: {:ok, String.t()} | {:error, atom()}
   defp encode_bech32(hrp, data) do
     # Convert 8-bit data to 5-bit
     pad = rem(bit_size(data), 5) != 0
@@ -348,6 +357,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
     encode_bech32_5bit(hrp, data_5bit)
   end
 
+  @spec encode_bech32_5bit(String.t(), list()) :: {:ok, String.t()}
   defp encode_bech32_5bit(hrp, data_5bit) do
     encoded = Bech32.encode_from_5bit(hrp, data_5bit)
     {:ok, encoded}

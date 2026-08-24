@@ -90,6 +90,8 @@ defmodule Rss2Nostr.Import.Importer do
   end
 
   # Import a single feed item
+  @spec import_item(map(), Source.t(), boolean(), boolean(), boolean(), String.t() | nil) ::
+          {:ok, :imported | :skipped, boolean()} | {:error, String.t(), boolean()}
   defp import_item(item, source, force, started?, guid_in_feed?, start_guid) do
     reached_start? = started? or (guid_in_feed? and item.guid == start_guid)
     url_hash = Post.generate_url_hash(item.guid)
@@ -126,6 +128,8 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
+  @spec adopt_or_create_post(map(), Source.t(), String.t(), boolean()) ::
+          {:ok, :imported} | {:error, String.t()}
   defp adopt_or_create_post(item, source, url_hash, true) do
     create_post(item, source, url_hash, true)
   end
@@ -144,6 +148,7 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
+  @spec resolve_source_html(map(), Source.t()) :: {:ok, String.t()} | {:error, String.t()}
   defp resolve_source_html(item, source) do
     case Composer.html_for_item(item, source) do
       {:ok, html, _source} -> {:ok, html}
@@ -151,10 +156,12 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
+  @spec duplicate_identity?(map(), Source.t()) :: boolean()
   defp duplicate_identity?(item, source) do
     Posts.exists_by_identity?(ItemIdentity.identity_values(item), pubkey: source.pubkey)
   end
 
+  @spec source_start_guid(Source.t()) :: String.t() | nil
   defp source_start_guid(%Source{options: options}) when is_map(options) do
     case options["start_guid"] || options[:start_guid] do
       guid when is_binary(guid) and guid != "" -> guid
@@ -164,6 +171,7 @@ defmodule Rss2Nostr.Import.Importer do
 
   defp source_start_guid(_), do: nil
 
+  @spec should_skip_by_date?(map(), Source.t()) :: boolean()
   defp should_skip_by_date?(item, source) do
     case {source.publish_after_date, item.published_at} do
       {nil, _} -> false
@@ -172,6 +180,8 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
+  @spec create_post(map(), Source.t(), String.t(), boolean()) ::
+          {:ok, :imported} | {:error, String.t()}
   defp create_post(item, source, url_hash, force) do
     with {:ok, source_html} <- resolve_source_html(item, source) do
       attrs = %{
@@ -201,6 +211,8 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
+  @spec force_create_or_update(map(), String.t(), String.t() | nil) ::
+          {:ok, :imported} | {:error, String.t()}
   defp force_create_or_update(attrs, url_hash, title) do
     existing =
       Posts.get_post_by_url_hash(url_hash, attrs.source_id) ||
@@ -218,6 +230,7 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
+  @spec do_update_post(Post.t(), map(), String.t() | nil) :: {:ok, :imported} | {:error, String.t()}
   defp do_update_post(existing, attrs, title) do
     case Posts.update_post(existing, Map.put(attrs, :status, Post.status_new())) do
       {:ok, _} ->
@@ -229,6 +242,7 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
+  @spec do_create_post(map()) :: {:ok, :imported} | {:error, String.t()}
   defp do_create_post(attrs) do
     case Posts.create_post(attrs) do
       {:ok, post} ->
@@ -240,6 +254,7 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
+  @spec truncate_summary(String.t() | nil) :: String.t() | nil
   defp truncate_summary(nil), do: nil
 
   defp truncate_summary(text) when byte_size(text) > 500 do

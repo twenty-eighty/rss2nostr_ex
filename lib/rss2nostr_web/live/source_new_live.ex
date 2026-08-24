@@ -6,6 +6,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
   alias Rss2Nostr.Web.API.Sources, as: SourcesAPI
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
   def mount(_params, _session, socket) do
     {:ok,
      socket
@@ -23,11 +24,13 @@ defmodule Rss2NostrWeb.SourceNewLive do
   end
 
   @impl true
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(params, _uri, socket) do
     {:noreply, apply_query_flash(socket, params)}
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("form_changed", params, socket) do
     form = merge_form(socket.assigns.form, params)
 
@@ -107,6 +110,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
   end
 
   @impl true
+  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:discover, {:ok, {:ok, result}}, socket) do
     {:noreply, apply_discover_result(socket, result)}
   end
@@ -163,6 +167,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
   end
 
   @impl true
+  @spec render(map()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <h1>Add Source</h1>
@@ -329,6 +334,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     """
   end
 
+  @spec publish_as_fields(map()) :: Phoenix.LiveView.Rendered.t()
   defp publish_as_fields(assigns) do
     publish_as = assigns.form["publish_as"] || "draft"
 
@@ -469,6 +475,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     """
   end
 
+  @spec discover(Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   defp discover(socket) do
     url = String.trim(socket.assigns.form["website"] || "")
 
@@ -484,6 +491,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     end
   end
 
+  @spec default_form() :: map()
   defp default_form do
     %{
       "website" => "",
@@ -503,6 +511,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     }
   end
 
+  @spec merge_form(map(), map()) :: map()
   defp merge_form(form, params) do
     Enum.reduce(form, form, fn {key, _}, acc ->
       case Map.fetch(params, key) do
@@ -512,6 +521,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     end)
   end
 
+  @spec maybe_url_from_website(map()) :: map()
   defp maybe_url_from_website(form) do
     if present?(form["url"]) or not present?(form["website"]) do
       form
@@ -520,6 +530,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     end
   end
 
+  @spec apply_discover_result(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
   defp apply_discover_result(socket, result) do
     feeds = result_list(result, :feeds)
     items = result_list(result, :items)
@@ -543,19 +554,24 @@ defmodule Rss2NostrWeb.SourceNewLive do
     |> maybe_load_preview_items(feeds, items, selected)
   end
 
+  @spec result_list(map(), atom()) :: list()
   defp result_list(result, key), do: result_get(result, key) || []
 
+  @spec result_get(map(), atom()) :: term()
   defp result_get(result, key) do
     result[key] || result[Atom.to_string(key)]
   end
 
+  @spec empty_feeds_error(list()) :: String.t() | nil
   defp empty_feeds_error([]), do: "No RSS or Atom feeds found on this page."
   defp empty_feeds_error(_feeds), do: nil
 
+  @spec direct_feed_status(map()) :: String.t() | nil
   defp direct_feed_status(result) do
     if result[:direct_feed] || result["direct_feed"], do: "Using this feed URL.", else: nil
   end
 
+  @spec maybe_load_preview_items(Phoenix.LiveView.Socket.t(), list(), list(), map() | nil) :: Phoenix.LiveView.Socket.t()
   defp maybe_load_preview_items(socket, [_ | _] = _feeds, [], selected)
        when not is_nil(selected) do
     url = feed_url(selected)
@@ -567,11 +583,13 @@ defmodule Rss2NostrWeb.SourceNewLive do
 
   defp maybe_load_preview_items(socket, _feeds, _items, _selected), do: socket
 
+  @spec complete?(map(), list()) :: boolean()
   defp complete?(form, items) do
     present?(form["url"]) and present?(form["name"]) and present?(form["language"]) and
       start_ok?(form, items) and identity_ok?(form)
   end
 
+  @spec start_ok?(map(), list()) :: boolean()
   defp start_ok?(form, items) do
     cond do
       items == [] and present?(form["url"]) -> true
@@ -580,6 +598,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     end
   end
 
+  @spec identity_ok?(map()) :: boolean()
   defp identity_ok?(form) do
     case form["publish_as"] do
       value when value in ["article", "video"] ->
@@ -590,17 +609,21 @@ defmodule Rss2NostrWeb.SourceNewLive do
     end
   end
 
+  @spec present?(term()) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 
+  @spec maybe_put_name(map(), term()) :: map()
   defp maybe_put_name(form, title) do
     if present?(form["name"]) or not present?(title), do: form, else: Map.put(form, "name", title)
   end
 
+  @spec maybe_put_language(map(), term()) :: map()
   defp maybe_put_language(form, language) do
     if present?(language), do: Map.put(form, "language", String.downcase(language)), else: form
   end
 
+  @spec maybe_put_feed(map(), map() | nil) :: map()
   defp maybe_put_feed(form, nil), do: form
 
   defp maybe_put_feed(form, feed) do
@@ -609,6 +632,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     |> Map.put("type", feed_type(feed) || form["type"])
   end
 
+  @spec maybe_put_start(map(), list()) :: map()
   defp maybe_put_start(form, []),
     do: Map.merge(form, %{"start_guid" => "", "start_published_at" => ""})
 
@@ -620,6 +644,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     |> Map.put("start_published_at", item_published(item) || "")
   end
 
+  @spec language_from(map()) :: String.t() | nil
   defp language_from(result) do
     result[:language] || result["language"] ||
       case List.first(result[:feeds] || result["feeds"] || []) do
@@ -629,30 +654,37 @@ defmodule Rss2NostrWeb.SourceNewLive do
       end
   end
 
+  @spec feed_url(map()) :: String.t()
   defp feed_url(%{url: url}), do: url
   defp feed_url(%{"url" => url}), do: url
   defp feed_url(_), do: ""
 
+  @spec feed_title(map()) :: String.t()
   defp feed_title(%{title: title}) when is_binary(title) and title != "", do: title
   defp feed_title(%{"title" => title}) when is_binary(title) and title != "", do: title
   defp feed_title(_), do: "Untitled feed"
 
+  @spec feed_type(map()) :: String.t() | nil
   defp feed_type(%{type: type}), do: type
   defp feed_type(%{"type" => type}), do: type
   defp feed_type(%{feeds: [feed | _]}), do: feed_type(feed)
   defp feed_type(%{"feeds" => [feed | _]}), do: feed_type(feed)
   defp feed_type(_), do: nil
 
+  @spec item_guid(map()) :: String.t()
   defp item_guid(%{guid: guid}), do: guid || ""
   defp item_guid(%{"guid" => guid}), do: guid || ""
   defp item_guid(_), do: ""
 
+  @spec item_published(map()) :: term()
   defp item_published(%{published_at: published}), do: published
   defp item_published(%{"published_at" => published}), do: published
   defp item_published(_), do: nil
 
+  @spec item_label(map()) :: String.t()
   defp item_label(item), do: date_prefix(item) <> item_title(item)
 
+  @spec date_prefix(map()) :: String.t()
   defp date_prefix(item) do
     case item_published(item) do
       published when is_binary(published) and published != "" ->
@@ -663,6 +695,7 @@ defmodule Rss2NostrWeb.SourceNewLive do
     end
   end
 
+  @spec item_title(map()) :: String.t()
   defp item_title(%{title: title}) when is_binary(title) and title != "", do: title
   defp item_title(%{"title" => title}) when is_binary(title) and title != "", do: title
 

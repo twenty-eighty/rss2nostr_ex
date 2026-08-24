@@ -196,6 +196,7 @@ defmodule Rss2Nostr.Posts do
     end
   end
 
+  @spec parse_post_id(integer() | binary() | term()) :: [pos_integer()]
   defp parse_post_id(id) when is_integer(id) and id > 0, do: [id]
 
   defp parse_post_id(id) when is_binary(id) do
@@ -295,6 +296,7 @@ defmodule Rss2Nostr.Posts do
     end
   end
 
+  @spec maybe_filter_pubkey(Ecto.Query.t(), term()) :: Ecto.Query.t()
   defp maybe_filter_pubkey(query, pubkey) when is_binary(pubkey) and pubkey != "" do
     where(query, [p], p.pubkey == ^pubkey)
   end
@@ -410,6 +412,7 @@ defmodule Rss2Nostr.Posts do
     end
   end
 
+  @spec utc_now() :: DateTime.t()
   defp utc_now do
     DateTime.utc_now() |> DateTime.truncate(:second)
   end
@@ -506,6 +509,7 @@ defmodule Rss2Nostr.Posts do
     list_posts(opts)
   end
 
+  @spec maybe_filter_status(Ecto.Query.t(), term()) :: Ecto.Query.t()
   defp maybe_filter_status(query, nil), do: query
   defp maybe_filter_status(query, ""), do: query
 
@@ -517,6 +521,7 @@ defmodule Rss2Nostr.Posts do
     maybe_filter_status(query, status_from_name(status))
   end
 
+  @spec maybe_filter_source(Ecto.Query.t(), term()) :: Ecto.Query.t()
   defp maybe_filter_source(query, nil), do: query
   defp maybe_filter_source(query, ""), do: query
 
@@ -531,6 +536,7 @@ defmodule Rss2Nostr.Posts do
     end
   end
 
+  @spec maybe_filter_term(Ecto.Query.t(), term()) :: Ecto.Query.t()
   defp maybe_filter_term(query, nil), do: query
   defp maybe_filter_term(query, ""), do: query
 
@@ -553,10 +559,12 @@ defmodule Rss2Nostr.Posts do
     end
   end
 
+  @spec like_pattern(String.t()) :: String.t()
   defp like_pattern(term) do
     String.replace(term, ~r/[%_\\]/, "")
   end
 
+  @spec status_from_name(String.t()) :: integer()
   defp status_from_name(name) do
     case name do
       "new" ->

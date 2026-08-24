@@ -8,6 +8,7 @@ defmodule Rss2Nostr.CLI.Commands.Status do
   alias Rss2Nostr.Sources
   alias Rss2Nostr.CLI.Output
 
+  @spec run() :: :ok
   def run do
     Output.info("=== RSS2Nostr Status ===\n")
 

@@ -60,6 +60,7 @@ defmodule Rss2Nostr.Processing.Footnotes do
     append(chunk, selected)
   end
 
+  @spec append(String.t(), [footnote()]) :: String.t()
   defp append(chunk, []), do: chunk
 
   defp append(chunk, selected) do
@@ -67,6 +68,7 @@ defmodule Rss2Nostr.Processing.Footnotes do
     String.trim_trailing(chunk) <> "\n\n---\n\n" <> notes
   end
 
+  @spec first_definition_index([String.t()]) :: non_neg_integer() | nil
   defp first_definition_index(lines) do
     lines
     |> Enum.with_index()
@@ -91,6 +93,7 @@ defmodule Rss2Nostr.Processing.Footnotes do
     end
   end
 
+  @spec parse_definitions([String.t()]) :: [footnote()]
   defp parse_definitions(lines) do
     {blocks, acc} =
       Enum.reduce(lines, {[], nil}, fn line, {blocks, acc} ->
@@ -111,6 +114,7 @@ defmodule Rss2Nostr.Processing.Footnotes do
     |> Enum.reject(fn {_id, block} -> block == "" end)
   end
 
+  @spec flush([footnote()], {String.t(), [String.t()]} | nil) :: [footnote()]
   defp flush(blocks, nil), do: blocks
 
   defp flush(blocks, {id, lines}) do
@@ -118,8 +122,10 @@ defmodule Rss2Nostr.Processing.Footnotes do
     [{id, block} | blocks]
   end
 
+  @spec definition_line?(String.t()) :: boolean()
   defp definition_line?(line), do: match?({:ok, _}, definition_id(line))
 
+  @spec definition_id(String.t()) :: {:ok, String.t()} | :error
   defp definition_id(line) do
     case Regex.run(@definition, line) do
       [_, id] -> {:ok, id}
@@ -127,8 +133,10 @@ defmodule Rss2Nostr.Processing.Footnotes do
     end
   end
 
+  @spec fence_marker?(String.t()) :: boolean()
   defp fence_marker?(line), do: String.starts_with?(String.trim_leading(line), "```")
 
+  @spec strip_trailing_rule(String.t()) :: String.t()
   defp strip_trailing_rule(text) do
     String.replace(text, ~r/\n+---+\s*$/, "")
   end

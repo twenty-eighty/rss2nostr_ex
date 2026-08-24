@@ -13,7 +13,20 @@ defmodule Rss2Nostr.MCP do
 
   @spec token() :: String.t() | nil
   def token do
-    Application.get_env(:rss2nostr, :mcp, [])[:token]
+    case Application.get_env(:rss2nostr, :mcp, [])[:token] do
+      token when is_binary(token) and token != "" -> token
+      _ -> nil
+    end
+  end
+
+  @doc """
+  When true and `MCP_TOKEN` is unset, loopback HTTP clients may use `/mcp`
+  without a bearer token. Disabled by default because reverse proxies make
+  every client look like 127.0.0.1.
+  """
+  @spec allow_loopback?() :: boolean()
+  def allow_loopback? do
+    Application.get_env(:rss2nostr, :mcp, [])[:allow_loopback] == true
   end
 
   @spec start_stdio() :: {:ok, pid()} | {:error, term()}

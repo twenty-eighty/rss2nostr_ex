@@ -29,6 +29,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Preview do
     }
   end
 
+  @spec preview_pubkey(Source.t() | nil, Post.t() | map()) :: String.t()
   defp preview_pubkey(source, post) do
     author = PostKind.draft_author(post, source)
 
@@ -47,21 +48,25 @@ defmodule Rss2Nostr.Nostr.Publisher.Preview do
     end
   end
 
+  @spec preview_relays(Post.t() | map(), Source.t() | nil) :: [String.t()]
   defp preview_relays(%Post{} = post, _source), do: Relays.publish_relays(post)
   defp preview_relays(_attrs, %Source{} = source), do: Relays.publish_relays(source)
   defp preview_relays(_, _), do: Relays.test()
 
+  @spec attach_source(Post.t() | map(), Source.t() | nil) :: Post.t() | map()
   defp attach_source(%Post{} = post, %Source{} = source), do: %{post | source: source}
   defp attach_source(%Post{} = post, _), do: post
   defp attach_source(attrs, source) when is_map(attrs), do: Map.put(attrs, :source, source)
   defp attach_source(other, _), do: other
 
+  @spec source_of(Post.t() | map()) :: Source.t() | nil
   defp source_of(%Post{source: %Source{} = source}), do: source
   defp source_of(%Post{} = post), do: PostLoader.ensure_source(post).source
   defp source_of(%{source: %Source{} = source}), do: source
   defp source_of(%{"source" => %Source{} = source}), do: source
   defp source_of(_), do: nil
 
+  @spec ensure_source_if_post(Post.t() | map()) :: Post.t() | map()
   defp ensure_source_if_post(%Post{} = post), do: PostLoader.ensure_source(post)
   defp ensure_source_if_post(other), do: other
 end

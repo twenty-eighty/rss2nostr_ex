@@ -11,6 +11,7 @@ defmodule Rss2NostrWeb.PostShowLive do
   alias Rss2Nostr.Web.API.Posts, as: PostsAPI
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
   def mount(%{"id" => id}, _session, socket) do
     case fetch_post(id) do
       {:ok, post} ->
@@ -33,6 +34,7 @@ defmodule Rss2NostrWeb.PostShowLive do
   end
 
   @impl true
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(_params, _uri, %{assigns: %{post: nil}} = socket) do
     {:noreply, socket}
   end
@@ -48,6 +50,7 @@ defmodule Rss2NostrWeb.PostShowLive do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("set_tab", %{"tab" => tab}, socket)
       when tab in ["article", "preview", "event"] do
     {:noreply, assign(socket, :tab, tab)}
@@ -97,6 +100,7 @@ defmodule Rss2NostrWeb.PostShowLive do
   end
 
   @impl true
+  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:action, {:ok, {:ok, _post}}, socket) do
     {:ok, post} = fetch_post(socket.assigns.post.id)
     message = socket.assigns[:action_notice] || "Done"
@@ -149,6 +153,7 @@ defmodule Rss2NostrWeb.PostShowLive do
   end
 
   @impl true
+  @spec render(map()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <div class="page-header">
@@ -312,6 +317,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     """
   end
 
+  @spec show_actions(map()) :: Phoenix.LiveView.Rendered.t()
   defp show_actions(assigns) do
     audience = relay_target_name(Relays.target_for(assigns.post))
     status = assigns.post.status
@@ -391,6 +397,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     """
   end
 
+  @spec featured_image(map()) :: Phoenix.LiveView.Rendered.t()
   defp featured_image(assigns) do
     ~H"""
     <div :if={present?(@post.image)} class="post-image">
@@ -400,6 +407,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     """
   end
 
+  @spec images_section(map()) :: Phoenix.LiveView.Rendered.t()
   defp images_section(assigns) do
     images = assigns.post.images || []
     show? = images != [] or present?(assigns.post.image)
@@ -449,6 +457,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     """
   end
 
+  @spec assign_post(Phoenix.LiveView.Socket.t(), Rss2Nostr.Posts.Post.t()) :: Phoenix.LiveView.Socket.t()
   defp assign_post(socket, post) do
     socket
     |> assign(:post, post)
@@ -458,6 +467,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     |> assign(:page_title, post.title || "Post")
   end
 
+  @spec editor_form(Rss2Nostr.Posts.Post.t()) :: map()
   defp editor_form(post) do
     %{
       "title" => post.title || "",
@@ -468,6 +478,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     }
   end
 
+  @spec run_action(Phoenix.LiveView.Socket.t(), atom(), (-> term()), String.t() | nil) :: {:noreply, Phoenix.LiveView.Socket.t()}
   defp run_action(socket, _name, fun, notice \\ nil) do
     {:noreply,
      socket
@@ -476,6 +487,7 @@ defmodule Rss2NostrWeb.PostShowLive do
      |> start_async(:action, fun)}
   end
 
+  @spec fetch_post(term()) :: {:ok, Rss2Nostr.Posts.Post.t()} | :error
   defp fetch_post(id) do
     with {:ok, post_id} <- parse_id(id),
          %Post{} = post <- Posts.get_post(post_id, preload: [:source, :images]) do
@@ -485,6 +497,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     end
   end
 
+  @spec parse_id(term()) :: {:ok, integer()} | :error
   defp parse_id(id) when is_integer(id), do: {:ok, id}
 
   defp parse_id(id) when is_binary(id) do
@@ -496,6 +509,7 @@ defmodule Rss2NostrWeb.PostShowLive do
 
   defp parse_id(_), do: :error
 
+  @spec back_path(Rss2Nostr.Posts.Post.t(), String.t() | nil) :: String.t()
   defp back_path(post, return_to) do
     cond do
       internal_path?(return_to) -> return_to
@@ -504,17 +518,21 @@ defmodule Rss2NostrWeb.PostShowLive do
     end
   end
 
+  @spec internal_path?(String.t()) :: boolean()
   defp internal_path?("//" <> _), do: false
   defp internal_path?("/" <> _), do: true
   defp internal_path?(_), do: false
 
+  @spec present?(term()) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 
+  @spec uploaded_url(String.t()) :: String.t() | nil
   defp uploaded_url(url) do
     if Blossom.already_hosted?(url), do: url
   end
 
+  @spec imeta_summary(map()) :: String.t() | nil
   defp imeta_summary(image) when is_map(image) do
     [
       Map.get(image, :mime_type),
@@ -529,6 +547,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     end
   end
 
+  @spec published_hashtags(Rss2Nostr.Posts.Post.t()) :: [String.t()]
   defp published_hashtags(post) do
     Event.merge_hashtags(
       post.categories,
@@ -537,6 +556,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     )
   end
 
+  @spec omitted_hashtags(Rss2Nostr.Posts.Post.t()) :: [String.t()]
   defp omitted_hashtags(post) do
     skip = MapSet.new(Event.normalize_hashtags(source_hashtags(post, :excluded_hashtags)))
 
@@ -546,9 +566,11 @@ defmodule Rss2NostrWeb.PostShowLive do
     end)
   end
 
+  @spec source_hashtags(map(), atom()) :: list()
   defp source_hashtags(%{source: %Source{} = source}, field), do: Map.get(source, field) || []
   defp source_hashtags(_, _), do: []
 
+  @spec hashtag_help(Rss2Nostr.Posts.Post.t()) :: String.t()
   defp hashtag_help(post) do
     case omitted_hashtags(post) do
       [] ->
@@ -559,6 +581,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     end
   end
 
+  @spec hashtag_preview_text(Rss2Nostr.Posts.Post.t()) :: String.t()
   defp hashtag_preview_text(post) do
     case published_hashtags(post) do
       [] -> "none"
@@ -566,6 +589,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     end
   end
 
+  @spec staging_hold_note(Rss2Nostr.Posts.Post.t()) :: String.t()
   defp staging_hold_note(post) do
     source = post.source
 
@@ -592,6 +616,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     end
   end
 
+  @spec event_tab_intro(Rss2Nostr.Posts.Post.t()) :: String.t()
   defp event_tab_intro(post) do
     cond do
       Signer.encrypted_draft?(post.source) ->
@@ -605,6 +630,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     end
   end
 
+  @spec event_preview_html(Rss2Nostr.Posts.Post.t()) :: String.t()
   defp event_preview_html(post) do
     preview = Publisher.preview_event(post)
     relays = Enum.map_join(preview.relays, "\n", & &1)
@@ -649,6 +675,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     """
   end
 
+  @spec escape_text(String.t()) :: String.t()
   defp escape_text(nil), do: ""
 
   defp escape_text(str) when is_binary(str) do
@@ -658,6 +685,7 @@ defmodule Rss2NostrWeb.PostShowLive do
     |> String.replace(">", "&gt;")
   end
 
+  @spec normalize_one_publish(map()) :: map()
   defp normalize_one_publish(result) when is_map(result) do
     Map.merge(%{published: 1, failed: 0, errors: []}, result)
   end

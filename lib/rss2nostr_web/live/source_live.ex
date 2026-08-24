@@ -13,6 +13,7 @@ defmodule Rss2NostrWeb.SourceLive do
   @tabs ~w(feed compose articles publishing)
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
   def mount(%{"id" => id}, _session, socket) do
     case SourcesAPI.get(id) do
       {:ok, source} ->
@@ -45,6 +46,7 @@ defmodule Rss2NostrWeb.SourceLive do
   end
 
   @impl true
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(_params, _uri, %{assigns: %{source: nil}} = socket) do
     {:noreply, socket}
   end
@@ -72,6 +74,7 @@ defmodule Rss2NostrWeb.SourceLive do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("save_feed", params, socket) do
     save_source(socket, Map.put(params, "tab", "feed"), :feed)
   end
@@ -250,6 +253,7 @@ defmodule Rss2NostrWeb.SourceLive do
   end
 
   @impl true
+  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:feed_items, {:ok, {:ok, result}}, socket) do
     items = result[:items] || result["items"] || []
     socket = assign(socket, feed_items: items, feed_status: nil)
@@ -393,6 +397,7 @@ defmodule Rss2NostrWeb.SourceLive do
   end
 
   @impl true
+  @spec render(map()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
     <div class="page-header">
@@ -450,6 +455,7 @@ defmodule Rss2NostrWeb.SourceLive do
     """
   end
 
+  @spec save_source(Phoenix.LiveView.Socket.t(), map(), atom() | nil) :: {:noreply, Phoenix.LiveView.Socket.t()}
   defp save_source(socket, params, form_key) do
     source = socket.assigns.source
 
@@ -480,6 +486,7 @@ defmodule Rss2NostrWeb.SourceLive do
     end
   end
 
+  @spec maybe_assign_form(Phoenix.LiveView.Socket.t(), atom(), map()) :: Phoenix.LiveView.Socket.t()
   defp maybe_assign_form(socket, :feed, params),
     do: assign(socket, :feed, merge_form(socket.assigns.feed, params))
 
@@ -491,11 +498,13 @@ defmodule Rss2NostrWeb.SourceLive do
 
   defp maybe_assign_form(socket, _, _), do: socket
 
+  @spec assign_posts(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp assign_posts(socket) do
     posts = Posts.list_posts_for_source(socket.assigns.source.id, limit: 100)
     assign(socket, :posts, posts)
   end
 
+  @spec maybe_load_feed_items(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp maybe_load_feed_items(socket) do
     if socket.assigns.feed_items == :not_loaded and connected?(socket) do
       url = socket.assigns.source.url
@@ -508,6 +517,7 @@ defmodule Rss2NostrWeb.SourceLive do
     end
   end
 
+  @spec maybe_preview(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp maybe_preview(socket) do
     guid = socket.assigns.compose["guid"]
 
@@ -523,6 +533,7 @@ defmodule Rss2NostrWeb.SourceLive do
     end
   end
 
+  @spec preview_params(Phoenix.LiveView.Socket.t()) :: map()
   defp preview_params(socket) do
     source = socket.assigns.source
     compose = socket.assigns.compose
@@ -541,6 +552,7 @@ defmodule Rss2NostrWeb.SourceLive do
     }
   end
 
+  @spec compose_form(map(), map()) :: map()
   defp compose_form(source, existing \\ %{}) do
     %{
       "guid" => existing["guid"] || "",
@@ -553,6 +565,7 @@ defmodule Rss2NostrWeb.SourceLive do
     }
   end
 
+  @spec feed_form(map()) :: map()
   defp feed_form(source) do
     %{
       "name" => source.name,
@@ -563,6 +576,7 @@ defmodule Rss2NostrWeb.SourceLive do
     }
   end
 
+  @spec publishing_form(map()) :: map()
   defp publishing_form(source) do
     %{
       "publish_as" => source.publish_as || "draft",
@@ -576,6 +590,7 @@ defmodule Rss2NostrWeb.SourceLive do
     }
   end
 
+  @spec merge_form(map(), map()) :: map()
   defp merge_form(form, params) do
     Enum.reduce(form, form, fn {key, _}, acc ->
       case Map.fetch(params, key) do
@@ -585,11 +600,14 @@ defmodule Rss2NostrWeb.SourceLive do
     end)
   end
 
+  @spec normalize_tab(String.t()) :: String.t()
   defp normalize_tab(tab) when tab in @tabs, do: tab
   defp normalize_tab(_), do: "compose"
 
+  @spec selected_list(Phoenix.LiveView.Socket.t()) :: [integer()]
   defp selected_list(socket), do: MapSet.to_list(socket.assigns.selected_ids)
 
+  @spec feed_item_list(:not_loaded | list()) :: list()
   defp feed_item_list(:not_loaded), do: []
   defp feed_item_list(items) when is_list(items), do: items
 end

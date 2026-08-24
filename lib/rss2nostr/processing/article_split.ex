@@ -12,6 +12,11 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
 
   alias Rss2Nostr.Processing.Footnotes
 
+  @type measure :: (String.t(), pos_integer() -> non_neg_integer())
+  @type cut_candidate :: {pos_integer(), :heading | :blank}
+  @type fence_range :: {pos_integer(), pos_integer()}
+  @type line_entry :: {pos_integer(), String.t(), boolean()}
+
   @lookback_min 8_000
   @lookback_ratio 0.2
   @max_parts 200
@@ -44,6 +49,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end
   end
 
+  @spec equal_parts(String.t(), measure(), non_neg_integer(), [Footnotes.footnote()]) :: [String.t()]
   defp equal_parts(body, measure, max_size, footnotes) do
     min_n = min_part_count(body, measure, max_size, footnotes)
     max_n = min(@max_parts, max(min_n, byte_size(body)))
@@ -56,11 +62,13 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end) || greedy_parts(body, measure, max_size, footnotes)
   end
 
+  @spec min_part_count(String.t(), measure(), non_neg_integer(), [Footnotes.footnote()]) :: pos_integer()
   defp min_part_count(body, measure, max_size, footnotes) do
     size = measure.(attach(body, footnotes, last: true), 1)
     max(2, div(size + max_size - 1, max_size))
   end
 
+  @spec try_equal_cuts(String.t(), pos_integer(), measure(), non_neg_integer(), [Footnotes.footnote()]) :: {:ok, [String.t()]} | :error
   defp try_equal_cuts(body, n, measure, max_size, footnotes) do
     cuts = equal_cut_offsets(body, n)
 
@@ -77,6 +85,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end
   end
 
+  @spec equal_cut_offsets(String.t(), pos_integer()) :: [pos_integer()]
   defp equal_cut_offsets(body, n) do
     total = byte_size(body)
     part = max(div(total, n), 1)
@@ -96,6 +105,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     cuts
   end
 
+  @spec choose_cut(String.t(), [cut_candidate()], [fence_range()], pos_integer(), pos_integer(), pos_integer(), pos_integer()) :: pos_integer()
   defp choose_cut(body, candidates, fences, target, window, earliest, latest) do
     target =
       target
@@ -118,6 +128,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     closest(headings, target) || closest(blanks, target) || target
   end
 
+  @spec closest([pos_integer()], pos_integer()) :: pos_integer() | nil
   defp closest([], _target), do: nil
 
   defp closest(offsets, target) do
@@ -126,6 +137,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end)
   end
 
+  @spec snap_out_of_fence(pos_integer(), [fence_range()], pos_integer(), pos_integer()) :: pos_integer()
   defp snap_out_of_fence(target, fences, earliest, latest) do
     case Enum.find(fences, fn {start, stop} -> target >= start and target < stop end) do
       nil ->
@@ -148,6 +160,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end
   end
 
+  @spec fence_ranges(String.t()) :: [fence_range()]
   defp fence_ranges(text) do
     {ranges, open} =
       text
@@ -175,12 +188,14 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     Enum.reverse(ranges)
   end
 
+  @spec valid_cuts?([pos_integer()], non_neg_integer()) :: boolean()
   defp valid_cuts?(cuts, total) do
     cuts != [] and
       Enum.all?(cuts, &(&1 > 0 and &1 < total)) and
       cuts == Enum.sort(Enum.uniq(cuts))
   end
 
+  @spec chunks_at(String.t(), [pos_integer()]) :: [String.t()]
   defp chunks_at(text, cuts) do
     {chunks, last_offset} =
       Enum.map_reduce(cuts, 0, fn cut, prev ->
@@ -195,6 +210,8 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     chunks ++ [rest]
   end
 
+  @spec attach_chunks([String.t()], [Footnotes.footnote()]) :: [String.t()]
+  @spec attach(String.t(), [Footnotes.footnote()], keyword()) :: String.t()
   defp attach_chunks(chunks, footnotes) do
     total = length(chunks)
 
@@ -212,12 +229,14 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     parts
   end
 
+  @spec parts_fit?([String.t()], measure(), non_neg_integer()) :: boolean()
   defp parts_fit?(parts, measure, max_size) do
     parts
     |> Enum.with_index(1)
     |> Enum.all?(fn {part, index} -> measure.(part, index) <= max_size end)
   end
 
+  @spec greedy_parts(String.t(), measure(), non_neg_integer(), [Footnotes.footnote()]) :: [String.t()]
   defp greedy_parts(body, measure, max_size, footnotes) do
     case take_parts(body, measure, max_size, 1, [], footnotes) |> Enum.reverse() do
       [] -> [""]
@@ -225,6 +244,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end
   end
 
+  @spec take_parts(String.t(), measure(), non_neg_integer(), pos_integer(), [String.t()], [Footnotes.footnote()]) :: [String.t()]
   defp take_parts(remaining, measure, max_size, index, acc, footnotes) do
     remaining = String.trim_leading(remaining)
     already_cited = cited_in_parts(acc)
@@ -260,6 +280,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end
   end
 
+  @spec candidate_offsets(String.t()) :: [cut_candidate()]
   defp candidate_offsets(text) do
     text
     |> line_scan()
@@ -280,6 +301,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end)
   end
 
+  @spec line_scan(String.t()) :: [line_entry()]
   defp line_scan(text) do
     {lines, _fence, _offset} =
       text
@@ -294,14 +316,18 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     Enum.reverse(lines)
   end
 
+  @spec fence_marker?(String.t()) :: boolean()
   defp fence_marker?(line), do: String.starts_with?(String.trim_leading(line), "```")
 
+  @spec heading?(String.t()) :: boolean()
   defp heading?(line), do: String.match?(line, ~r/^\#{1,3} \S/)
 
+  @spec fits?(String.t(), measure(), pos_integer(), non_neg_integer(), [Footnotes.footnote()], keyword()) :: boolean()
   defp fits?(chunk, measure, index, max_size, footnotes, attach_opts \\ []) do
     measure.(attach(chunk, footnotes, attach_opts), index) <= max_size
   end
 
+  @spec max_fitting_bytes(String.t(), measure(), pos_integer(), non_neg_integer(), [Footnotes.footnote()]) :: non_neg_integer()
   defp max_fitting_bytes(text, measure, index, max_size, footnotes) do
     total = byte_size(text)
 
@@ -312,6 +338,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end
   end
 
+  @spec binsearch_fit(String.t(), measure(), pos_integer(), non_neg_integer(), [Footnotes.footnote()], non_neg_integer(), non_neg_integer()) :: non_neg_integer()
   defp binsearch_fit(_text, _measure, _index, _max_size, _footnotes, low, high)
        when low >= high do
     low
@@ -332,6 +359,7 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end
   end
 
+  @spec utf8_floor(String.t(), non_neg_integer()) :: non_neg_integer()
   defp utf8_floor(_text, n) when n <= 0, do: 0
   defp utf8_floor(text, n) when n >= byte_size(text), do: byte_size(text)
 
@@ -345,15 +373,18 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     end
   end
 
+  @spec clamp(integer(), integer(), integer()) :: integer()
   defp clamp(_n, lo, hi) when hi < lo, do: lo
   defp clamp(n, lo, _hi) when n < lo, do: lo
   defp clamp(n, _lo, hi) when n > hi, do: hi
   defp clamp(n, _lo, _hi), do: n
 
+  @spec split_at(String.t(), non_neg_integer()) :: {String.t(), String.t()}
   defp split_at(text, n) when n <= 0, do: {"", text}
   defp split_at(text, n) when n >= byte_size(text), do: {text, ""}
   defp split_at(text, n), do: {binary_part(text, 0, n), binary_part(text, n, byte_size(text) - n)}
 
+  @spec force_take(String.t(), measure(), pos_integer(), non_neg_integer(), [Footnotes.footnote()]) :: {String.t(), String.t()}
   defp force_take(text, measure, index, max_size, footnotes) do
     cut = max(max_fitting_bytes(text, measure, index, max_size, footnotes), next_char_size(text))
     {part, rest} = split_at(text, cut)
@@ -364,10 +395,12 @@ defmodule Rss2Nostr.Processing.ArticleSplit do
     Footnotes.attach(chunk, footnotes, opts)
   end
 
+  @spec cited_in_parts([String.t()]) :: [String.t()]
   defp cited_in_parts(parts) do
     Enum.flat_map(parts, &Footnotes.cited_ids/1)
   end
 
+  @spec next_char_size(String.t()) :: non_neg_integer()
   defp next_char_size(""), do: 0
 
   defp next_char_size(text) do

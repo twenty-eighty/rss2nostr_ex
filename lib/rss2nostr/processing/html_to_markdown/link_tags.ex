@@ -74,6 +74,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     end
   end
 
+  @spec process_link_children(list(), process_nodes()) :: String.t()
   defp process_link_children(children, process_nodes) do
     Process.put({@parent, :in_link}, true)
 
@@ -84,6 +85,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     end
   end
 
+  @spec collect_http_links(list()) :: [%{href: String.t(), label: String.t(), icon: String.t() | nil}]
   defp collect_http_links(nodes) do
     Enum.flat_map(List.wrap(nodes), fn
       {"a", attrs, inner} ->
@@ -111,6 +113,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     end)
   end
 
+  @spec social_bar_caption(list()) :: String.t()
   defp social_bar_caption(nodes) do
     nodes
     |> List.wrap()
@@ -139,10 +142,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     |> String.trim()
   end
 
+  @spec social_bar_icon_order(list()) :: Links.icon_order()
   defp social_bar_icon_order(nodes) do
     if first_social_signal(nodes) == :caption, do: :label_first, else: :icon_first
   end
 
+  @spec first_social_signal(list()) :: :link | :caption | nil
   defp first_social_signal(nodes) do
     Enum.find_value(List.wrap(nodes), fn
       {"a", _, _} ->
@@ -163,6 +168,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     end)
   end
 
+  @spec markdown_media_link(String.t(), String.t(), term()) :: String.t()
   defp markdown_media_link(text, href, title) do
     if media_file_url?(href) and present_title?(title) do
       ~s|[#{text}](#{href} "#{escape_md_title(title)}")|
@@ -171,6 +177,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     end
   end
 
+  @spec link_display_label(list(), list(), String.t(), String.t()) :: String.t()
   defp link_display_label(attrs, children, text, href) do
     if url_like_label?(text, href) do
       link_fallback_label(attrs, children, href)
@@ -179,6 +186,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     end
   end
 
+  @spec url_like_label?(String.t(), String.t()) :: boolean()
   defp url_like_label?(text, href) do
     stripped = Links.strip_url_noise(text)
 
@@ -187,6 +195,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
       match?({_, _}, Links.platform_for_href(text))
   end
 
+  @spec link_fallback_label(list(), list(), String.t()) :: String.t()
   defp link_fallback_label(attrs, children, href) do
     aria = Dom.get_attr(attrs, "aria-label")
     title = Dom.get_attr(attrs, "title")
@@ -209,21 +218,26 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     end
   end
 
+  @spec media_file_url?(String.t()) :: boolean()
   defp media_file_url?(href) do
     ImageExtractor.audio_url?(href) or ImageExtractor.video_url?(href)
   end
 
+  @spec present_title?(term()) :: boolean()
   defp present_title?(title) when is_binary(title), do: String.trim(title) != ""
   defp present_title?(_), do: false
 
+  @spec escape_md_title(String.t()) :: String.t()
   defp escape_md_title(title) do
     String.replace(title, "\"", "'")
   end
 
+  @spec relative_path?(String.t()) :: boolean()
   defp relative_path?(href) do
     String.starts_with?(href, "/") and not String.starts_with?(href, "//")
   end
 
+  @spec http_url?(String.t()) :: boolean()
   defp http_url?(url) when is_binary(url) do
     uri = URI.parse(url)
     uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != ""
@@ -231,6 +245,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     _ -> false
   end
 
+  @spec discard_link?(String.t()) :: boolean()
   defp discard_link?(href) do
     uri = URI.parse(href)
     path = uri.path || ""
@@ -242,6 +257,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     _ -> false
   end
 
+  @spec share_action?(term()) :: boolean()
   defp share_action?(nil), do: false
 
   defp share_action?(query) when is_binary(query) do

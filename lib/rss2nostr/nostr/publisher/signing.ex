@@ -76,6 +76,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
     end
   end
 
+  @spec wrap_all([map()], Post.t(), Signing.signer()) :: {:ok, [map()]} | {:error, term()}
   defp wrap_all(inners, post, signer) do
     Enum.reduce_while(inners, {:ok, []}, fn inner, {:ok, acc} ->
       case wrap_draft_event(inner, post, signer) do
@@ -85,6 +86,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
     end)
   end
 
+  @spec wrap_draft_event(map(), Post.t(), Signing.signer()) :: {:ok, map()} | {:error, term()}
   defp wrap_draft_event(inner, post, {:private_key, key}) do
     Event.wrap_draft(inner, key,
       identifier: Identifiers.from_event(inner),
@@ -94,6 +96,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
 
   defp wrap_draft_event(_inner, _post, _), do: {:error, :cannot_encrypt_draft}
 
+  @spec inner_pubkey(Post.t(), String.t()) :: String.t()
   defp inner_pubkey(post, signer_pubkey) do
     author = if PostKind.encrypted_draft?(post), do: PostKind.draft_author(post)
 
@@ -104,6 +107,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
     end
   end
 
+  @spec normalize_signed_event(map() | binary(), map()) :: {:ok, map()} | {:error, term()}
   defp normalize_signed_event(signed, event) when is_map(signed) do
     {:ok,
      %{
@@ -126,5 +130,6 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
 
   defp normalize_signed_event(_, _), do: {:error, :invalid_bunker_signature}
 
+  @spec pubkey_hex(String.t()) :: String.t()
   defp pubkey_hex(value) when is_binary(value), do: String.downcase(value)
 end

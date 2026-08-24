@@ -8,7 +8,7 @@ defmodule Rss2Nostr.Nostr.NIP04 do
 
   require Logger
 
-  alias Rss2Nostr.Nostr.Keys
+  alias Rss2Nostr.Nostr.{Keys, NodeRunner}
 
   @doc """
   Encrypts a message for a recipient using NIP-04.
@@ -20,6 +20,7 @@ defmodule Rss2Nostr.Nostr.NIP04 do
 
   Returns {:ok, ciphertext} or {:error, reason}
   """
+  @spec encrypt(String.t(), binary(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def encrypt(plaintext, private_key, recipient_pubkey)
       when is_binary(plaintext) and byte_size(private_key) == 32 do
     run_nip04("encrypt", private_key, recipient_pubkey, plaintext: plaintext)
@@ -35,11 +36,13 @@ defmodule Rss2Nostr.Nostr.NIP04 do
 
   Returns {:ok, plaintext} or {:error, reason}
   """
+  @spec decrypt(String.t(), binary(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def decrypt(ciphertext, private_key, sender_pubkey)
       when is_binary(ciphertext) and byte_size(private_key) == 32 do
     run_nip04("decrypt", private_key, sender_pubkey, ciphertext: ciphertext)
   end
 
+  @spec run_nip04(String.t(), binary(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   defp run_nip04(action, private_key, pubkey, opts) do
     input =
       %{
@@ -50,39 +53,27 @@ defmodule Rss2Nostr.Nostr.NIP04 do
       |> Map.merge(Map.new(opts))
       |> Jason.encode!()
 
-    tmp_file = Path.join(System.tmp_dir!(), "nip04_#{:rand.uniform(1_000_000)}.json")
-    script = nip04_script()
+    case NodeRunner.run(nip04_script(), input) do
+      {:ok, output} ->
+        case Jason.decode(output) do
+          {:ok, %{"result" => result}} ->
+            {:ok, result}
 
-    try do
-      File.write!(tmp_file, input)
+          {:ok, %{"error" => error}} ->
+            {:error, error}
 
-      case System.cmd("node", [script],
-             cd: Path.dirname(script),
-             stderr_to_stdout: true,
-             env: [{"INPUT_FILE", tmp_file}]
-           ) do
-        {output, 0} ->
-          case Jason.decode(output) do
-            {:ok, %{"result" => result}} ->
-              {:ok, result}
+          {:error, _} ->
+            {:error, :json_decode_failed}
+        end
 
-            {:ok, %{"error" => error}} ->
-              {:error, error}
-
-            {:error, _} ->
-              {:error, :json_decode_failed}
-          end
-
-        {error, _code} ->
-          Logger.error("NIP-04 operation failed: #{error}")
-          {:error, :operation_failed}
-      end
-    after
-      File.rm(tmp_file)
+      {:error, error} ->
+        Logger.error("NIP-04 operation failed: #{error}")
+        {:error, :operation_failed}
     end
   end
 
   # Resolve at runtime: compile-time :code.priv_dir/1 bakes the Mix _build path
   # into releases and breaks Docker/prod.
+  @spec nip04_script() :: String.t()
   defp nip04_script, do: Path.join(:code.priv_dir(:rss2nostr), "nip04.mjs")
 end

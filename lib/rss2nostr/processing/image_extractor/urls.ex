@@ -91,9 +91,11 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
     |> String.trim_leading(".")
   end
 
+  @spec prefix_protocol_relative(String.t()) :: String.t()
   defp prefix_protocol_relative("//" <> rest), do: "https://" <> rest
   defp prefix_protocol_relative(url), do: url
 
+  @spec substack_cdn_url(String.t()) :: String.t() | nil
   defp substack_cdn_url(origin) when is_binary(origin) and origin != "" do
     if substack_origin?(origin) and not substack_cdn?(origin) do
       @substack_cdn_prefix <> URI.encode(origin, &URI.char_unreserved?/1)
@@ -102,6 +104,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
 
   defp substack_cdn_url(_), do: nil
 
+  @spec substack_display_url(String.t()) :: String.t() | nil
   defp substack_display_url(origin) when is_binary(origin) and origin != "" do
     if substack_origin?(origin) and not substack_cdn?(origin) do
       @substack_display_prefix <> URI.encode(origin, &URI.char_unreserved?/1)
@@ -110,11 +113,13 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
 
   defp substack_display_url(_), do: nil
 
+  @spec substack_cdn?(String.t()) :: boolean()
   defp substack_cdn?(url) do
     host = url_host(url)
     host == "substackcdn.com" or String.ends_with?(host, ".substackcdn.com")
   end
 
+  @spec substack_origin?(String.t()) :: boolean()
   defp substack_origin?(url) do
     host = url_host(url)
 
@@ -122,12 +127,14 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
       (String.contains?(host, "amazonaws.com") and String.contains?(url, "/public/images/"))
   end
 
+  @spec url_host(String.t()) :: String.t()
   defp url_host(url) do
     url |> URI.parse() |> Map.get(:host) |> to_string() |> String.downcase()
   rescue
     _ -> ""
   end
 
+  @spec unwrap_encoded_fetch(String.t()) :: String.t()
   defp unwrap_encoded_fetch(url) do
     case Regex.run(~r/(https?%3A%2F%2F[^\s)]+)/i, url) do
       [_, encoded] ->
@@ -139,5 +146,6 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
     end
   end
 
+  @spec heic_url?(String.t()) :: boolean()
   defp heic_url?(url), do: path_ext(url) in @heic_ext
 end

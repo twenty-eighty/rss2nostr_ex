@@ -74,6 +74,7 @@ defmodule Rss2Nostr.Nostr.Publisher.RelayPublish do
     end
   end
 
+  @spec rate_limited_result?(:ok | {:error, term()} | term()) :: boolean()
   defp rate_limited_result?(:ok), do: false
   defp rate_limited_result?({:error, reason}), do: Relay.rate_limited?(reason)
   defp rate_limited_result?(reason), do: Relay.rate_limited?(reason)

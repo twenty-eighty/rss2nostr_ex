@@ -6,6 +6,7 @@ defmodule Rss2NostrWeb.AuthHook do
 
   alias Rss2Nostr.Web.Auth
 
+  @spec on_mount(atom(), map(), map(), Phoenix.LiveView.Socket.t()) :: {:cont, Phoenix.LiveView.Socket.t()} | {:halt, Phoenix.LiveView.Socket.t()}
   def on_mount(:require_admin, _params, session, socket) do
     pubkey = session_pubkey(session)
 
@@ -23,10 +24,12 @@ defmodule Rss2NostrWeb.AuthHook do
     end
   end
 
+  @spec session_pubkey(map()) :: String.t() | nil
   defp session_pubkey(session) when is_map(session) do
     session["admin_pubkey"] || session[:admin_pubkey]
   end
 
+  @spec requested_path(Phoenix.LiveView.Socket.t()) :: String.t()
   defp requested_path(socket) do
     case get_connect_info(socket, :uri) do
       %URI{path: path, query: query} when is_binary(path) and path != "" ->

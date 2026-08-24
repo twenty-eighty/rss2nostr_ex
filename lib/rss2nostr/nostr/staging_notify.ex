@@ -27,6 +27,7 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
     end
   end
 
+  @spec send_dm(Post.t(), Source.t()) :: :ok | {:error, term()}
   defp send_dm(post, source) do
     with {:ok, {:private_key, key}} <- Signer.app_signer(),
          {:ok, wrap} <-
@@ -69,6 +70,7 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
     |> Enum.join("\n")
   end
 
+  @spec timing(Source.t()) :: String.t()
   defp timing(source) do
     hold = source.staging_hold_minutes || 0
 
@@ -80,6 +82,7 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
     end
   end
 
+  @spec present?(term()) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 end

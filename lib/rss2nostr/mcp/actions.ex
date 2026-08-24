@@ -8,13 +8,21 @@ defmodule Rss2Nostr.MCP.Actions do
   alias Rss2Nostr.Sources.Source
   alias Rss2Nostr.Web.API.{Posts, Scheduler, Settings, Sources, Status}
 
+  @type args :: map()
+  @type action_result :: {:ok, term()} | {:error, String.t()}
+
+  @spec get_status() :: action_result()
   def get_status, do: {:ok, Status.overview()}
+
+  @spec get_settings() :: action_result()
   def get_settings, do: {:ok, Settings.get()}
 
+  @spec list_sources() :: action_result()
   def list_sources do
     {:ok, %{sources: Sources.list()}}
   end
 
+  @spec get_source(args()) :: action_result()
   def get_source(args) do
     with {:ok, id} <- require_id(args, :source_id) do
       case Sources.get(id) do
@@ -25,18 +33,21 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec discover_feeds(args()) :: action_result()
   def discover_feeds(args) do
     with {:ok, url} <- require_string(args, :url) do
       Sources.discover(%{"url" => url})
     end
   end
 
+  @spec preview_feed(args()) :: action_result()
   def preview_feed(args) do
     with {:ok, url} <- require_string(args, :url) do
       Sources.preview(%{"url" => url})
     end
   end
 
+  @spec preview_compose(args()) :: action_result()
   def preview_compose(args) do
     params =
       string_params(
@@ -56,6 +67,7 @@ defmodule Rss2Nostr.MCP.Actions do
     Sources.compose_preview(params)
   end
 
+  @spec add_source(args()) :: action_result()
   def add_source(args) do
     with {:ok, name} <- require_string(args, :name),
          {:ok, url} <- require_string(args, :url) do
@@ -92,6 +104,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec update_source(args()) :: action_result()
   def update_source(args) do
     with {:ok, id} <- require_id(args, :source_id) do
       params =
@@ -129,6 +142,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec toggle_source(args()) :: action_result()
   def toggle_source(args) do
     with {:ok, id} <- require_id(args, :source_id) do
       case Sources.toggle(id) do
@@ -140,6 +154,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec duplicate_source(args()) :: action_result()
   def duplicate_source(args) do
     with {:ok, id} <- require_id(args, :source_id) do
       attrs =
@@ -156,6 +171,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec delete_source(args()) :: action_result()
   def delete_source(args) do
     with {:ok, id} <- require_id(args, :source_id) do
       case Sources.delete(id) do
@@ -166,6 +182,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec import_source(args()) :: action_result()
   def import_source(args) do
     with {:ok, id} <- require_id(args, :source_id) do
       case Sources.import_now(id) do
@@ -176,6 +193,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec reprocess_posts(args()) :: action_result()
   def reprocess_posts(args) do
     with {:ok, source_id} <- require_id(args, :source_id),
          {:ok, post_ids} <- require_id_list(args, :post_ids) do
@@ -187,6 +205,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec publish_source_posts(args()) :: action_result()
   def publish_source_posts(args) do
     with {:ok, source_id} <- require_id(args, :source_id),
          {:ok, post_ids} <- require_id_list(args, :post_ids) do
@@ -198,6 +217,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec list_posts(args()) :: action_result()
   def list_posts(args) do
     page = optional_int(args, :page, 1)
     per_page = min(optional_int(args, :per_page, 20), 100)
@@ -221,6 +241,7 @@ defmodule Rss2Nostr.MCP.Actions do
      }}
   end
 
+  @spec get_post(args()) :: action_result()
   def get_post(args) do
     with {:ok, id} <- require_id(args, :post_id) do
       case Integer.parse(id) do
@@ -236,6 +257,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec process_post(args()) :: action_result()
   def process_post(args) do
     with {:ok, id} <- require_id(args, :post_id) do
       case Posts.process(id) do
@@ -246,6 +268,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec upload_post_images(args()) :: action_result()
   def upload_post_images(args) do
     with {:ok, id} <- require_id(args, :post_id) do
       case Posts.process(id) do
@@ -263,6 +286,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec reprocess_post(args()) :: action_result()
   def reprocess_post(args) do
     with {:ok, id} <- require_id(args, :post_id) do
       case Posts.reprocess(id) do
@@ -274,6 +298,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec publish_post(args()) :: action_result()
   def publish_post(args) do
     with {:ok, id} <- require_id(args, :post_id) do
       case Posts.publish(id) do
@@ -284,6 +309,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec update_post(args()) :: action_result()
   def update_post(args) do
     with {:ok, id} <- require_id(args, :post_id) do
       params =
@@ -299,6 +325,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec revise_post(args()) :: action_result()
   def revise_post(args) do
     with {:ok, id} <- require_id(args, :post_id) do
       case Posts.revise(id) do
@@ -310,6 +337,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec delete_post(args()) :: action_result()
   def delete_post(args) do
     with {:ok, id} <- require_id(args, :post_id) do
       case Posts.delete(id) do
@@ -320,16 +348,23 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec scheduler_status() :: action_result()
   def scheduler_status, do: {:ok, Scheduler.status()}
+
+  @spec start_scheduler() :: {:ok, String.t()} | {:error, term()}
   def start_scheduler, do: Scheduler.start()
+
+  @spec stop_scheduler() :: {:ok, String.t()}
   def stop_scheduler, do: Scheduler.stop()
 
+  @spec run_scheduler_task(args()) :: {:ok, String.t()} | {:error, String.t()} | {:error, term()}
   def run_scheduler_task(args) do
     with {:ok, task} <- require_string(args, :task) do
       Scheduler.run_task(task)
     end
   end
 
+  @spec source_detail(Source.t()) :: map()
   defp source_detail(%Source{} = source) do
     options = source.options || %{}
 
@@ -364,6 +399,7 @@ defmodule Rss2Nostr.MCP.Actions do
     }
   end
 
+  @spec skip_classes_text(map()) :: String.t()
   defp skip_classes_text(options) do
     case options["skip_classes"] do
       list when is_list(list) -> Enum.join(list, ", ")
@@ -372,6 +408,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec post_summary(Post.t()) :: map()
   defp post_summary(%Post{} = post) do
     %{
       id: post.id,
@@ -386,6 +423,7 @@ defmodule Rss2Nostr.MCP.Actions do
     }
   end
 
+  @spec post_detail(Post.t()) :: map()
   defp post_detail(%Post{} = post) do
     post
     |> post_summary()
@@ -399,6 +437,7 @@ defmodule Rss2Nostr.MCP.Actions do
     })
   end
 
+  @spec arg(args(), atom()) :: term()
   defp arg(args, key) when is_atom(key) do
     cond do
       Map.has_key?(args, key) -> Map.get(args, key)
@@ -407,6 +446,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec require_string(args(), atom()) :: {:ok, String.t()} | {:error, String.t()}
   defp require_string(args, key) do
     case arg(args, key) do
       value when is_binary(value) and value != "" -> {:ok, value}
@@ -414,6 +454,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec require_id(args(), atom()) :: {:ok, String.t()} | {:error, String.t()}
   defp require_id(args, key) do
     case arg(args, key) do
       value when is_integer(value) and value > 0 -> {:ok, Integer.to_string(value)}
@@ -423,6 +464,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec require_id_list(args(), atom()) :: {:ok, [String.t()]} | {:error, String.t()}
   defp require_id_list(args, key) do
     case arg(args, key) do
       list when is_list(list) and list != [] ->
@@ -436,6 +478,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec optional_string(args(), atom()) :: String.t() | nil
   defp optional_string(args, key) do
     case arg(args, key) do
       value when is_binary(value) and value != "" -> value
@@ -443,6 +486,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec optional_int(args(), atom(), pos_integer()) :: pos_integer()
   defp optional_int(args, key, default) do
     case arg(args, key) do
       value when is_integer(value) and value > 0 ->
@@ -465,6 +509,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec string_params(args(), [atom()]) :: map()
   defp string_params(args, keys) do
     Enum.reduce(keys, %{}, fn key, acc ->
       case arg(args, key) do
@@ -474,14 +519,17 @@ defmodule Rss2Nostr.MCP.Actions do
     end)
   end
 
+  @spec stringify(term()) :: String.t()
   defp stringify(true), do: "true"
   defp stringify(false), do: "false"
   defp stringify(value) when is_list(value), do: Enum.map_join(value, ",", &to_string/1)
   defp stringify(value), do: to_string(value)
 
+  @spec maybe_kw(keyword(), atom(), term()) :: keyword()
   defp maybe_kw(opts, _key, nil), do: opts
   defp maybe_kw(opts, key, value), do: Keyword.put(opts, key, value)
 
+  @spec status_value(String.t()) :: integer() | String.t()
   defp status_value(name) do
     case name do
       "new" -> Post.status_new()
@@ -495,6 +543,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec format_changeset(Ecto.Changeset.t()) :: String.t()
   defp format_changeset(%Ecto.Changeset{} = changeset) do
     changeset
     |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
@@ -505,9 +554,11 @@ defmodule Rss2Nostr.MCP.Actions do
     |> Enum.map_join("; ", fn {field, msgs} -> "#{field}: #{Enum.join(msgs, ", ")}" end)
   end
 
+  @spec format_error(term()) :: String.t()
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 
+  @spec present?(term()) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 end

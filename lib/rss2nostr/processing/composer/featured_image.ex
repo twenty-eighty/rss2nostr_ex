@@ -57,6 +57,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
   end
 
+  @spec image_keys(String.t()) :: MapSet.t(String.t())
   defp image_keys(url) do
     origin = ImageExtractor.normalize_url(url)
 
@@ -71,6 +72,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     |> MapSet.new()
   end
 
+  @spec substack_media_id(String.t()) :: String.t() | nil
   defp substack_media_id(url) when is_binary(url) do
     decoded =
       url
@@ -83,6 +85,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     end
   end
 
+  @spec drop_opening_featured_nodes([Floki.html_node()], String.t()) :: [Floki.html_node()]
   defp drop_opening_featured_nodes([node], featured) do
     case node do
       {tag, attrs, children} ->
@@ -97,6 +100,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     drop_opening_children(nodes, featured)
   end
 
+  @spec drop_opening_children([Floki.html_tree() | Floki.html_node()], String.t()) :: [Floki.html_tree() | Floki.html_node()]
   defp drop_opening_children(nodes, featured) do
     {kept, _} =
       Enum.reduce(nodes, {[], :opening}, fn
@@ -122,9 +126,11 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     kept
   end
 
+  @spec blank_html_node?(term()) :: boolean()
   defp blank_html_node?(text) when is_binary(text), do: String.trim(text) == ""
   defp blank_html_node?(_), do: false
 
+  @spec short_credit_html?(Floki.html_node()) :: boolean()
   defp short_credit_html?({"p", _, _} = node) do
     text = node |> Floki.text() |> String.trim()
 
@@ -134,6 +140,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
 
   defp short_credit_html?(_), do: false
 
+  @spec featured_image_block?(Floki.html_node(), String.t()) :: boolean()
   defp featured_image_block?(node, featured) do
     urls = image_urls_in(node)
 
@@ -141,6 +148,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
       Enum.any?(urls, &same_image?(&1, featured))
   end
 
+  @spec image_only_block?(Floki.html_node()) :: boolean()
   defp image_only_block?({"img", _, _}), do: true
   defp image_only_block?({"figure", _, _}), do: true
   defp image_only_block?({"picture", _, _}), do: true
@@ -154,6 +162,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
   defp image_only_block?({"div", _, children}), do: image_only_block_children?(children)
   defp image_only_block?(_), do: false
 
+  @spec image_only_block_children?([Floki.html_node()]) :: boolean()
   defp image_only_block_children?(children) do
     children
     |> Enum.reject(&blank_html_node?/1)
@@ -181,6 +190,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     end)
   end
 
+  @spec image_urls_in(Floki.html_tree() | Floki.html_node()) :: [String.t()]
   defp image_urls_in(nodes) when is_list(nodes), do: Enum.flat_map(nodes, &image_urls_in/1)
 
   defp image_urls_in({"img", attrs, children}) do
@@ -194,6 +204,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
   defp image_urls_in({_, _, children}), do: image_urls_in(children)
   defp image_urls_in(_), do: []
 
+  @spec srcset_head(String.t() | nil) :: [String.t()]
   defp srcset_head(srcset) when is_binary(srcset) and srcset != "" do
     case Regex.run(~r/(\S+)\s+\d+w/i, srcset) do
       [_, url] -> [url]
@@ -203,6 +214,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
 
   defp srcset_head(_), do: []
 
+  @spec data_attrs_src(String.t() | nil) :: [String.t()]
   defp data_attrs_src(json) when is_binary(json) and json != "" do
     case Jason.decode(json) do
       {:ok, %{"src" => src}} when is_binary(src) and src != "" -> [src]
@@ -212,6 +224,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
 
   defp data_attrs_src(_), do: []
 
+  @spec html_attr_value([{String.t(), String.t()}], String.t()) :: String.t() | nil
   defp html_attr_value(attrs, name) do
     case List.keyfind(attrs, name, 0) do
       {_, value} -> value
@@ -219,6 +232,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     end
   end
 
+  @spec image_basename(String.t()) :: String.t()
   defp image_basename(url) do
     name =
       url
@@ -232,6 +246,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     if String.contains?(name, "."), do: name, else: ""
   end
 
+  @spec extract_opening_image(String.t() | nil) :: {String.t() | nil, String.t() | nil}
   defp extract_opening_image(markdown) when not is_binary(markdown), do: {nil, markdown}
 
   defp extract_opening_image(markdown) do
@@ -250,6 +265,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     end
   end
 
+  @spec first_image_match(String.t()) :: {String.t(), non_neg_integer(), non_neg_integer()} | nil
   defp first_image_match(markdown) do
     linked = image_match(markdown, @linked_image)
     bare = image_match(markdown, @bare_image)
@@ -262,6 +278,7 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     end
   end
 
+  @spec image_match(String.t(), Regex.t()) :: {String.t(), non_neg_integer(), non_neg_integer()} | nil
   defp image_match(markdown, regex) do
     case Regex.run(regex, markdown, return: :index) do
       [{start, len} | captures] ->
@@ -279,12 +296,14 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     end
   end
 
+  @spec opening_prefix?(String.t()) :: boolean()
   defp opening_prefix?(prefix) do
     prefix
     |> String.split(~r/\n{2,}/)
     |> Enum.all?(&thin_opening_block?/1)
   end
 
+  @spec thin_opening_block?(String.t()) :: boolean()
   defp thin_opening_block?(block) do
     trimmed = String.trim(block)
 
@@ -292,16 +311,19 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
       short_credit?(trimmed)
   end
 
+  @spec short_credit?(String.t()) :: boolean()
   defp short_credit?(text) do
     not String.contains?(text, "![") and
       not String.contains?(text, "\n") and
       length(String.split(text, ~r/\s+/, trim: true)) <= 10
   end
 
+  @spec lone_markdown_link?(String.t()) :: boolean()
   defp lone_markdown_link?(text) do
     String.match?(text, ~r/\A\[[^\]]+\]\([^)]+\)\s*\z/)
   end
 
+  @spec remove_image_at(String.t(), non_neg_integer(), non_neg_integer()) :: String.t()
   defp remove_image_at(markdown, start, len) do
     {pre, rest} = String.split_at(markdown, start)
     {_gone, post} = String.split_at(rest, len)

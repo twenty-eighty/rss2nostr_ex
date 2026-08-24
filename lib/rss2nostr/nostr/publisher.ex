@@ -45,6 +45,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   - :relays - List of relay URLs (optional; unknown sources cannot use public relays)
   - :min_success - Minimum number of successful publishes (default: 1)
   """
+  @spec publish_post(Post.t(), keyword()) :: {:ok, Publisher.publish_result()} | {:error, term()}
   def publish_post(%Post{} = post, opts) do
     post = PostLoader.ensure_source(post)
     relays = Relays.publish_relays(post, opts)
@@ -61,6 +62,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
     end
   end
 
+  @spec do_publish_post(Post.t(), Signing.signer(), [String.t()], non_neg_integer()) :: {:ok, Publisher.publish_result()} | {:error, term()}
   defp do_publish_post(post, signer, relays, min_success) do
     with {:ok, pubkey_hex, signer} <- Signing.pubkey_for_signer(signer),
          {:ok, events} <- Signing.prepare_events(post, pubkey_hex, signer),
@@ -88,6 +90,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
     end
   end
 
+  @spec summarize_publish(Post.t(), String.t(), list()) :: {:ok, Publisher.publish_result()}
   defp summarize_publish(post, pubkey_hex, results) do
     first = List.first(results) || %{success: false, event_id: nil, naddr: nil}
     success = results != [] and Enum.all?(results, & &1.success)
@@ -142,6 +145,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   Exports a post to Nostr without updating the database.
   Returns the signed event and publishing results.
   """
+  @spec export_post(Post.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def export_post(%Post{} = post, opts) do
     post = PostLoader.ensure_source(post)
     relays = Relays.publish_relays(post, Keyword.put_new(opts, :relays, []))
@@ -180,6 +184,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   @doc """
   Batch publishes multiple posts.
   """
+  @spec publish_posts(list(), keyword()) :: list()
   def publish_posts(posts, opts) do
     each_with_gap(posts, fn post ->
       case publish_post(post, opts) do
