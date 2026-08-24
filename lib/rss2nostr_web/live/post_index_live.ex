@@ -353,7 +353,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
       </tbody>
     </table>
 
-    <div class="pagination">
+    <div :if={@total_pages > 1} class="pagination">
       <.link
         :if={@page > 1}
         patch={posts_path(status: @status, source_id: @source_id, q: @q, page: @page - 1)}
@@ -361,9 +361,9 @@ defmodule Rss2NostrWeb.PostIndexLive do
       >
         ← Previous
       </.link>
-      <span>Page {@page}</span>
+      <span>Page {@page} of {@total_pages}</span>
       <.link
-        :if={length(@posts) == @per_page}
+        :if={@page < @total_pages}
         patch={posts_path(status: @status, source_id: @source_id, q: @q, page: @page + 1)}
         class="btn btn-small"
       >
@@ -378,15 +378,18 @@ defmodule Rss2NostrWeb.PostIndexLive do
     source_id = socket.assigns.source_id
     q = socket.assigns.q
     page = socket.assigns.page
-    offset = (page - 1) * @per_page
+
+    filter = [status: status, source_id: source_id, q: q]
+    total = Posts.count_posts(filter)
+    total_pages = total_pages(total, @per_page)
+    page = min(page, total_pages)
 
     posts =
       Posts.list_posts(
-        limit: @per_page,
-        offset: offset,
-        status: status,
-        source_id: source_id,
-        q: q
+        Keyword.merge(filter,
+          limit: @per_page,
+          offset: (page - 1) * @per_page
+        )
       )
 
     selectable_ids = selectable_post_ids(status, source_id, q)
@@ -394,6 +397,9 @@ defmodule Rss2NostrWeb.PostIndexLive do
 
     socket
     |> assign(:posts, posts)
+    |> assign(:page, page)
+    |> assign(:total, total)
+    |> assign(:total_pages, total_pages)
     |> assign(:sources, Enum.sort_by(Sources.list_sources(), & &1.name))
     |> assign(:per_page, @per_page)
     |> assign(:selectable_ids, selectable_ids)
@@ -401,6 +407,9 @@ defmodule Rss2NostrWeb.PostIndexLive do
     |> assign(:return_to, posts_path(status: status, source_id: source_id, q: q, page: page))
     |> assign_selection_flags()
   end
+
+  defp total_pages(total, _per_page) when total <= 0, do: 1
+  defp total_pages(total, per_page), do: div(total + per_page - 1, per_page)
 
   defp assign_selection_flags(socket) do
     selected = socket.assigns.selected_ids

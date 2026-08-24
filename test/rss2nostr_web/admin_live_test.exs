@@ -187,6 +187,45 @@ defmodule Rss2NostrWeb.AdminLiveTest do
       refute html =~ ~r/phx-click="reprocess_selected"[^>]*disabled/
     end
 
+    test "hides pagination when a single page of results fits", %{conn: conn} do
+      source = create_source(%{name: "Single Page Source"})
+      create_post(source, %{title: "Only page article"})
+
+      {:ok, _view, html} =
+        conn
+        |> authed_conn()
+        |> live("/posts?status=2&source_id=#{source.id}&page=1")
+
+      assert html =~ "Only page article"
+      refute html =~ "pagination"
+      refute html =~ "Next →"
+      refute html =~ "Page 1"
+    end
+
+    test "shows pagination only when more than one page exists", %{conn: conn} do
+      source = create_source(%{name: "Multi Page Source"})
+
+      for i <- 1..21 do
+        create_post(source, %{title: "Paged article #{i}"})
+      end
+
+      {:ok, view, html} =
+        conn
+        |> authed_conn()
+        |> live("/posts?status=2&source_id=#{source.id}&page=1")
+
+      assert html =~ "pagination"
+      assert html =~ "Page 1 of 2"
+      assert html =~ "Next →"
+
+      html = render_patch(view, "/posts?status=2&source_id=#{source.id}&page=2")
+
+      assert html =~ "Page 2 of 2"
+      assert html =~ "← Previous"
+      refute html =~ "Next →"
+      assert html =~ "Paged article"
+    end
+
     test "shows a processed post editor", %{conn: conn} do
       source = create_source()
       post = create_post(source, %{title: "Editable post", content: "Hello **world**"})

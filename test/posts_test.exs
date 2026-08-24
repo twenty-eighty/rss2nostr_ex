@@ -331,6 +331,48 @@ defmodule Rss2Nostr.PostsTest do
       assert Posts.count_posts() == initial + 1
     end
 
+    test "count_posts/1 respects status and source filters", %{source: source} do
+      {:ok, other} =
+        Sources.create_source(%{
+          name: "Other Count Source",
+          url: "https://example.com/other-count-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          active: true
+        })
+
+      {:ok, _} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:status, Post.status_processed())
+        )
+
+      {:ok, _} =
+        Posts.create_post(
+          valid_post_attrs(other.id)
+          |> Map.put(:status, Post.status_processed())
+          |> Map.put(:source_url, "https://example.com/article/other-count")
+          |> Map.put(
+            :source_url_hash,
+            Post.generate_url_hash("https://example.com/article/other-count")
+          )
+        )
+
+      {:ok, _} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:status, Post.status_new())
+          |> Map.put(:source_url, "https://example.com/article/new-count")
+          |> Map.put(
+            :source_url_hash,
+            Post.generate_url_hash("https://example.com/article/new-count")
+          )
+        )
+
+      assert Posts.count_posts(status: Post.status_processed(), source_id: source.id) == 1
+      assert Posts.count_posts(status: "2", source_id: source.id) == 1
+    end
+
     test "count_posts_by_status/1 returns status-specific count", %{source: source} do
       {:ok, _} = Posts.create_post(valid_post_attrs(source.id))
 

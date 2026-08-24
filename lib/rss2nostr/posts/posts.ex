@@ -468,7 +468,19 @@ defmodule Rss2Nostr.Posts do
   """
   @spec count_posts() :: non_neg_integer()
   def count_posts do
-    Repo.aggregate(Post, :count, :id)
+    count_posts([])
+  end
+
+  @doc """
+  Returns the count of posts matching the same filters as `list_posts/1`.
+  """
+  @spec count_posts(keyword()) :: non_neg_integer()
+  def count_posts(opts) when is_list(opts) do
+    Post
+    |> maybe_filter_status(Keyword.get(opts, :status))
+    |> maybe_filter_source(Keyword.get(opts, :source_id))
+    |> maybe_filter_term(Keyword.get(opts, :q))
+    |> Repo.aggregate(:count, :id)
   end
 
   @doc """
