@@ -25,15 +25,6 @@ defmodule Rss2Nostr.Web.Router do
   # Auth (NIP-07)
   # ============================================================================
 
-  get "/login" do
-    if Auth.logged_in?(conn) do
-      redirect(conn, "/")
-    else
-      html = Views.Login.render()
-      send_html(conn, 200, html)
-    end
-  end
-
   get "/auth/challenge" do
     {conn, payload} = Auth.new_challenge(conn)
     send_json(conn, 200, payload)
@@ -75,27 +66,8 @@ defmodule Rss2Nostr.Web.Router do
   )
 
   # ============================================================================
-  # Dashboard
-  # ============================================================================
-
-  get "/" do
-    html = Views.Dashboard.render()
-    send_html(conn, 200, html)
-  end
-
-  # ============================================================================
   # Sources
   # ============================================================================
-
-  get "/sources" do
-    html = Views.Sources.index()
-    send_html(conn, 200, html)
-  end
-
-  get "/sources/new" do
-    html = Views.Sources.new()
-    send_html(conn, 200, html)
-  end
 
   post "/sources" do
     case API.Sources.create(conn.body_params) do
@@ -105,20 +77,6 @@ defmodule Rss2Nostr.Web.Router do
       {:error, changeset} ->
         html = Views.Sources.new(errors: changeset_errors(changeset), params: conn.body_params)
         send_html(conn, 422, html)
-    end
-  end
-
-  get "/sources/:id" do
-    case API.Sources.get(id) do
-      {:ok, source} ->
-        html = Views.Sources.show(source, source_view_opts(conn))
-        send_html(conn, 200, html)
-
-      {:error, :not_found} ->
-        send_html(conn, 404, Views.Error.not_found())
-
-      {:error, :invalid_id} ->
-        send_html(conn, 400, Views.Error.bad_request())
     end
   end
 
@@ -246,25 +204,6 @@ defmodule Rss2Nostr.Web.Router do
   # Posts
   # ============================================================================
 
-  get "/posts" do
-    status = conn.query_params["status"]
-    source_id = conn.query_params["source_id"]
-    q = conn.query_params["q"]
-    page = parse_page(conn.query_params["page"])
-
-    html =
-      Views.Posts.index(
-        status: status,
-        source_id: source_id,
-        q: q,
-        page: page,
-        notice: conn.query_params["notice"],
-        notice_kind: conn.query_params["notice_kind"]
-      )
-
-    send_html(conn, 200, html)
-  end
-
   post "/posts/publish-selected" do
     dest = return_to(conn, "/posts")
 
@@ -282,26 +221,6 @@ defmodule Rss2Nostr.Web.Router do
     dest = return_to(conn, "/posts")
     {:ok, result} = API.Posts.reprocess_selected(conn.body_params)
     redirect(conn, with_flash(dest, reprocess_notice(result), "success"))
-  end
-
-  get "/posts/:id" do
-    case API.Posts.get(id) do
-      {:ok, _post} ->
-        html =
-          Views.Posts.show(id,
-            notice: conn.query_params["notice"],
-            notice_kind: conn.query_params["notice_kind"],
-            return_to: conn.query_params["return_to"]
-          )
-
-        send_html(conn, 200, html)
-
-      {:error, :not_found} ->
-        send_html(conn, 404, Views.Error.not_found())
-
-      {:error, :invalid_id} ->
-        send_html(conn, 400, Views.Error.bad_request())
-    end
   end
 
   post "/posts/:id/process" do
@@ -412,11 +331,6 @@ defmodule Rss2Nostr.Web.Router do
   # Scheduler
   # ============================================================================
 
-  get "/scheduler" do
-    html = Views.Scheduler.index()
-    send_html(conn, 200, html)
-  end
-
   post "/scheduler/start" do
     API.Scheduler.start()
     redirect(conn, "/scheduler")
@@ -435,11 +349,6 @@ defmodule Rss2Nostr.Web.Router do
   # ============================================================================
   # Settings
   # ============================================================================
-
-  get "/settings" do
-    html = Views.Settings.index()
-    send_html(conn, 200, html)
-  end
 
   post "/settings" do
     API.Settings.update(conn.body_params)
@@ -541,10 +450,11 @@ defmodule Rss2Nostr.Web.Router do
       status_name: Rss2Nostr.Posts.Post.status_name(post.status),
       status_label: Rss2Nostr.Posts.Post.status_label(post.status),
       last_error: post.last_error,
-      selectable: post.status in [
-        Rss2Nostr.Posts.Post.status_processed(),
-        Rss2Nostr.Posts.Post.status_pending_images()
-      ],
+      selectable:
+        post.status in [
+          Rss2Nostr.Posts.Post.status_processed(),
+          Rss2Nostr.Posts.Post.status_pending_images()
+        ],
       publishable: post.status == Rss2Nostr.Posts.Post.status_processed()
     }
   end
@@ -656,15 +566,6 @@ defmodule Rss2Nostr.Web.Router do
     end)
   end
 
-  defp source_view_opts(conn) do
-    [
-      tab: conn.query_params["tab"] || "compose",
-      saved: conn.query_params["saved"] == "1",
-      notice: conn.query_params["notice"],
-      notice_kind: conn.query_params["notice_kind"]
-    ]
-  end
-
   defp import_notice(result) do
     skipped =
       if result.skipped > 0 do
@@ -744,15 +645,4 @@ defmodule Rss2Nostr.Web.Router do
   end
 
   defp format_update_error(reason), do: to_string(reason)
-
-  defp parse_page(nil), do: 1
-
-  defp parse_page(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {page, ""} when page > 0 -> page
-      _ -> 1
-    end
-  end
-
-  defp parse_page(_), do: 1
 end

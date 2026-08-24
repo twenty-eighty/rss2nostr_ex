@@ -119,7 +119,9 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       assert preview.event.kind == 34235
       assert ["title", post.title] in preview.event.tags
       assert ["alt", "This week on New World Next Week."] in preview.event.tags
+
       assert ["imeta", "url #{video}", "m video/mp4", "duration 1423", "alt Video"] in preview.event.tags
+
       refute preview.encrypted
     end
 
@@ -563,7 +565,8 @@ defmodule Rss2Nostr.Nostr.PublisherTest do
       first =
         Publisher.identifier(%{
           title: "One",
-          source_url: "https://corbettreport.com/under-the-bus-how-bill-gates-fell-from-globalist-grace/"
+          source_url:
+            "https://corbettreport.com/under-the-bus-how-bill-gates-fell-from-globalist-grace/"
         })
 
       second =

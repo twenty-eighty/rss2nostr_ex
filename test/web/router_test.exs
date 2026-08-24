@@ -1,71 +1,63 @@
 defmodule Rss2Nostr.Web.RouterTest do
-  use Rss2Nostr.ConnCase, async: false
+  use Rss2NostrWeb.ConnCase, async: false
 
   describe "GET /" do
-    test "returns dashboard page" do
-      conn = call(conn(:get, "/"))
+    test "returns dashboard page", %{conn: conn} do
+      html = page(conn, "/")
 
-      assert conn.status == 200
-      assert conn.resp_body =~ "Dashboard"
-      assert conn.resp_body =~ "RSS2Nostr"
+      assert html =~ "Dashboard"
+      assert html =~ "RSS2Nostr"
     end
 
-    test "redirects to login when not authenticated" do
-      conn = call(conn(:get, "/"), auth: false)
+    test "redirects to login when not authenticated", %{conn: conn} do
+      conn = get(conn, "/")
 
-      assert conn.status == 302
-      assert get_resp_header(conn, "location") == ["/login?next=%2F"]
+      assert redirected_to(conn) == "/login?next=#{URI.encode_www_form("/")}"
     end
   end
 
   describe "GET /login" do
-    test "returns the NIP-07 login page" do
-      conn = call(conn(:get, "/login"), auth: false)
+    test "returns the NIP-07 login page", %{conn: conn} do
+      conn = get(conn, "/login")
 
-      assert conn.status == 200
-      assert conn.resp_body =~ "Login with Nostr"
-      assert conn.resp_body =~ "window.nostr"
+      assert html_response(conn, 200) =~ "Login with Nostr"
+      assert html_response(conn, 200) =~ "window.nostr"
     end
 
-    test "redirects to dashboard when already logged in" do
-      conn = call(conn(:get, "/login"))
+    test "redirects to dashboard when already logged in", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/login")
 
-      assert conn.status == 302
-      assert get_resp_header(conn, "location") == ["/"]
+      assert redirected_to(conn) == "/"
     end
   end
 
   describe "GET /sources" do
-    test "returns sources page" do
-      conn = call(conn(:get, "/sources"))
-
-      assert conn.status == 200
-      assert conn.resp_body =~ "Sources"
+    test "returns sources page", %{conn: conn} do
+      assert page(conn, "/sources") =~ "Sources"
     end
   end
 
   describe "GET /sources/new" do
-    test "returns new source form" do
-      conn = call(conn(:get, "/sources/new"))
+    test "returns new source form", %{conn: conn} do
+      html = page(conn, "/sources/new")
 
-      assert conn.status == 200
-      assert conn.resp_body =~ "Add Source"
-      assert conn.resp_body =~ "<form"
-      assert conn.resp_body =~ "Find feeds"
+      assert html =~ "Add Source"
+      assert html =~ "<form"
+      assert html =~ "Find feeds"
     end
   end
 
   describe "GET /sources/:id" do
-    test "returns 404 for a missing source" do
-      conn = call(conn(:get, "/sources/999999"))
+    test "redirects for a missing source", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/sources/999999")
 
-      assert conn.status == 404
+      assert redirected_to(conn) == "/sources"
     end
   end
 
   describe "POST /api/sources/compose-preview" do
-    test "returns 422 without a feed URL" do
-      conn = call(conn(:post, "/api/sources/compose-preview", %{}))
+    test "returns 422 without a feed URL", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/api/sources/compose-preview", %{})
 
       assert conn.status == 422
       assert conn.resp_body =~ "Feed URL is required"
@@ -73,66 +65,59 @@ defmodule Rss2Nostr.Web.RouterTest do
   end
 
   describe "GET /posts" do
-    test "returns posts page" do
-      conn = call(conn(:get, "/posts"))
+    test "returns posts page", %{conn: conn} do
+      html = page(conn, "/posts")
 
-      assert conn.status == 200
-      assert conn.resp_body =~ "Posts"
-      assert conn.resp_body =~ "Publish selected"
+      assert html =~ "Posts"
+      assert html =~ "Publish selected"
     end
 
-    test "accepts status filter" do
-      conn = call(conn(:get, "/posts?status=new"))
+    test "accepts status filter", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/posts?status=new")
 
-      assert conn.status == 200
+      assert html_response(conn, 200)
     end
 
-    test "accepts page parameter" do
-      conn = call(conn(:get, "/posts?page=2"))
+    test "accepts page parameter", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/posts?page=2")
 
-      assert conn.status == 200
+      assert html_response(conn, 200)
     end
 
-    test "accepts source_id filter" do
-      conn = call(conn(:get, "/posts?source_id=1"))
+    test "accepts source_id filter", %{conn: conn} do
+      html = page(conn, "/posts?source_id=1")
 
-      assert conn.status == 200
-      assert conn.resp_body =~ "All sources"
+      assert html =~ "All sources"
     end
 
-    test "accepts search term filter" do
-      conn = call(conn(:get, "/posts?q=climate"))
+    test "accepts search term filter", %{conn: conn} do
+      html = page(conn, "/posts?q=climate")
 
-      assert conn.status == 200
-      assert conn.resp_body =~ ~s(name="q")
-      assert conn.resp_body =~ ~s(value="climate")
+      assert html =~ ~s(name="q")
+      assert html =~ ~s(value="climate")
     end
   end
 
   describe "GET /scheduler" do
-    test "returns scheduler page" do
-      conn = call(conn(:get, "/scheduler"))
-
-      assert conn.status == 200
-      assert conn.resp_body =~ "Scheduler"
+    test "returns scheduler page", %{conn: conn} do
+      assert page(conn, "/scheduler") =~ "Scheduler"
     end
   end
 
   describe "GET /settings" do
-    test "returns settings page" do
-      conn = call(conn(:get, "/settings"))
+    test "returns settings page", %{conn: conn} do
+      html = page(conn, "/settings")
 
-      assert conn.status == 200
-      assert conn.resp_body =~ "Settings"
-      assert conn.resp_body =~ "Admin access"
-      assert conn.resp_body =~ "DM relays"
-      assert conn.resp_body =~ "NOSTR_RELAYS_INBOX"
+      assert html =~ "Settings"
+      assert html =~ "Admin access"
+      assert html =~ "DM relays"
+      assert html =~ "NOSTR_RELAYS_INBOX"
     end
   end
 
   describe "GET /static/style.css" do
-    test "returns CSS stylesheet without auth" do
-      conn = call(conn(:get, "/static/style.css"), auth: false)
+    test "returns CSS stylesheet without auth", %{conn: conn} do
+      conn = get(conn, "/static/style.css")
 
       assert conn.status == 200
       assert get_resp_header(conn, "content-type") == ["text/css; charset=utf-8"]
@@ -143,14 +128,14 @@ defmodule Rss2Nostr.Web.RouterTest do
   end
 
   describe "GET /mcp" do
-    test "does not redirect loopback clients to login" do
-      conn = call(conn(:get, "/mcp"), auth: false)
+    test "does not redirect loopback clients to login", %{conn: conn} do
+      conn = get(conn, "/mcp")
 
       refute conn.status == 302
       refute conn.status == 401
     end
 
-    test "requires a bearer token when MCP_TOKEN is set" do
+    test "requires a bearer token when MCP_TOKEN is set", %{conn: conn} do
       original = Application.get_env(:rss2nostr, :mcp)
 
       on_exit(fn ->
@@ -159,14 +144,14 @@ defmodule Rss2Nostr.Web.RouterTest do
 
       Application.put_env(:rss2nostr, :mcp, token: "secret-token")
 
-      conn = call(conn(:get, "/mcp"), auth: false)
+      conn = get(conn, "/mcp")
       assert conn.status == 401
     end
   end
 
   describe "GET /api/status" do
-    test "returns JSON status" do
-      conn = call(conn(:get, "/api/status"))
+    test "returns JSON status", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/api/status")
 
       assert conn.status == 200
       assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
@@ -177,10 +162,11 @@ defmodule Rss2Nostr.Web.RouterTest do
       assert Map.has_key?(body, "version")
     end
 
-    test "returns 401 JSON when not authenticated" do
-      conn = call(conn(:get, "/api/status"), auth: false)
+    test "returns 401 JSON when not authenticated", %{conn: conn} do
+      conn = get(conn, "/api/status")
 
       assert conn.status == 401
+
       assert Jason.decode!(conn.resp_body) == %{
                "error" => "Session expired. Reload the page and sign in."
              }
@@ -188,8 +174,8 @@ defmodule Rss2Nostr.Web.RouterTest do
   end
 
   describe "GET /api/sources" do
-    test "returns JSON sources list" do
-      conn = call(conn(:get, "/api/sources"))
+    test "returns JSON sources list", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/api/sources")
 
       assert conn.status == 200
       body = Jason.decode!(conn.resp_body)
@@ -199,20 +185,21 @@ defmodule Rss2Nostr.Web.RouterTest do
   end
 
   describe "POST /api/sources/discover" do
-    test "returns 401 JSON when not authenticated" do
+    test "returns 401 JSON when not authenticated", %{conn: conn} do
       conn =
-        call(conn(:post, "/api/sources/discover", Jason.encode!(%{url: "https://example.com"})),
-          auth: false
-        )
+        conn
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/sources/discover", Jason.encode!(%{url: "https://example.com"}))
 
       assert conn.status == 401
     end
 
-    test "returns 422 for an invalid URL" do
+    test "returns 422 for an invalid URL", %{conn: conn} do
       conn =
-        conn(:post, "/api/sources/discover", Jason.encode!(%{url: "javascript:alert(1)"}))
+        conn
+        |> authed_conn()
         |> put_req_header("content-type", "application/json")
-        |> call()
+        |> post("/api/sources/discover", Jason.encode!(%{url: "javascript:alert(1)"}))
 
       assert conn.status == 422
       assert Jason.decode!(conn.resp_body)["error"]
@@ -220,8 +207,8 @@ defmodule Rss2Nostr.Web.RouterTest do
   end
 
   describe "GET /api/posts" do
-    test "returns JSON posts list" do
-      conn = call(conn(:get, "/api/posts"))
+    test "returns JSON posts list", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/api/posts")
 
       assert conn.status == 200
       body = Jason.decode!(conn.resp_body)
@@ -230,8 +217,8 @@ defmodule Rss2Nostr.Web.RouterTest do
   end
 
   describe "404 handling" do
-    test "returns 404 for unknown routes" do
-      conn = call(conn(:get, "/unknown/path"))
+    test "returns 404 for unknown routes", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/unknown/path")
 
       assert conn.status == 404
       assert conn.resp_body =~ "404"

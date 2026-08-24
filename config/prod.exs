@@ -23,3 +23,8 @@ config :logger, level: :info
 config :rss2nostr, :code_reloader, false
 config :rss2nostr, :start_web_server, true
 config :rss2nostr, :web_port, 4000
+
+config :rss2nostr, Rss2NostrWeb.Endpoint,
+  http: [ip: {0, 0, 0, 0}, port: 4000],
+  server: true,
+  check_origin: false

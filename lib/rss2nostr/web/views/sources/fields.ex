@@ -30,7 +30,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Fields do
     """
   end
 
-
   def excluded_hashtag_fields(params, source, errors) do
     tags =
       params["excluded_hashtags"] ||
@@ -56,7 +55,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Fields do
     </div>
     """
   end
-
 
   def staging_fields(params, source, errors) do
     hold =
@@ -95,7 +93,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Fields do
     </fieldset>
     """
   end
-
 
   def publish_as_fields(params, source, errors) do
     publish_as = params["publish_as"] || (source && source.publish_as) || "draft"
@@ -203,6 +200,4 @@ defmodule Rss2Nostr.Web.Views.Sources.Fields do
     #{Scripts.publish_as_script()}
     """
   end
-
-
 end

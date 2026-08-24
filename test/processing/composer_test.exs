@@ -139,7 +139,8 @@ defmodule Rss2Nostr.Processing.ComposerTest do
     end
 
     test "translates generated labels using the compose language" do
-      html = ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>)
+      html =
+        ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>)
 
       result = Composer.compose(html, %{skip_classes: [], language: "de"})
 
@@ -152,7 +153,8 @@ defmodule Rss2Nostr.Processing.ComposerTest do
 
       result = Composer.compose(html, %{skip_classes: []})
 
-      assert result.markdown =~ "[Listen on SoundCloud](https://soundcloud.com/a/b?color=%23ffd400)"
+      assert result.markdown =~
+               "[Listen on SoundCloud](https://soundcloud.com/a/b?color=%23ffd400)"
     end
 
     test "uses SoundCloud oEmbed artwork when the article has no image" do
@@ -249,7 +251,10 @@ defmodule Rss2Nostr.Processing.ComposerTest do
 
     test "drops a leading WordPress sized variant of the featured image" do
       featured = "https://corbettreport.com/wp-content/uploads/2026/05/japanese_qa-featured.jpg"
-      body = "https://corbettreport.com/wp-content/uploads/2026/05/japanese_qa-featured-1024x576.jpg"
+
+      body =
+        "https://corbettreport.com/wp-content/uploads/2026/05/japanese_qa-featured-1024x576.jpg"
+
       html = ~s(<p><img src="#{body}" alt=""></p><p>At long last, the Japanese edition</p>)
 
       result = Composer.compose(html, %{image: featured, skip_classes: []})
@@ -519,7 +524,10 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       }
 
       assert {:ok, html, "feed"} = Composer.html_for_item(item, %{fetch_source_from: "content"})
-      assert html =~ ~s(<a href="https://www.corbettreport.com/mp4/nwnw640.mp4" title="23:43 66928694">Video</a>)
+
+      assert html =~
+               ~s(<a href="https://www.corbettreport.com/mp4/nwnw640.mp4" title="23:43 66928694">Video</a>)
+
       assert html =~ "This week on NWNW."
     end
 
@@ -534,7 +542,10 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       }
 
       assert {:ok, html, "feed"} = Composer.html_for_item(item, %{fetch_source_from: "content"})
-      assert html =~ ~s(<a href="https://www.corbettreport.com/mp3/flnwo03.mp3" title="45:12 49600123">Audio</a>)
+
+      assert html =~
+               ~s(<a href="https://www.corbettreport.com/mp3/flnwo03.mp3" title="45:12 49600123">Audio</a>)
+
       assert html =~ "Episode notes."
     end
 
@@ -599,10 +610,11 @@ defmodule Rss2Nostr.Processing.ComposerTest do
 
   describe "preview_parts/1" do
     test "renders markdown and HTML for each split chunk" do
-      parts = Composer.preview_parts([
-        %{content: "# One\n\nFirst part"},
-        %{content: "# Two\n\nSecond part"}
-      ])
+      parts =
+        Composer.preview_parts([
+          %{content: "# One\n\nFirst part"},
+          %{content: "# Two\n\nSecond part"}
+        ])
 
       assert length(parts) == 2
       assert hd(parts).index == 1

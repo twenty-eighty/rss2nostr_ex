@@ -98,7 +98,11 @@ defmodule Rss2Nostr.Nostr.DraftCleanupTest do
 
     assert_received {:deletion, _urls, event}
     assert ["e", "draft-event"] in event.tags
-    refute Enum.any?(event.tags, fn ["e", "published-event"] -> true; _ -> false end)
+
+    refute Enum.any?(event.tags, fn
+             ["e", "published-event"] -> true
+             _ -> false
+           end)
   end
 
   test "does not delete when a kind 30023 has the same d tag but a different author" do

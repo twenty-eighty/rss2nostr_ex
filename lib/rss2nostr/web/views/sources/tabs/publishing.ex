@@ -17,17 +17,16 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Publishing do
       #{Fields.staging_fields(params, source, errors)}
       #{Helpers.error_message(errors, :mode)}
       #{unless signer_ok? do
-        "<p class=\"help-text\">Configure a signing key before switching to automated publishing. Use the Setup badge at the top once a key is set.</p>"
-      else
-        "<p class=\"help-text\">Use the Setup / Automated badge at the top of the page to change mode.</p>"
-      end}
+      "<p class=\"help-text\">Configure a signing key before switching to automated publishing. Use the Setup badge at the top once a key is set.</p>"
+    else
+      "<p class=\"help-text\">Use the Setup / Automated badge at the top of the page to change mode.</p>"
+    end}
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Save publishing settings</button>
       </div>
     </form>
     """
   end
-
 
   def mode_badge(%Source{mode: "automated"} = source, tab) do
     mode_badge_form(source, tab, "setup", "Automated", "badge-processed", "Switch back to setup")
@@ -48,7 +47,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Publishing do
     end
   end
 
-
   defp mode_badge_form(source, tab, next_mode, label, class, title) do
     """
     <form action="/sources/#{source.id}" method="POST" class="inline-mode-form">
@@ -57,6 +55,4 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Publishing do
     </form>
     """
   end
-
-
 end

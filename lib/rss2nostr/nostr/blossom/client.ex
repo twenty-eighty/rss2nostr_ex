@@ -177,7 +177,10 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
           ok
 
         {:error, {:upload_failed, code, _}} when code in [404, 405] ->
-          Logger.warning("Blossom /mirror is unavailable (HTTP #{code}); falling back to PUT /upload")
+          Logger.warning(
+            "Blossom /mirror is unavailable (HTTP #{code}); falling back to PUT /upload"
+          )
+
           put_blob(server, data, sha256, content_type, signer)
 
         {:error, reason} ->

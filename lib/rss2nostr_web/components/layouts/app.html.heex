@@ -1,0 +1,30 @@
+<nav class="navbar">
+  <div class="nav-brand">
+    <a href="/">RSS2Nostr</a>
+  </div>
+  <ul class="nav-links">
+    <li><a href="/" class={@active_nav == "dashboard" && "active"}>Dashboard</a></li>
+    <li><a href="/sources" class={@active_nav == "sources" && "active"}>Sources</a></li>
+    <li><a href="/posts" class={@active_nav == "posts" && "active"}>Posts</a></li>
+    <li><a href="/scheduler" class={@active_nav == "scheduler" && "active"}>Scheduler</a></li>
+    <li><a href="/settings" class={@active_nav == "settings" && "active"}>Settings</a></li>
+    <li class="nav-session">
+      <span :if={npub = assigns[:current_npub]} class="nav-npub" title={npub}>
+        {Rss2NostrWeb.LiveHelpers.shorten_npub(npub)}
+      </span>
+      <form action="/logout" method="post" class="nav-logout">
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <button type="submit" class="btn btn-small btn-secondary">Logout</button>
+      </form>
+    </li>
+  </ul>
+</nav>
+<main class={["container", assigns[:wide] && "container-wide"]}>
+  <p :if={info = Phoenix.Flash.get(@flash, :info)} class="success">{info}</p>
+  <p :if={warning = Phoenix.Flash.get(@flash, :warning)} class="warning">{warning}</p>
+  <p :if={error = Phoenix.Flash.get(@flash, :error)} class="error">{error}</p>
+  {@inner_content}
+</main>
+<footer class="footer">
+  <p>RSS2Nostr v0.1.0</p>
+</footer>

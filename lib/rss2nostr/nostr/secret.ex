@@ -27,7 +27,15 @@ defmodule Rss2Nostr.Nostr.Secret do
   def decrypt(_), do: {:error, :decrypt_failed}
 
   defp open(<<iv::binary-12, tag::binary-16, cipher::binary>>) do
-    case :crypto.crypto_one_time_aead(:aes_256_gcm, encryption_key(), iv, cipher, @aad, tag, false) do
+    case :crypto.crypto_one_time_aead(
+           :aes_256_gcm,
+           encryption_key(),
+           iv,
+           cipher,
+           @aad,
+           tag,
+           false
+         ) do
       :error -> {:error, :decrypt_failed}
       plaintext when is_binary(plaintext) -> {:ok, plaintext}
     end

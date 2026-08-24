@@ -53,6 +53,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
 
   def valid?(url) do
     uri = URI.parse(url)
+
     uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != "" and
       not tracking_pixel?(url)
   rescue

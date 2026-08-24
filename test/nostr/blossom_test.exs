@@ -70,13 +70,18 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       agent = start_supervised!({Agent, fn -> %{mode: :mirror_ok, requests: []} end})
 
       bandit =
-        start_supervised!({Bandit, plug: {__MODULE__.MirrorStub, agent}, port: 0, ip: {127, 0, 0, 1}})
+        start_supervised!(
+          {Bandit, plug: {__MODULE__.MirrorStub, agent}, port: 0, ip: {127, 0, 0, 1}}
+        )
 
       {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
       %{agent: agent, server: "http://127.0.0.1:#{port}"}
     end
 
-    test "mirrors blobs at or above 5MB instead of PUTting the body", %{agent: agent, server: server} do
+    test "mirrors blobs at or above 5MB instead of PUTting the body", %{
+      agent: agent,
+      server: server
+    } do
       assert {:ok, result} =
                Blossom.upload_data(@large_blob, "episode.mp3",
                  private_key: :crypto.strong_rand_bytes(32),
@@ -144,7 +149,10 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
     def call(conn, agent) do
       {:ok, _body, conn} = Plug.Conn.read_body(conn)
       mode = Agent.get(agent, & &1.mode)
-      Agent.update(agent, fn state -> %{state | requests: state.requests ++ [{conn.method, conn.request_path}]} end)
+
+      Agent.update(agent, fn state ->
+        %{state | requests: state.requests ++ [{conn.method, conn.request_path}]}
+      end)
 
       {status, body} =
         case {conn.method, conn.request_path, mode} do
@@ -246,9 +254,15 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       """
 
       assert {:ok, result} = Blossom.parse_descriptor(json)
-      assert result.url == "https://route96.example/0eb42dad883310df7bdea79b0e07a722c249740ce5d91e7cd09ec1bf29ee283d.mp3"
+
+      assert result.url ==
+               "https://route96.example/0eb42dad883310df7bdea79b0e07a722c249740ce5d91e7cd09ec1bf29ee283d.mp3"
+
       assert result.nip94 == [
-               ["url", "https://route96.example/0eb42dad883310df7bdea79b0e07a722c249740ce5d91e7cd09ec1bf29ee283d.mp3"],
+               [
+                 "url",
+                 "https://route96.example/0eb42dad883310df7bdea79b0e07a722c249740ce5d91e7cd09ec1bf29ee283d.mp3"
+               ],
                ["m", "audio/mpeg"]
              ]
     end
@@ -266,6 +280,7 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       """
 
       assert {:ok, result} = Blossom.parse_descriptor(json)
+
       assert result.nip94 == [
                ["url", "https://route96.example/abc.png"],
                ["x", "aa"],

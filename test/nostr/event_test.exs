@@ -154,8 +154,7 @@ defmodule Rss2Nostr.Nostr.EventTest do
           ]
         )
 
-      assert ["imeta", "url https://cdn.example/hero.png", "m image/png", "x aa", "dim 1x1"] in
-               event.tags
+      assert ["imeta", "url https://cdn.example/hero.png", "m image/png", "x aa", "dim 1x1"] in event.tags
     end
 
     test "builds event with identifier (d tag)" do

@@ -60,9 +60,7 @@ defmodule Rss2Nostr.Nostr.Publisher.EventBuilder do
       language: PostContext.field(post, :language),
       canonical_url: PostContext.field(post, :source_url),
       imeta:
-        NIP92.tags_for_event(images_of(post), content,
-          featured: PostContext.field(post, :image)
-        ),
+        NIP92.tags_for_event(images_of(post), content, featured: PostContext.field(post, :image)),
       kind: PostKind.long_form_kind(post),
       author_pubkey: PostKind.draft_author(post),
       client: PostKind.public_article?(post)

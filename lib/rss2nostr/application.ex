@@ -20,7 +20,8 @@ defmodule Rss2Nostr.Application do
 
         # Import / process / export / cleanup. Start/Stop on the Scheduler
         # page only toggles timers; the process itself stays up.
-        {Rss2Nostr.Scheduler, []}
+        {Rss2Nostr.Scheduler, []},
+        {Phoenix.PubSub, name: Rss2Nostr.PubSub}
       ] ++ web_children()
 
     opts = [strategy: :one_for_one, name: Rss2Nostr.Supervisor]

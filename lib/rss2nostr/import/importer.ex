@@ -178,8 +178,7 @@ defmodule Rss2Nostr.Import.Importer do
         article_identifier: item.guid,
         title: item.title,
         source_html: source_html,
-        source_url:
-          ItemIdentity.page_url(item) || item.enclosure_url || item.link || item.guid,
+        source_url: ItemIdentity.page_url(item) || item.enclosure_url || item.link || item.guid,
         source_url_hash: url_hash,
         published_at: item.published_at,
         imported_at: DateTime.utc_now(),

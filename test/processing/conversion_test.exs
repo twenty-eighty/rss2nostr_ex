@@ -29,6 +29,7 @@ defmodule Rss2Nostr.Processing.ConversionTest do
     groups = Conversion.candidates(@watch_html)
 
     assert Enum.any?(groups, &(&1.xpath == "//p[contains(., 'WATCH ON:')]"))
+
     refute Enum.any?(groups, fn group ->
              Enum.any?(group.links, &String.contains?(&1.href, "youtube.com"))
            end)

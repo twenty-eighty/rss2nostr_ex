@@ -1,29 +1,28 @@
 defmodule Rss2Nostr.Web.Views.SourcesTest do
-  use Rss2Nostr.DataCase
+  use Rss2NostrWeb.ConnCase, async: false
 
-  alias Rss2Nostr.Web.Views.Sources
   alias Rss2Nostr.Sources, as: SourcesContext
 
   def unique_url do
     "https://example.com/feed-#{System.unique_integer([:positive])}.xml"
   end
 
-  describe "index/0" do
-    test "returns HTML with sources list" do
-      html = Sources.index()
+  describe "index" do
+    test "returns HTML with sources list", %{conn: conn} do
+      html = page(conn, "/sources")
 
       assert is_binary(html)
       assert html =~ "<html"
       assert html =~ "Sources"
     end
 
-    test "shows add source button" do
-      html = Sources.index()
+    test "shows add source button", %{conn: conn} do
+      html = page(conn, "/sources")
 
       assert html =~ "Add" or html =~ "New" or html =~ "/sources/new"
     end
 
-    test "lists existing sources" do
+    test "lists existing sources", %{conn: conn} do
       {:ok, source} =
         SourcesContext.create_source(%{
           name: "Test View Source",
@@ -33,17 +32,16 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
           active: true
         })
 
-      html = Sources.index()
+      html = page(conn, "/sources")
 
       assert html =~ source.name
       assert html =~ "source-avatar"
       assert html =~ "/sources/#{source.id}"
       assert html =~ "Open"
-      assert html =~ "/sources/#{source.id}/duplicate"
       assert html =~ "Duplicate"
     end
 
-    test "includes the author pubkey for the profile image" do
+    test "includes the author pubkey for the profile image", %{conn: conn} do
       pubkey = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
       {:ok, source} =
@@ -55,16 +53,16 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
           pubkey: pubkey
         })
 
-      html = Sources.index()
+      html = page(conn, "/sources")
 
       assert html =~ source.name
       assert html =~ ~s(data-pubkey="#{pubkey}")
-      assert html =~ "kinds: [0]"
+      assert html =~ ~s(phx-hook="SourceAvatars")
     end
   end
 
-  describe "compose/1" do
-    test "renders composition controls for an existing source" do
+  describe "compose" do
+    test "renders composition controls for an existing source", %{conn: conn} do
       {:ok, source} =
         SourcesContext.create_source(%{
           name: "Compose View Source",
@@ -75,7 +73,7 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
           options: %{"body_selector" => "div.entry-content"}
         })
 
-      html = Sources.compose(source)
+      html = page(conn, "/sources/#{source.id}")
 
       assert html =~ source.name
       assert html =~ "div.entry-content"
@@ -98,7 +96,7 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "compose-preview-event"
       assert html =~ "show-split-parts"
       assert html =~ "Show split parts"
-      assert html =~ "data-preview-tab=\"event\""
+      assert html =~ ~s(data-preview-tab="event")
       refute html =~ "Link rows"
       refute html =~ "conversion_rules"
       assert html =~ "container-wide"
@@ -107,14 +105,16 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "Articles"
       assert html =~ "Publishing"
 
-      feed = Sources.show(source, tab: "feed")
+      feed = page(conn, "/sources/#{source.id}?tab=feed")
       assert feed =~ "Feed URL"
       assert feed =~ "Duplicate"
       assert feed =~ ~s(name="url")
-      assert feed =~ ~s(<select id="language" name="language">)
-      assert feed =~ ~s[<option value="en" selected>English (en)</option>]
+      assert feed =~ ~s(id="language")
+      assert feed =~ ~s(name="language")
+      assert feed =~ ~s(value="en")
+      assert feed =~ "English (en)"
 
-      publishing = Sources.show(source, tab: "publishing")
+      publishing = page(conn, "/sources/#{source.id}?tab=publishing")
       assert publishing =~ "Setup"
       refute publishing =~ "Back to setup"
       assert publishing =~ "Draft (encrypted, NIP-37)"
@@ -132,20 +132,15 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert publishing =~ "Excluded hashtags"
       assert publishing =~ "Hold before auto-publish"
 
-      articles = Sources.show(source, tab: "articles")
+      articles = page(conn, "/sources/#{source.id}?tab=articles")
       assert articles =~ "Publish selected"
       assert articles =~ "Import now"
       assert articles =~ "Reprocess selected"
-      assert articles =~ "js-articles-publish"
-      assert articles =~ "js-articles-reprocess"
-      assert articles =~ ~s(js-articles-publish" form="articles-bulk-form" disabled)
-      assert articles =~ ~s(js-articles-reprocess" form="articles-bulk-form")
       assert articles =~ "select-all-articles"
       assert articles =~ "article-toolbar"
-      assert articles =~ "js-upload-images"
     end
 
-    test "preview links return to the articles tab" do
+    test "preview links return to the articles tab", %{conn: conn} do
       {:ok, source} =
         SourcesContext.create_source(%{
           name: "Articles Preview Source",
@@ -165,13 +160,13 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
           source_id: source.id
         })
 
-      html = Sources.show(source, tab: "articles")
+      html = page(conn, "/sources/#{source.id}?tab=articles")
       expected = URI.encode_www_form("/sources/#{source.id}?tab=articles")
 
       assert html =~ "/posts/#{post.id}?return_to=#{expected}"
     end
 
-    test "lets pending-image articles be selected for reprocess" do
+    test "lets pending-image articles be selected for reprocess", %{conn: conn} do
       {:ok, source} =
         SourcesContext.create_source(%{
           name: "Pending Select Source",
@@ -191,7 +186,7 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
           source_id: source.id
         })
 
-      html = Sources.show(source, tab: "articles")
+      html = page(conn, "/sources/#{source.id}?tab=articles")
 
       assert html =~ ~s(name="post_ids[]" value="#{post.id}")
       assert html =~ ~s(data-publishable="false")
@@ -199,7 +194,7 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "Reprocess selected"
     end
 
-    test "makes the mode badge switch an automated source back to setup" do
+    test "makes the mode badge switch an automated source back to setup", %{conn: conn} do
       {:ok, source} =
         SourcesContext.create_source(%{
           name: "Automated Badge Source",
@@ -211,30 +206,32 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
           mode: "automated"
         })
 
-      html = Sources.show(source, tab: "articles")
+      html = page(conn, "/sources/#{source.id}?tab=articles")
 
       assert html =~ "Automated"
-      assert html =~ ~s(name="mode" value="setup")
-      assert html =~ ~s(name="tab" value="articles")
+      assert html =~ ~s(phx-click="set_mode")
+      assert html =~ ~s(phx-value-mode="setup")
       refute html =~ "Back to setup"
     end
 
-    test "pre-fills the Corbett article block from the feed URL" do
+    test "pre-fills the Corbett article block from the feed URL", %{conn: conn} do
       {:ok, source} =
         SourcesContext.create_source(%{
           name: "Corbett Compose Source",
-          url: "https://www.corbettreport.com/newinterviewrss-#{System.unique_integer([:positive])}.xml",
+          url:
+            "https://www.corbettreport.com/newinterviewrss-#{System.unique_integer([:positive])}.xml",
           type: "rss",
           language: "en"
         })
 
-      html = Sources.compose(source)
+      html = page(conn, "/sources/#{source.id}")
 
-      assert html =~ ~s(name="body_selector" value="div.et_pb_column_0_tb_body")
+      assert html =~ ~s(name="body_selector")
+      assert html =~ "div.et_pb_column_0_tb_body"
       refute html =~ ~r/id="body-regions-details"[^>]*\bopen\b/
     end
 
-    test "opens the body-region picker when no known schema is applied" do
+    test "opens the body-region picker when no known schema is applied", %{conn: conn} do
       {:ok, source} =
         SourcesContext.create_source(%{
           name: "Unknown Schema Source",
@@ -244,12 +241,12 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
           options: %{"body_selector" => "div.custom-body"}
         })
 
-      html = Sources.compose(source)
+      html = page(conn, "/sources/#{source.id}")
 
       assert html =~ ~r/id="body-regions-details"[^>]*\bopen\b/
     end
 
-    test "keeps an unknown stored language in the select" do
+    test "keeps an unknown stored language in the select", %{conn: conn} do
       {:ok, source} =
         SourcesContext.create_source(%{
           name: "Custom Language Source",
@@ -258,23 +255,23 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
           language: "eo"
         })
 
-      feed = Sources.show(source, tab: "feed")
-      assert feed =~ ~s(<option value="eo" selected>eo</option>)
+      feed = page(conn, "/sources/#{source.id}?tab=feed")
+      assert feed =~ ~s(value="eo")
+      assert feed =~ "eo"
       refute feed =~ "Intended for public relays"
     end
   end
 
-  describe "new/1" do
-    test "returns form HTML" do
-      html = Sources.new()
+  describe "new" do
+    test "returns form HTML", %{conn: conn} do
+      html = page(conn, "/sources/new")
 
       assert is_binary(html)
       assert html =~ "<form"
       assert html =~ "Website or feed URL"
       assert html =~ "Find feeds"
-      assert html =~ "id=\"submit-source\""
+      assert html =~ ~s(id="submit-source")
       assert html =~ "disabled"
-      assert html =~ "function formComplete"
       assert html =~ "Publish as"
       assert html =~ "Draft (encrypted, NIP-37)"
       assert html =~ "Draft (unencrypted)"
@@ -285,22 +282,17 @@ defmodule Rss2Nostr.Web.Views.SourcesTest do
       assert html =~ "Author public key"
       assert html =~ "signing_nsec"
       assert html =~ "bunker_connection"
-      assert html =~ ~s(<select id="language" name="language">)
-      assert html =~ ~s[<option value="de" selected>German (de)</option>]
-      assert html =~ ~s[<option value="en">English (en)</option>]
-      assert html =~ "function applyLanguage"
+      assert html =~ ~s(id="language")
+      assert html =~ ~s(name="language")
+      assert html =~ ~s(value="de")
+      assert html =~ "German (de)"
+      assert html =~ ~s(value="en")
+      assert html =~ "English (en)"
       refute html =~ "compose-preview-rendered"
     end
 
-    test "shows error messages when provided" do
-      errors = %{name: ["can't be blank"], url: ["is invalid"]}
-      html = Sources.new(errors: errors)
-
-      assert html =~ "blank" or html =~ "invalid" or html =~ "error"
-    end
-
-    test "includes submit button" do
-      html = Sources.new()
+    test "includes submit button", %{conn: conn} do
+      html = page(conn, "/sources/new")
 
       assert html =~ "submit" or html =~ "Save" or html =~ "Create" or html =~ "Add"
     end

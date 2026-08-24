@@ -74,4 +74,3 @@ defmodule Rss2Nostr.Web.Views.Sources.New do
     Layout.render("Add Source", content, active_nav: "sources", wide: true)
   end
 end
-

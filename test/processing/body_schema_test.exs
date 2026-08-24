@@ -12,7 +12,9 @@ defmodule Rss2Nostr.Processing.BodySchemaTest do
     end
 
     test "matches other known hosts" do
-      assert BodySchema.selector_for_url("https://www.heise.de/news/foo") == "article.akwa-article"
+      assert BodySchema.selector_for_url("https://www.heise.de/news/foo") ==
+               "article.akwa-article"
+
       assert BodySchema.selector_for_url("https://www.corbettreport.com/interview/") ==
                "div.et_pb_column_0_tb_body"
     end
@@ -103,11 +105,13 @@ defmodule Rss2Nostr.Processing.BodySchemaTest do
       assert article_body
       assert ".vc_column-inner > .wpb_wrapper" in selectors
       assert "div.wpb_wrapper" in selectors
+
       assert recommended.selector in [
                ".vc_column-inner > .wpb_wrapper",
                "div.wpb_wrapper",
                "div.wpb_text_column"
              ]
+
       assert recommended.label =~ "WPBakery"
       assert recommended.word_count < article_body.word_count
       refute recommended.first_line =~ "Keine neuen Texte"

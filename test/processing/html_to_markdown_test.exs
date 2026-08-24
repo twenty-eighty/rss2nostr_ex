@@ -279,7 +279,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
 
       md = HtmlToMarkdown.convert(html)
 
-      assert md =~ "substack-post-media.s3.amazonaws.com/public/images/45b3c34b-433c-4d7c-a9dd-56048068b673_1280x640.jpeg"
+      assert md =~
+               "substack-post-media.s3.amazonaws.com/public/images/45b3c34b-433c-4d7c-a9dd-56048068b673_1280x640.jpeg"
+
       assert md =~ "Ashot Grigorian"
       refute md =~ "image-link"
       refute md =~ "](https://substackcdn.com/image/fetch"
@@ -379,7 +381,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       refute md =~ "\\"
 
       html_preview = Markdown.to_html(md)
-      assert html_preview =~ "Prison<br>\n<a href=\"https://www.youtube.com/watch?v=lmikqHw1lX8\">"
+
+      assert html_preview =~
+               "Prison<br>\n<a href=\"https://www.youtube.com/watch?v=lmikqHw1lX8\">"
+
       refute html_preview =~ "</p>\n<p>"
     end
 
@@ -571,7 +576,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       md = HtmlToMarkdown.convert(html)
 
       assert md =~ "Intro text"
-      assert md =~ "[Listen on SoundCloud](https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI?color=%23ffd400)"
+
+      assert md =~
+               "[Listen on SoundCloud](https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI?color=%23ffd400)"
+
       refute md =~ "w.soundcloud.com"
       refute md =~ "api.soundcloud.com"
       refute md =~ "[Radio München]"
@@ -595,7 +603,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
 
       assert md =~ "Die Radio München-Redaktion macht SOMMER-PAUSE."
       assert md =~ "so vielfältig wie die Stadt!"
-      assert md =~ "[Auf SoundCloud anhören](https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI)"
+
+      assert md =~
+               "[Auf SoundCloud anhören](https://soundcloud.com/radiomuenchen/radio-muenchen-redaktion-macht/s-b588AbHllcI)"
+
       refute md =~ "[Radio München]"
       refute md =~ "[RADIO MÜNCHEN-Redaktion macht Sommerpause]"
     end
@@ -626,7 +637,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     end
 
     test "leaves SoundCloud permalinks unchanged when the iframe has no color" do
-      html = ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>)
+      html =
+        ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>)
+
       md = HtmlToMarkdown.convert(html)
 
       assert md =~ "[Listen on SoundCloud](https://soundcloud.com/a/b)"
@@ -649,7 +662,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     end
 
     test "plain_summary returns nil for iframe-only HTML" do
-      html = ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>)
+      html =
+        ~s(<iframe src="https://w.soundcloud.com/player/?url=https%3A//soundcloud.com/a/b"></iframe>)
+
       assert HtmlToMarkdown.plain_summary(html) == nil
     end
 
@@ -844,7 +859,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       refute md =~ "message--success"
 
       html_out = Rss2Nostr.Processing.Markdown.to_html(md)
-      assert html_out =~ ~s(<p><a href="https://paypal.me/eugenzentner?locale.x=de_DE">Spende via Paypal</a></p>)
+
+      assert html_out =~
+               ~s(<p><a href="https://paypal.me/eugenzentner?locale.x=de_DE">Spende via Paypal</a></p>)
+
       refute html_out =~ ~r/<p>IBAN:[^<]*Spende via Paypal/
     end
 
@@ -863,7 +881,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       """
 
       md = HtmlToMarkdown.convert(html)
-      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
+
+      icon =
+        "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
 
       assert md =~ "[Folgt mir auf Telegram ![](#{icon})](https://t.me/kulturzentner)"
       refute md =~ "_Telegram_"
@@ -876,7 +896,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     test "labels an icon-only social link from the icon class" do
       html = ~s(<a href="https://t.me/kulturzentner"><i class="fab fa-telegram"></i></a>)
       md = HtmlToMarkdown.convert(html)
-      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
+
+      icon =
+        "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
 
       assert md =~ "[![](#{icon}) Telegram](https://t.me/kulturzentner)"
     end
@@ -884,7 +906,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     test "keeps text before the icon when the HTML has that order" do
       html = ~s(<a href="https://t.me/kulturzentner">Telegram <i class="fab fa-telegram"></i></a>)
       md = HtmlToMarkdown.convert(html)
-      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
+
+      icon =
+        "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
 
       assert md =~ "[Telegram ![](#{icon})](https://t.me/kulturzentner)"
     end
@@ -892,7 +916,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     test "keeps the icon before text when the HTML has that order" do
       html = ~s(<a href="https://t.me/kulturzentner"><i class="fab fa-telegram"></i> Telegram</a>)
       md = HtmlToMarkdown.convert(html)
-      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
+
+      icon =
+        "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg"
 
       assert md =~ "[![](#{icon}) Telegram](https://t.me/kulturzentner)"
     end
@@ -918,9 +944,14 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     end
 
     test "labels Facebook, Instagram, and Twitter links from the URL" do
-      facebook = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/facebook.svg"
-      instagram = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/instagram.svg"
-      twitter = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/x-twitter.svg"
+      facebook =
+        "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/facebook.svg"
+
+      instagram =
+        "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/instagram.svg"
+
+      twitter =
+        "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/x-twitter.svg"
 
       md =
         HtmlToMarkdown.convert("""
@@ -937,7 +968,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
     test "keeps custom text on a Facebook link and adds the platform icon" do
       html = ~s(<a href="https://www.facebook.com/radiomuenchen">Radio München</a>)
       md = HtmlToMarkdown.convert(html)
-      icon = "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/facebook.svg"
+
+      icon =
+        "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/facebook.svg"
 
       assert md =~ "[Radio München ![](#{icon})](https://www.facebook.com/radiomuenchen)"
     end

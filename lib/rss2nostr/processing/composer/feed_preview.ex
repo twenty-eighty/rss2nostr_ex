@@ -78,8 +78,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
         url: article_url,
         title: FeedItem.field(item, :title),
         image: FeedItem.field(item, :image),
-        summary:
-          truncate_summary(HtmlToMarkdown.plain_summary(FeedItem.field(item, :summary))),
+        summary: truncate_summary(HtmlToMarkdown.plain_summary(FeedItem.field(item, :summary))),
         language: language,
         fetch_page_image: true
       })
@@ -155,9 +154,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
   defp apply_excluded_hashtags(source, params) do
     if Map.has_key?(params, "excluded_hashtags") or Map.has_key?(params, :excluded_hashtags) do
       tags =
-        Event.normalize_hashtags(
-          params["excluded_hashtags"] || params[:excluded_hashtags]
-        )
+        Event.normalize_hashtags(params["excluded_hashtags"] || params[:excluded_hashtags])
 
       case source do
         %Source{} = source -> %{source | excluded_hashtags: tags}

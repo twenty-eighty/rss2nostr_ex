@@ -43,6 +43,13 @@ config :rss2nostr, :fetch_soundcloud_artwork, false
 config :rss2nostr, :video_ffprobe, false
 config :rss2nostr, :video_head, false
 
+config :rss2nostr, Rss2NostrWeb.Endpoint,
+  http: [ip: {127, 0, 0, 1}, port: 4002],
+  secret_key_base: String.duplicate("rss2nostr_test_secret_key_base_", 3),
+  live_view: [signing_salt: "rss2nostr_lv_test_salt"],
+  server: false,
+  code_reloader: false
+
 # Avoid flaky CI: no tzdata downloads, no HTTP retries, shorter timeouts.
 config :tzdata, :autoupdate, :disabled
 

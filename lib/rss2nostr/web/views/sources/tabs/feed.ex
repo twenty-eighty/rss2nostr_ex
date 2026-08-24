@@ -49,6 +49,4 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Feed do
     #{Scripts.feed_start_script()}
     """
   end
-
-
 end

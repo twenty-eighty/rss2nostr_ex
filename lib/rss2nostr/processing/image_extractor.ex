@@ -109,7 +109,10 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   @spec video_url?(String.t() | nil) :: boolean()
   def video_url?(url), do: Media.video_url?(url)
 
-  @spec parse_media_caption(String.t() | nil) :: %{duration: integer() | nil, size: integer() | nil}
+  @spec parse_media_caption(String.t() | nil) :: %{
+          duration: integer() | nil,
+          size: integer() | nil
+        }
   def parse_media_caption(caption), do: Media.parse_media_caption(caption)
 
   @spec clock_to_seconds(String.t() | nil) :: integer() | nil
@@ -162,7 +165,10 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
     content
     |> strip_tracking_pixel_images()
     |> then(fn repaired ->
-      Regex.replace(~r/!\[([^\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/, repaired, fn _full, alt, url, rest ->
+      Regex.replace(~r/!\[([^\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/, repaired, fn _full,
+                                                                                  alt,
+                                                                                  url,
+                                                                                  rest ->
         "![#{alt}](#{display_url(url)}#{rest})"
       end)
     end)

@@ -1,12 +1,11 @@
 defmodule Rss2Nostr.Web.Views.SchedulerTest do
-  use Rss2Nostr.DataCase
+  use Rss2NostrWeb.ConnCase, async: false
 
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources
-  alias Rss2Nostr.Web.Views.Scheduler, as: SchedulerView
 
-  test "index shows hourly cleanup and deleted-draft counts" do
+  test "index shows hourly cleanup and deleted-draft counts", %{conn: conn} do
     {:ok, source} =
       Sources.create_source(%{
         name: "Scheduler View Source",
@@ -31,7 +30,7 @@ defmodule Rss2Nostr.Web.Views.SchedulerTest do
     {:ok, published} = Posts.mark_published(post, "abc123", "def456", "naddr1...")
     {:ok, _} = Posts.mark_draft_cleaned(published)
 
-    html = SchedulerView.index()
+    html = page(conn, "/scheduler")
 
     assert html =~ "Draft cleanup"
     assert html =~ "Drafts deleted"

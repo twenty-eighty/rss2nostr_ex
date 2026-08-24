@@ -220,6 +220,7 @@ defmodule Rss2Nostr.Web.Auth do
       {"POST", ["logout"]} -> true
       {"GET", ["health"]} -> true
       {"GET", ["static" | _]} -> true
+      {"GET", ["assets" | _]} -> true
       _ -> false
     end
   end

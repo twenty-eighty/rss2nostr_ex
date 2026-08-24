@@ -227,7 +227,12 @@ defmodule Rss2Nostr.Nostr.NIP92 do
   defp present?(_), do: false
 
   defp guess_mime(url) do
-    case url |> URI.parse() |> Map.get(:path, "") |> to_string() |> Path.extname() |> String.downcase() do
+    case url
+         |> URI.parse()
+         |> Map.get(:path, "")
+         |> to_string()
+         |> Path.extname()
+         |> String.downcase() do
       ".jpg" -> "image/jpeg"
       ".jpeg" -> "image/jpeg"
       ".png" -> "image/png"

@@ -13,6 +13,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   require Logger
 
   alias Rss2Nostr.Processing.Labels
+
   alias Rss2Nostr.Processing.HtmlToMarkdown.{
     Blocks,
     Dom,
@@ -187,16 +188,32 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   defp process_tag(tag, attrs, children) do
     cond do
-      skipped_tag?(tag) -> ""
-      heading_tag?(tag) -> process_heading_tag(tag, children)
-      emphasis_tag?(tag) -> process_emphasis_tag(tag, attrs, children)
+      skipped_tag?(tag) ->
+        ""
+
+      heading_tag?(tag) ->
+        process_heading_tag(tag, children)
+
+      emphasis_tag?(tag) ->
+        process_emphasis_tag(tag, attrs, children)
+
       tag in ~w(a img figure picture ul ol blockquote table iframe audio video) ->
         process_media_tag(tag, attrs, children)
-      tag in ~w(p div li section) -> process_block(tag, attrs, children)
-      tag == "br" -> "  \n"
-      tag == "hr" -> "\n\n---\n\n"
-      tag in ~w(span article main aside) -> process_nodes(children)
-      true -> process_nodes(children)
+
+      tag in ~w(p div li section) ->
+        process_block(tag, attrs, children)
+
+      tag == "br" ->
+        "  \n"
+
+      tag == "hr" ->
+        "\n\n---\n\n"
+
+      tag in ~w(span article main aside) ->
+        process_nodes(children)
+
+      true ->
+        process_nodes(children)
     end
   end
 
@@ -215,9 +232,14 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   defp process_media_tag("a", attrs, children),
     do: LinkTags.process_link(attrs, children, &process_nodes/1)
+
   defp process_media_tag("img", attrs, _), do: Images.process_image(attrs)
-  defp process_media_tag("figure", attrs, children), do: Images.process_figure(attrs, children, &process_nodes/1)
+
+  defp process_media_tag("figure", attrs, children),
+    do: Images.process_figure(attrs, children, &process_nodes/1)
+
   defp process_media_tag("picture", _attrs, children), do: Images.process_picture(children)
+
   defp process_media_tag("ul", _attrs, children),
     do: "\n\n#{Blocks.process_list(children, :unordered, &process_nodes/1)}\n\n"
 
@@ -226,6 +248,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   defp process_media_tag("blockquote", _attrs, children),
     do: Blocks.process_blockquote(children, &process_nodes/1)
+
   defp process_media_tag("table", _attrs, children), do: Tables.process(children)
   defp process_media_tag("iframe", attrs, _), do: Embeds.process_iframe(attrs)
   defp process_media_tag("audio", attrs, children), do: Embeds.process_audio(attrs, children)

@@ -53,7 +53,10 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Media do
 
   def extract_video(_), do: []
 
-  @spec parse_media_caption(String.t() | nil) :: %{duration: integer() | nil, size: integer() | nil}
+  @spec parse_media_caption(String.t() | nil) :: %{
+          duration: integer() | nil,
+          size: integer() | nil
+        }
   def parse_media_caption(caption) when is_binary(caption) do
     tokens = String.split(caption, ~r/\s+/, trim: true)
     {clocks, rest} = Enum.split_with(tokens, &String.contains?(&1, ":"))

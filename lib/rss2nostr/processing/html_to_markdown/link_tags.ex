@@ -49,15 +49,18 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
 
       true ->
         text = process_link_children(children, process_nodes) |> String.trim()
+
         clean_href =
           href
           |> Links.ensure_absolute_url()
           |> TrackingParams.remove()
           |> Embeds.with_soundcloud_params()
+
         label = link_display_label(attrs, children, text, clean_href)
 
         icon =
-          if Links.tweet_status_link?(clean_href) and text != "" and not url_like_label?(text, clean_href) do
+          if Links.tweet_status_link?(clean_href) and text != "" and
+               not url_like_label?(text, clean_href) do
             nil
           else
             Links.network_icon_url(children, label, clean_href)
@@ -189,9 +192,15 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     title = Dom.get_attr(attrs, "title")
 
     cond do
-      present_title?(aria) -> String.trim(aria)
-      present_title?(title) -> String.trim(title)
-      label = Links.icon_network_label(children) -> label
+      present_title?(aria) ->
+        String.trim(aria)
+
+      present_title?(title) ->
+        String.trim(title)
+
+      label = Links.icon_network_label(children) ->
+        label
+
       true ->
         case Links.platform_for_href(href) do
           {label, _} -> label

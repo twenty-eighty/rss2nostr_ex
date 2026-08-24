@@ -60,7 +60,13 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
   defp image_keys(url) do
     origin = ImageExtractor.normalize_url(url)
 
-    [origin, image_basename(origin), image_basename(url), substack_media_id(origin), substack_media_id(url)]
+    [
+      origin,
+      image_basename(origin),
+      image_basename(url),
+      substack_media_id(origin),
+      substack_media_id(url)
+    ]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> MapSet.new()
   end
@@ -152,11 +158,21 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     children
     |> Enum.reject(&blank_html_node?/1)
     |> Enum.all?(fn
-      {"img", _, _} -> true
-      {"figure", _, _} -> true
-      {"picture", _, _} -> true
-      {"a", _, inner} -> image_only_block_children?(inner)
-      {"div", _, inner} -> image_only_block_children?(inner)
+      {"img", _, _} ->
+        true
+
+      {"figure", _, _} ->
+        true
+
+      {"picture", _, _} ->
+        true
+
+      {"a", _, inner} ->
+        image_only_block_children?(inner)
+
+      {"div", _, inner} ->
+        image_only_block_children?(inner)
+
       {"p", _, inner} ->
         image_only_block_children?(inner) and String.trim(Floki.text({"p", [], inner})) == ""
 

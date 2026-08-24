@@ -57,7 +57,10 @@ defmodule Rss2Nostr.Web.Views.Sources.Show do
   end
 
   defp tab_content(source, "feed", params, errors), do: Feed.feed_tab(source, params, errors)
-  defp tab_content(source, "compose", params, errors), do: Compose.compose_tab(source, params, errors)
+
+  defp tab_content(source, "compose", params, errors),
+    do: Compose.compose_tab(source, params, errors)
+
   defp tab_content(source, "articles", _params, _errors), do: Articles.articles_tab(source)
 
   defp tab_content(source, "publishing", params, errors),

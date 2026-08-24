@@ -60,9 +60,12 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
           present?(image.uploaded_url) ->
             Map.put(acc, image.original_url, image.uploaded_url)
 
-          Blossom.already_hosted?(image.original_url) or keep_original_media?(post, image.original_url) or
+          Blossom.already_hosted?(image.original_url) or
+            keep_original_media?(post, image.original_url) or
               MapSet.member?(uploaded_urls, image.original_url) ->
-            {:ok, updated} = Posts.mark_image_uploaded(image, image.original_url, hosted_attrs(image))
+            {:ok, updated} =
+              Posts.mark_image_uploaded(image, image.original_url, hosted_attrs(image))
+
             Map.put(acc, updated.original_url, updated.uploaded_url)
 
           match?(%{uploaded_url: url} when is_binary(url), sibling) ->

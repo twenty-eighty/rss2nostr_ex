@@ -3,6 +3,8 @@ defmodule Rss2Nostr.Web.Views.Sources.Language do
 
   alias Rss2Nostr.Web.Views.Sources.Helpers
 
+  def choices, do: language_choices()
+
   def language_select(selected) do
     selected = selected || "de"
 
@@ -11,6 +13,7 @@ defmodule Rss2Nostr.Web.Views.Sources.Language do
       |> maybe_include_current_language(selected)
       |> Enum.map_join("", fn {code, label} ->
         sel = if code == selected, do: " selected", else: ""
+
         ~s(<option value="#{Helpers.escape_attr(code)}"#{sel}>#{Helpers.escape_html(label)}</option>)
       end)
 

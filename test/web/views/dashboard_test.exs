@@ -1,40 +1,17 @@
 defmodule Rss2Nostr.Web.Views.DashboardTest do
-  use Rss2Nostr.DataCase
+  use Rss2NostrWeb.ConnCase, async: false
 
-  alias Rss2Nostr.Web.Views.Dashboard
+  describe "GET /" do
+    test "returns HTML for the dashboard", %{conn: conn} do
+      html = page(conn, "/")
 
-  describe "render/0" do
-    test "returns HTML string" do
-      html = Dashboard.render()
-
-      assert is_binary(html)
       assert html =~ "<html"
       assert html =~ "Dashboard"
-    end
-
-    test "includes navigation" do
-      html = Dashboard.render()
-
       assert html =~ "Sources"
       assert html =~ "Posts"
       assert html =~ "Scheduler"
       assert html =~ "Settings"
-    end
-
-    test "includes status overview" do
-      html = Dashboard.render()
-
-      # Dashboard should show some statistics
-      assert html =~ "RSS2Nostr" or html =~ "Dashboard"
-    end
-
-    test "includes proper HTML structure" do
-      html = Dashboard.render()
-
-      assert html =~ "<!DOCTYPE html>" or html =~ "<html"
-      assert html =~ "</html>"
-      assert html =~ "<head>"
-      assert html =~ "<body>"
+      assert html =~ "RSS2Nostr"
     end
   end
 end

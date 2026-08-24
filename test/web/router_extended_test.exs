@@ -1,5 +1,5 @@
 defmodule Rss2Nostr.Web.RouterExtendedTest do
-  use Rss2Nostr.ConnCase, async: false
+  use Rss2NostrWeb.ConnCase, async: false
 
   alias Rss2Nostr.Sources
   alias Rss2Nostr.Posts
@@ -10,25 +10,24 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
   end
 
   describe "POST /sources" do
-    test "creates source with valid params" do
+    test "creates source with valid params", %{conn: conn} do
       conn =
-        conn(:post, "/sources", %{
+        conn
+        |> authed_conn()
+        |> post("/sources", %{
           "name" => "New Test Source",
           "url" => unique_url(),
           "type" => "rss",
           "language" => "en"
         })
 
-      conn = call(conn)
-
       assert conn.status == 302
       [location] = get_resp_header(conn, "location")
       assert location =~ ~r"^/sources/\d+$"
     end
 
-    test "returns 422 for invalid params" do
-      conn = conn(:post, "/sources", %{"name" => "", "url" => ""})
-      conn = call(conn)
+    test "returns 422 for invalid params", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/sources", %{"name" => "", "url" => ""})
 
       assert conn.status == 422
       assert conn.resp_body =~ "Add Source"
@@ -36,7 +35,7 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
   end
 
   describe "GET /sources/:id" do
-    test "returns the compose page" do
+    test "returns the compose page", %{conn: conn} do
       {:ok, source} =
         Sources.create_source(%{
           name: "Compose Route Source",
@@ -45,18 +44,17 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
           language: "en"
         })
 
-      conn = call(conn(:get, "/sources/#{source.id}"))
+      html = page(conn, "/sources/#{source.id}")
 
-      assert conn.status == 200
-      assert conn.resp_body =~ "Compose"
-      assert conn.resp_body =~ source.name
-      assert conn.resp_body =~ "source-tabs"
-      assert conn.resp_body =~ "Nostr event preview"
+      assert html =~ "Compose"
+      assert html =~ source.name
+      assert html =~ "source-tabs"
+      assert html =~ "Nostr event preview"
     end
   end
 
   describe "POST /sources/:id/toggle" do
-    test "toggles source status" do
+    test "toggles source status", %{conn: conn} do
       {:ok, source} =
         Sources.create_source(%{
           name: "Toggle Test",
@@ -66,8 +64,7 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
           active: true
         })
 
-      conn = conn(:post, "/sources/#{source.id}/toggle")
-      conn = call(conn)
+      conn = conn |> authed_conn() |> post("/sources/#{source.id}/toggle")
 
       assert conn.status == 302
       assert get_resp_header(conn, "location") == ["/sources"]
@@ -76,17 +73,15 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       assert updated.active == false
     end
 
-    test "returns 404 for non-existent source" do
-      conn = conn(:post, "/sources/999999/toggle")
-      conn = call(conn)
+    test "returns 404 for non-existent source", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/sources/999999/toggle")
 
       assert conn.status == 404
       assert conn.resp_body =~ "Not Found"
     end
 
-    test "returns 400 for invalid id" do
-      conn = conn(:post, "/sources/invalid/toggle")
-      conn = call(conn)
+    test "returns 400 for invalid id", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/sources/invalid/toggle")
 
       assert conn.status == 400
       assert conn.resp_body =~ "Bad Request"
@@ -94,7 +89,7 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
   end
 
   describe "POST /sources/:id/duplicate" do
-    test "duplicates a source and opens the copy" do
+    test "duplicates a source and opens the copy", %{conn: conn} do
       {:ok, source} =
         Sources.create_source(%{
           name: "Duplicate Test",
@@ -104,8 +99,7 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
           active: true
         })
 
-      conn = conn(:post, "/sources/#{source.id}/duplicate")
-      conn = call(conn)
+      conn = conn |> authed_conn() |> post("/sources/#{source.id}/duplicate")
 
       assert conn.status == 302
       [location] = get_resp_header(conn, "location")
@@ -116,14 +110,14 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       assert Enum.any?(copies, &(&1.name == "Duplicate Test (copy)"))
     end
 
-    test "returns 404 for a missing source" do
-      conn = conn(:post, "/sources/999999/duplicate") |> call()
+    test "returns 404 for a missing source", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/sources/999999/duplicate")
       assert conn.status == 404
     end
   end
 
   describe "POST /sources/:id/delete" do
-    test "deletes existing source" do
+    test "deletes existing source", %{conn: conn} do
       {:ok, source} =
         Sources.create_source(%{
           name: "Delete Test",
@@ -133,24 +127,19 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
           active: true
         })
 
-      conn = conn(:post, "/sources/#{source.id}/delete")
-      conn = call(conn)
+      conn = conn |> authed_conn() |> post("/sources/#{source.id}/delete")
 
       assert conn.status == 302
       assert Sources.get_source(source.id) == nil
     end
 
-    test "returns 404 for non-existent source" do
-      conn = conn(:post, "/sources/999999/delete")
-      conn = call(conn)
-
+    test "returns 404 for non-existent source", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/sources/999999/delete")
       assert conn.status == 404
     end
 
-    test "returns 400 for invalid id" do
-      conn = conn(:post, "/sources/invalid/delete")
-      conn = call(conn)
-
+    test "returns 400 for invalid id", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/sources/invalid/delete")
       assert conn.status == 400
     end
   end
@@ -181,27 +170,22 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       %{post: post, source: source}
     end
 
-    test "returns post detail page", %{post: post} do
-      conn = conn(:get, "/posts/#{post.id}")
-      conn = call(conn)
+    test "returns post detail page", %{conn: conn, post: post} do
+      conn = conn |> authed_conn() |> get("/posts/#{post.id}")
 
-      assert conn.status == 200
+      assert html_response(conn, 200)
     end
 
-    test "returns 404 for non-existent post" do
-      conn = conn(:get, "/posts/999999")
-      conn = call(conn)
+    test "redirects for a missing post", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/posts/999999")
 
-      assert conn.status == 404
-      assert conn.resp_body =~ "Not Found"
+      assert redirected_to(conn) == "/posts"
     end
 
-    test "returns 400 for invalid post id" do
-      conn = conn(:get, "/posts/invalid")
-      conn = call(conn)
+    test "redirects for an invalid post id", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/posts/invalid")
 
-      assert conn.status == 400
-      assert conn.resp_body =~ "Bad Request"
+      assert redirected_to(conn) == "/posts"
     end
   end
 
@@ -231,20 +215,19 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       %{post: post}
     end
 
-    test "processes post and redirects", %{post: post} do
-      conn = conn(:post, "/posts/#{post.id}/process")
-      conn = call(conn)
+    test "processes post and redirects", %{conn: conn, post: post} do
+      conn = conn |> authed_conn() |> post("/posts/#{post.id}/process")
 
       assert conn.status == 302
       assert get_resp_header(conn, "location") == ["/posts/#{post.id}"]
     end
 
-    test "returns JSON when the client asks for it", %{post: post} do
+    test "returns JSON when the client asks for it", %{conn: conn, post: post} do
       conn =
-        conn(:post, "/posts/#{post.id}/process")
+        conn
+        |> authed_conn()
         |> put_req_header("accept", "application/json")
-
-      conn = call(conn)
+        |> post("/posts/#{post.id}/process")
 
       assert conn.status == 200
       body = Jason.decode!(conn.resp_body)
@@ -253,36 +236,36 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       assert is_binary(body["status_label"])
     end
 
-    test "returns to the articles list when return_to is set", %{post: post} do
+    test "returns to the articles list when return_to is set", %{conn: conn, post: post} do
       conn =
-        conn(:post, "/posts/#{post.id}/process", %{
+        conn
+        |> authed_conn()
+        |> post("/posts/#{post.id}/process", %{
           "return_to" => "/sources/33?tab=articles"
         })
-
-      conn = call(conn)
 
       assert conn.status == 302
       assert get_resp_header(conn, "location") == ["/sources/33?tab=articles"]
     end
 
-    test "ignores an external return_to", %{post: post} do
-      conn = conn(:post, "/posts/#{post.id}/process", %{"return_to" => "https://evil.example/"})
-      conn = call(conn)
+    test "ignores an external return_to", %{conn: conn, post: post} do
+      conn =
+        conn
+        |> authed_conn()
+        |> post("/posts/#{post.id}/process", %{"return_to" => "https://evil.example/"})
 
       assert conn.status == 302
       assert get_resp_header(conn, "location") == ["/posts/#{post.id}"]
     end
 
-    test "returns 404 for non-existent post" do
-      conn = conn(:post, "/posts/999999/process")
-      conn = call(conn)
+    test "returns 404 for non-existent post", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/posts/999999/process")
 
       assert conn.status == 404
     end
 
-    test "returns 400 for invalid post id" do
-      conn = conn(:post, "/posts/invalid/process")
-      conn = call(conn)
+    test "returns 400 for invalid post id", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/posts/invalid/process")
 
       assert conn.status == 400
     end
@@ -314,38 +297,34 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       %{post: post}
     end
 
-    test "redirects after publish attempt", %{post: post} do
-      conn = conn(:post, "/posts/#{post.id}/publish")
-      conn = call(conn)
+    test "redirects after publish attempt", %{conn: conn, post: post} do
+      conn = conn |> authed_conn() |> post("/posts/#{post.id}/publish")
 
-      # Should redirect even if publish fails (no NSEC configured)
       assert conn.status == 302
     end
 
-    test "returns 404 for non-existent post" do
-      conn = conn(:post, "/posts/999999/publish")
-      conn = call(conn)
+    test "returns 404 for non-existent post", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/posts/999999/publish")
 
       assert conn.status == 404
     end
 
-    test "returns 400 for invalid post id" do
-      conn = conn(:post, "/posts/invalid/publish")
-      conn = call(conn)
+    test "returns 400 for invalid post id", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/posts/invalid/publish")
 
       assert conn.status == 400
     end
   end
 
   describe "POST /posts/publish-selected" do
-    test "returns to the filtered posts list when return_to is set" do
+    test "returns to the filtered posts list when return_to is set", %{conn: conn} do
       conn =
-        conn(:post, "/posts/publish-selected", %{
+        conn
+        |> authed_conn()
+        |> post("/posts/publish-selected", %{
           "return_to" => "/posts?source_id=32",
           "post_ids" => []
         })
-
-      conn = call(conn)
 
       assert conn.status == 302
       [location] = get_resp_header(conn, "location")
@@ -354,14 +333,14 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       assert location =~ "notice_kind=error"
     end
 
-    test "ignores an external return_to" do
+    test "ignores an external return_to", %{conn: conn} do
       conn =
-        conn(:post, "/posts/publish-selected", %{
+        conn
+        |> authed_conn()
+        |> post("/posts/publish-selected", %{
           "return_to" => "https://evil.example/",
           "post_ids" => []
         })
-
-      conn = call(conn)
 
       assert conn.status == 302
       [location] = get_resp_header(conn, "location")
@@ -371,32 +350,28 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
   end
 
   describe "GET /posts with pagination" do
-    test "handles invalid page parameter" do
-      conn = conn(:get, "/posts?page=invalid")
-      conn = call(conn)
+    test "handles invalid page parameter", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/posts?page=invalid")
 
       assert conn.status == 200
     end
 
-    test "handles negative page parameter" do
-      conn = conn(:get, "/posts?page=-1")
-      conn = call(conn)
+    test "handles negative page parameter", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/posts?page=-1")
 
       assert conn.status == 200
     end
 
-    test "handles zero page parameter" do
-      conn = conn(:get, "/posts?page=0")
-      conn = call(conn)
+    test "handles zero page parameter", %{conn: conn} do
+      conn = conn |> authed_conn() |> get("/posts?page=0")
 
       assert conn.status == 200
     end
   end
 
   describe "POST /scheduler routes" do
-    test "POST /scheduler/start redirects" do
-      conn = conn(:post, "/scheduler/start")
-      conn = call(conn)
+    test "POST /scheduler/start redirects", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/scheduler/start")
 
       assert conn.status == 302
       assert get_resp_header(conn, "location") == ["/scheduler"]
@@ -405,17 +380,15 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
       on_exit(fn -> Rss2Nostr.Scheduler.stop() end)
     end
 
-    test "POST /scheduler/stop redirects" do
-      conn = conn(:post, "/scheduler/stop")
-      conn = call(conn)
+    test "POST /scheduler/stop redirects", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/scheduler/stop")
 
       assert conn.status == 302
       assert get_resp_header(conn, "location") == ["/scheduler"]
     end
 
-    test "POST /scheduler/run/:task redirects" do
-      conn = conn(:post, "/scheduler/run/import")
-      conn = call(conn)
+    test "POST /scheduler/run/:task redirects", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/scheduler/run/import")
 
       assert conn.status == 302
       assert get_resp_header(conn, "location") == ["/scheduler"]
@@ -423,9 +396,8 @@ defmodule Rss2Nostr.Web.RouterExtendedTest do
   end
 
   describe "POST /settings" do
-    test "updates settings and redirects" do
-      conn = conn(:post, "/settings", %{"some_setting" => "value"})
-      conn = call(conn)
+    test "updates settings and redirects", %{conn: conn} do
+      conn = conn |> authed_conn() |> post("/settings", %{"some_setting" => "value"})
 
       assert conn.status == 302
       assert get_resp_header(conn, "location") == ["/settings"]

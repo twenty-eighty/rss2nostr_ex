@@ -23,9 +23,20 @@ defmodule Rss2Nostr.Web.Server do
 
     Logger.info("Starting web server on port #{port}")
 
+    endpoint_config =
+      :rss2nostr
+      |> Application.get_env(Rss2NostrWeb.Endpoint, [])
+      |> Keyword.merge(
+        http: [ip: {0, 0, 0, 0}, port: port],
+        server: true,
+        secret_key_base: Rss2Nostr.Web.Auth.secret_key_base()
+      )
+
+    Application.put_env(:rss2nostr, Rss2NostrWeb.Endpoint, endpoint_config)
+
     children =
       maybe_reloader() ++
-        [{Bandit, plug: Rss2Nostr.Web.Router, port: port}]
+        [Rss2NostrWeb.Endpoint]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Rss2Nostr.Web.Supervisor)
   end

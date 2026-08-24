@@ -58,7 +58,9 @@ else
 end
 
 if port = System.get_env("PORT") || System.get_env("WEB_PORT") do
-  config :rss2nostr, :web_port, String.to_integer(port)
+  port = String.to_integer(port)
+  config :rss2nostr, :web_port, port
+  config :rss2nostr, Rss2NostrWeb.Endpoint, http: [ip: {0, 0, 0, 0}, port: port]
 end
 
 # Nostr configuration from environment variables
@@ -168,6 +170,7 @@ secret = System.get_env("SECRET_KEY_BASE")
 cond do
   is_binary(secret) and secret != "" ->
     config :rss2nostr, :secret_key_base, secret
+    config :rss2nostr, Rss2NostrWeb.Endpoint, secret_key_base: secret
 
   config_env() == :test ->
     config :rss2nostr,

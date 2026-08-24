@@ -13,9 +13,15 @@ defmodule Rss2Nostr.Nostr.Publisher.PostKind do
 
       _ ->
         case Ctx.field(post, :publish_as) do
-          "draft_plain" -> false
-          value when value in ["article", "video"] -> false
-          "draft" -> true
+          "draft_plain" ->
+            false
+
+          value when value in ["article", "video"] ->
+            false
+
+          "draft" ->
+            true
+
           _ ->
             case Ctx.field(post, :type) do
               30023 -> false

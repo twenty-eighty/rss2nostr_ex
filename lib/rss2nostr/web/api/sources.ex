@@ -230,7 +230,8 @@ defmodule Rss2Nostr.Web.API.Sources do
       active: source.active,
       mode: source.mode,
       publish_as: source.publish_as,
-      mirror_media: if(Rss2Nostr.Sources.Source.mirror_media?(source), do: "blossom", else: "original"),
+      mirror_media:
+        if(Rss2Nostr.Sources.Source.mirror_media?(source), do: "blossom", else: "original"),
       language: source.language,
       public: source.public,
       pubkey: source.pubkey,

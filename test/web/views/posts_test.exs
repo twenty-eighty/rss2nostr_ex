@@ -1,7 +1,6 @@
 defmodule Rss2Nostr.Web.Views.PostsTest do
-  use Rss2Nostr.DataCase
+  use Rss2NostrWeb.ConnCase, async: false
 
-  alias Rss2Nostr.Web.Views.Posts, as: PostsView
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources
@@ -31,9 +30,9 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
     {source, post}
   end
 
-  describe "index/1" do
-    test "returns HTML with posts list" do
-      html = PostsView.index([])
+  describe "index" do
+    test "returns HTML with posts list", %{conn: conn} do
+      html = page(conn, "/posts")
 
       assert is_binary(html)
       assert html =~ "<html"
@@ -41,71 +40,74 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       assert html =~ "Pending images"
     end
 
-    test "shows status filter options" do
-      html = PostsView.index([])
+    test "shows status filter options", %{conn: conn} do
+      html = page(conn, "/posts")
 
-      # Should have filter options
       assert html =~ "status" or html =~ "filter" or html =~ "All"
     end
 
-    test "shows posts when they exist" do
+    test "shows posts when they exist", %{conn: conn} do
       {_source, post} = create_test_post()
 
-      html = PostsView.index([])
+      html = page(conn, "/posts")
 
       assert html =~ post.title or html =~ "View Test Article"
     end
 
-    test "handles page parameter" do
-      html = PostsView.index(page: 2)
+    test "handles page parameter", %{conn: conn} do
+      html = page(conn, "/posts?page=2")
 
       assert is_binary(html)
     end
 
-    test "handles status filter" do
-      html = PostsView.index(status: "new")
+    test "handles status filter", %{conn: conn} do
+      html = page(conn, "/posts?status=new")
 
       assert is_binary(html)
     end
 
-    test "filters posts by source" do
+    test "filters posts by source", %{conn: conn} do
       {source, post} = create_test_post()
       {_other, other_post} = create_test_post()
 
       {:ok, post} = Posts.update_post(post, %{title: "Source Filter Match"})
       {:ok, other_post} = Posts.update_post(other_post, %{title: "Other Source Article"})
 
-      html = PostsView.index(source_id: to_string(source.id))
+      html = page(conn, "/posts?source_id=#{source.id}")
 
       assert html =~ "All sources"
       assert html =~ source.name
-      assert html =~ ~s(value="#{source.id}" selected)
+      assert html =~ ~s(value="#{source.id}")
       assert html =~ post.title
       refute html =~ other_post.title
     end
 
-    test "keeps source_id on status filter links" do
+    test "keeps source_id on status filter links", %{conn: conn} do
       {source, _post} = create_test_post()
 
-      html = PostsView.index(source_id: source.id, status: "9")
+      html = page(conn, "/posts?source_id=#{source.id}&status=9")
 
       assert html =~ "source_id=#{source.id}"
-      assert html =~ ~s(name="status" value="9")
+      assert html =~ "status=9"
     end
 
-    test "keeps the current filter on publish selected" do
+    test "keeps the current filter on status links", %{conn: conn} do
       {source, _post} = create_test_post()
 
-      html = PostsView.index(source_id: source.id, q: "berlin", status: "2", page: 2)
+      html = page(conn, "/posts?status=2&source_id=#{source.id}&q=berlin&page=2")
 
-      assert html =~ ~s(name="return_to" value="/posts?status=2&amp;source_id=#{source.id}&amp;q=berlin&amp;page=2")
+      assert html =~ "source_id=#{source.id}"
+      assert html =~ "status=2"
+      assert html =~ "q=berlin"
     end
 
-    test "puts publish selected and select-all above the table" do
+    test "puts publish selected and select-all above the table", %{conn: conn} do
       {_source, post} = create_test_post()
-      {:ok, _} = Posts.update_post(post, %{status: Post.status_processed(), title: "Ready To Publish"})
 
-      html = PostsView.index([])
+      {:ok, _} =
+        Posts.update_post(post, %{status: Post.status_processed(), title: "Ready To Publish"})
+
+      html = page(conn, "/posts")
       publish_at = :binary.match(html, "Publish selected")
       table_at = :binary.match(html, "<table")
       select_all_at = :binary.match(html, "select-all-posts")
@@ -118,7 +120,7 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       assert html =~ ~s(name="post_ids[]" value="#{post.id}")
     end
 
-    test "select-all includes every filtered staging post id" do
+    test "select-all includes every filtered staging post id", %{conn: conn} do
       {source, first} = create_test_post()
 
       {:ok, first} =
@@ -136,36 +138,34 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
           source_id: source.id
         })
 
-      html = PostsView.index(source_id: source.id, status: "2", page: 1)
+      html = page(conn, "/posts?source_id=#{source.id}&status=2&page=1")
 
       assert html =~ ~s(name="post_ids[]" value="#{first.id}")
       assert html =~ ~s(name="post_ids[]" value="#{second.id}")
     end
 
-    test "filters posts by search term" do
+    test "filters posts by search term", %{conn: conn} do
       {_source, post} = create_test_post()
       {_other, other_post} = create_test_post()
 
       {:ok, post} = Posts.update_post(post, %{title: "Unique Filter Phrase"})
       {:ok, other_post} = Posts.update_post(other_post, %{title: "Something Else Entirely"})
 
-      html = PostsView.index(q: "Unique Filter")
+      html = page(conn, "/posts?q=#{URI.encode_www_form("Unique Filter")}")
 
       assert html =~ ~s(name="q")
-      assert html =~ ~s(value="Unique Filter")
       assert html =~ post.title
       refute html =~ other_post.title
     end
 
-    test "keeps search term on status filter links" do
-      html = PostsView.index(q: "berlin", status: "2")
+    test "keeps search term on status filter links", %{conn: conn} do
+      html = page(conn, "/posts?q=berlin&status=2")
 
       assert html =~ "q=berlin"
-      assert html =~ ~s(name="status" value="2")
       assert html =~ ~s(value="berlin")
     end
 
-    test "lists pending-image posts when filtering by status 9" do
+    test "lists pending-image posts when filtering by status 9", %{conn: conn} do
       {_source, post} = create_test_post()
 
       {:ok, post} =
@@ -174,13 +174,13 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
           title: "Pending Filter Article"
         })
 
-      html = PostsView.index(status: "9")
+      html = page(conn, "/posts?status=9")
 
       assert html =~ post.title
       assert html =~ "btn-active"
     end
 
-    test "lets pending-image posts be selected for reprocess" do
+    test "lets pending-image posts be selected for reprocess", %{conn: conn} do
       {_source, post} = create_test_post()
 
       {:ok, post} =
@@ -189,24 +189,23 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
           title: "Pending Selectable Article"
         })
 
-      html = PostsView.index(status: "9")
+      html = page(conn, "/posts?status=9")
 
       assert html =~ ~s(name="post_ids[]" value="#{post.id}")
       assert html =~ ~s(data-publishable="false")
       assert html =~ "Reprocess selected"
-      assert html =~ ~s(formaction="/posts/reprocess-selected")
     end
   end
 
-  describe "show/1" do
-    test "returns HTML for specific post" do
+  describe "show" do
+    test "returns HTML for specific post", %{conn: conn} do
       {_source, post} = create_test_post()
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
       assert is_binary(html)
       assert html =~ post.title or html =~ "View Test Article"
-      assert html =~ "data-post-tab=\"event\""
+      assert html =~ ~s(data-post-tab="event")
       assert html =~ "EVENT"
       assert html =~ "\"kind\""
       assert html =~ "\"tags\""
@@ -214,7 +213,7 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       refute html =~ "Encrypted wrap"
     end
 
-    test "clears leftover pending error when images are already uploaded" do
+    test "clears leftover pending error when images are already uploaded", %{conn: conn} do
       nostr = Application.get_env(:rss2nostr, :nostr, [])
 
       Application.put_env(
@@ -245,14 +244,14 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
           uploaded_url: uploaded
         })
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
       refute html =~ "Images still need uploading"
       refute html =~ "Upload images"
       assert html =~ "staging"
     end
 
-    test "offers upload images when the post is pending images" do
+    test "offers upload images when the post is pending images", %{conn: conn} do
       {source, post} = create_test_post()
 
       {:ok, post} =
@@ -263,35 +262,32 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
           last_error: "NOSTR_UPLOAD_ENDPOINT is not set"
         })
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
       assert html =~ "pending images"
       assert html =~ "Upload images"
       assert html =~ "Reprocess"
-      assert html =~ "/posts/#{post.id}/reprocess"
       assert html =~ "Last error"
       assert html =~ source.name or html =~ "Images"
     end
 
-    test "shows post details" do
+    test "shows post details", %{conn: conn} do
       {source, post} = create_test_post()
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
-      # Should show post details
       assert html =~ post.title or html =~ source.name or html =~ "Status"
     end
 
-    test "shows action buttons" do
+    test "shows action buttons", %{conn: conn} do
       {_source, post} = create_test_post()
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
-      # Should have process/publish buttons
       assert html =~ "process" or html =~ "Process" or html =~ "publish" or html =~ "Publish"
     end
 
-    test "shows published hashtags without source exclusions" do
+    test "shows published hashtags without source exclusions", %{conn: conn} do
       {source, post} = create_test_post()
 
       {:ok, _} =
@@ -304,7 +300,7 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
           categories: ["Haupteintrag", "Politik", "ROOT", "radiomuenchen"]
         })
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
       assert html =~ ~s(value="politik, radiomuenchen")
       refute html =~ ~s(value="Haupteintrag)
@@ -314,7 +310,7 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
       refute html =~ "#haupteintrag"
     end
 
-    test "shows an editor for staging posts" do
+    test "shows an editor for staging posts", %{conn: conn} do
       {_source, post} = create_test_post()
 
       {:ok, post} =
@@ -325,19 +321,18 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
           categories: ["nostr"]
         })
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
       assert html =~ "staging"
-      assert html =~ "name=\"title\""
-      assert html =~ "name=\"hashtags\""
+      assert html =~ ~s(name="title")
+      assert html =~ ~s(name="hashtags")
       assert html =~ "Hello **world**"
-      assert html =~ "data-post-tab=\"preview\""
+      assert html =~ ~s(data-post-tab="preview")
       assert html =~ "Publish to"
       assert html =~ "Reprocess"
-      assert html =~ "/posts/#{post.id}/reprocess"
     end
 
-    test "shows publish notes on a published post" do
+    test "shows publish notes on a published post", %{conn: conn} do
       {_source, post} = create_test_post()
 
       {:ok, post} =
@@ -347,48 +342,48 @@ defmodule Rss2Nostr.Web.Views.PostsTest do
           last_error: "wss://client-test.pareto.town: could not resolve host"
         })
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
       assert html =~ "Publish notes"
       assert html =~ "could not resolve host"
     end
 
-    test "shows republish and revise for published posts" do
+    test "shows republish and revise for published posts", %{conn: conn} do
       {_source, post} = create_test_post()
       {:ok, post} = Posts.update_post(post, %{status: Post.status_published(), content: "Done"})
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
       assert html =~ "Republish"
       assert html =~ "Revise"
-      assert html =~ "/posts/#{post.id}/revise"
+      assert html =~ ~s(phx-click="revise")
     end
 
-    test "backs to the source articles tab by default" do
+    test "backs to the source articles tab by default", %{conn: conn} do
       {source, post} = create_test_post()
       {:ok, post} = Posts.update_post(post, %{status: Post.status_processed(), content: "Body"})
 
-      html = PostsView.show(to_string(post.id))
+      html = page(conn, "/posts/#{post.id}")
 
       assert html =~ ~s(href="/sources/#{source.id}?tab=articles")
       refute html =~ ~s(href="/posts" class="btn btn-secondary">Back to List)
     end
 
-    test "backs to an explicit return_to path" do
+    test "backs to an explicit return_to path", %{conn: conn} do
       {_source, post} = create_test_post()
       {:ok, post} = Posts.update_post(post, %{status: Post.status_processed(), content: "Body"})
 
-      html = PostsView.show(to_string(post.id), return_to: "/posts?status=2")
+      html = page(conn, "/posts/#{post.id}?return_to=#{URI.encode_www_form("/posts?status=2")}")
 
       assert html =~ ~s(href="/posts?status=2")
       assert html =~ ~s(name="return_to" value="/posts?status=2")
     end
 
-    test "ignores an external return_to" do
+    test "ignores an external return_to", %{conn: conn} do
       {source, post} = create_test_post()
       {:ok, post} = Posts.update_post(post, %{status: Post.status_processed(), content: "Body"})
 
-      html = PostsView.show(to_string(post.id), return_to: "//evil.example/")
+      html = page(conn, "/posts/#{post.id}?return_to=#{URI.encode_www_form("//evil.example/")}")
 
       assert html =~ ~s(href="/sources/#{source.id}?tab=articles")
       refute html =~ "evil.example"

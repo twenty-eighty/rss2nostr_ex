@@ -71,7 +71,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Articles do
     """
   end
 
-
   def upload_forms(source, posts) do
     return_to = "/sources/#{source.id}?tab=articles"
 
@@ -85,7 +84,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Articles do
       """
     end)
   end
-
 
   def post_preview_href(source, post) do
     "/posts/#{post.id}?return_to=" <>

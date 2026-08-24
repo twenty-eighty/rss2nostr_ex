@@ -122,7 +122,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Scripts do
     """
   end
 
-
   @spec publish_as_script() :: String.t()
   def publish_as_script do
     """
@@ -147,7 +146,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Scripts do
     </script>
     """
   end
-
 
   @spec feed_start_script() :: String.t()
   def feed_start_script do
@@ -205,7 +203,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Scripts do
     </script>
     """
   end
-
 
   @spec discover_script() :: String.t()
   def discover_script do
@@ -493,7 +490,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Scripts do
     </script>
     """
   end
-
 
   @spec compose_script() :: String.t()
   def compose_script do
@@ -950,7 +946,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Scripts do
     """
   end
 
-
   @spec compose_page_script() :: String.t()
   def compose_page_script do
     """
@@ -1004,7 +999,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Scripts do
     </script>
     """
   end
-
 
   @spec source_avatar_script() :: String.t()
   def source_avatar_script do
@@ -1069,6 +1063,4 @@ defmodule Rss2Nostr.Web.Views.Sources.Scripts do
     </script>
     """
   end
-
-
 end

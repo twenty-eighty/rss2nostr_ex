@@ -32,7 +32,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Compose do
     """
   end
 
-
   defp compose_layout(params, source) do
     """
     <div class="compose-layout">
@@ -44,7 +43,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Compose do
     """
   end
 
-
   defp compose_fields(params, source) do
     fetch =
       params["fetch_source_from"] || (source && source.fetch_source_from) || "fetch_from_url"
@@ -54,6 +52,7 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Compose do
         Helpers.option(source, "body_selector") ||
         BodySchema.selector_for_url(source && source.url) ||
         ""
+
     start_at = params["start_at"] || Helpers.option(source, "start_at") || ""
     skip = params["skip_classes"] || Helpers.skip_classes_text(source)
     content_checked = if fetch == "content", do: "checked", else: ""
@@ -62,6 +61,7 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Compose do
     presets =
       Enum.map_join(Composer.body_presets(), "", fn {label, value} ->
         selected = if value != "" and value == selector, do: " selected", else: ""
+
         ~s(<option value="#{Helpers.escape_attr(value)}"#{selected}>#{Helpers.escape_html(label)}</option>)
       end)
 
@@ -142,7 +142,6 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Compose do
     """
   end
 
-
   defp compose_preview_panel do
     """
     <div class="compose-preview-panel">
@@ -170,6 +169,4 @@ defmodule Rss2Nostr.Web.Views.Sources.Tabs.Compose do
     </div>
     """
   end
-
-
 end

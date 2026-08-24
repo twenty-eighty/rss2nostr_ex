@@ -63,7 +63,10 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
 
     assert html =~ "<em>To access this week’s edition of <strong>The Corbett Report</strong></em>"
     assert html =~ "<strong>Subscriber</strong>"
-    assert html =~ "<em>, please <a href=\"https://corbettreport.com/login/\">sign in</a> and continue reading below.</em>"
+
+    assert html =~
+             "<em>, please <a href=\"https://corbettreport.com/login/\">sign in</a> and continue reading below.</em>"
+
     refute html =~ "*"
     refute html =~ "_"
   end
@@ -103,7 +106,10 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
       )
 
     assert html =~ ~s(<a href="https://t.me/kulturzentner">)
-    assert html =~ ~s(<img src="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg" alt="">)
+
+    assert html =~
+             ~s(<img src="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands/telegram.svg" alt="">)
+
     assert html =~ ~r/Folgt mir auf Telegram.*<img /s
   end
 

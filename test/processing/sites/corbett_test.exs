@@ -134,7 +134,9 @@ defmodule Rss2Nostr.Processing.Sites.CorbettTest do
       md = convert(html, url: "https://corbettreport.com/the-lord-of-the-rings-flnwo-07/")
 
       assert md =~ "**WATCH ON:**"
-      assert md =~ "[BitChute](https://www.bitchute.com/video/x)\n\n[Odysee](https://odysee.com/@c/z)"
+
+      assert md =~
+               "[BitChute](https://www.bitchute.com/video/x)\n\n[Odysee](https://odysee.com/@c/z)"
     end
 
     test "does not rewrite WATCH ON on other sites" do

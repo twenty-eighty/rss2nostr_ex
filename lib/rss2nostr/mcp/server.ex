@@ -49,9 +49,11 @@ defmodule Rss2Nostr.MCP.Server do
     param(:body_selector, :string, description: "CSS selector for the article body")
     param(:start_at, :string, description: "Skip content before this marker")
     param(:skip_classes, :string, description: "Comma-separated CSS class fragments to drop")
+
     param(:excluded_hashtags, :string,
       description: "Comma-separated RSS categories dropped from published t tags"
     )
+
     param(:language, :string, description: "ISO 639-1 feed language for generated labels")
     run(fn args, state -> reply(Actions.preview_compose(args), state) end)
   end
@@ -64,9 +66,7 @@ defmodule Rss2Nostr.MCP.Server do
     param(:publish_as, :string, description: "draft, draft_plain, article, or video")
     param(:mirror_media, :string, description: "For video sources: blossom or original")
 
-    param(:pubkey, :string,
-      description: "Author npub or hex pubkey (required for drafts)"
-    )
+    param(:pubkey, :string, description: "Author npub or hex pubkey (required for drafts)")
 
     param(:signing_nsec, :string, description: "Author nsec for article sources")
     param(:bunker_connection, :string, description: "NIP-46 bunker URL for article sources")
@@ -84,10 +84,15 @@ defmodule Rss2Nostr.MCP.Server do
       description:
         "npub or hex to receive a NIP-17 staging DM (NIP-05 or public, plus NOSTR_RELAYS_INBOX)"
     )
-    param(:fixed_hashtags, :string, description: "Comma-separated hashtags added to every article")
+
+    param(:fixed_hashtags, :string,
+      description: "Comma-separated hashtags added to every article"
+    )
+
     param(:excluded_hashtags, :string,
       description: "Comma-separated RSS categories dropped from published t tags"
     )
+
     run(fn args, state -> reply(Actions.add_source(args), state) end)
   end
 
@@ -116,10 +121,15 @@ defmodule Rss2Nostr.MCP.Server do
       description:
         "npub or hex to receive a NIP-17 staging DM (NIP-05 or public, plus NOSTR_RELAYS_INBOX)"
     )
-    param(:fixed_hashtags, :string, description: "Comma-separated hashtags added to every article")
+
+    param(:fixed_hashtags, :string,
+      description: "Comma-separated hashtags added to every article"
+    )
+
     param(:excluded_hashtags, :string,
       description: "Comma-separated RSS categories dropped from published t tags"
     )
+
     run(fn args, state -> reply(Actions.update_source(args), state) end)
   end
 

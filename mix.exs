@@ -11,6 +11,8 @@ defmodule Rss2Nostr.MixProject do
       aliases: aliases(),
       escript: escript(),
       elixirc_paths: elixirc_paths(Mix.env()),
+      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      listeners: [Phoenix.CodeReloader],
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
         plt_add_apps: [:mix, :ex_unit]
@@ -64,9 +66,15 @@ defmodule Rss2Nostr.MixProject do
       # CLI
       {:optimus, "~> 0.3"},
 
-      # Web Server
+      # Web Server / Phoenix LiveView
       {:plug, "~> 1.15"},
       {:bandit, "~> 1.12"},
+      {:phoenix, "~> 1.8"},
+      {:phoenix_html, "~> 4.2"},
+      {:phoenix_live_view, "~> 1.1"},
+      {:phoenix_live_reload, "~> 1.6", only: :dev},
+      {:lazy_html, ">= 0.1.0", only: :test},
+      {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
 
       # MCP (AI management)
       {:ex_mcp, "~> 1.0.0-rc.6"},
@@ -85,9 +93,12 @@ defmodule Rss2Nostr.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
+      setup: ["deps.get", "ecto.setup", "assets.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      "assets.setup": ["esbuild.install --if-missing"],
+      "assets.build": ["esbuild rss2nostr"],
+      "assets.deploy": ["esbuild rss2nostr --minify"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       dev: ["ecto.create --quiet", "ecto.migrate --quiet", "rss2nostr.server"],
       # Code quality checks

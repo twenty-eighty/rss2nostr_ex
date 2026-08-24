@@ -3,9 +3,8 @@ defmodule Rss2Nostr.Web.Views.Sources do
   Views for source management.
   """
 
-  alias Rss2Nostr.Web.Views.Sources.{Index, Language, New, Show}
+  alias Rss2Nostr.Web.Views.Sources.{Language, New, Show}
 
-  def index, do: Index.index()
   def new(opts \\ []), do: New.new(opts)
   def compose(source, opts \\ []), do: Show.compose(source, opts)
   def show(source, opts \\ []), do: Show.show(source, opts)

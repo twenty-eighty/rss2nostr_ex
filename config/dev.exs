@@ -33,3 +33,21 @@ config :logger, :default_formatter, format: "[$level] $message\n"
 
 # Recompile Elixir (including CSS/JS in views) on each request.
 config :rss2nostr, :code_reloader, true
+
+config :rss2nostr, Rss2NostrWeb.Endpoint,
+  http: [
+    ip: {0, 0, 0, 0},
+    port: String.to_integer(System.get_env("PORT") || System.get_env("WEB_PORT") || "4000")
+  ],
+  check_origin: false,
+  code_reloader: true,
+  debug_errors: true,
+  watchers: [
+    esbuild: {Esbuild, :install_and_run, [:rss2nostr, ~w(--sourcemap=inline --watch)]}
+  ],
+  live_reload: [
+    patterns: [
+      ~r"priv/static/(?!uploads/).*(js|css|png|jpeg|jpg|gif|svg)$",
+      ~r"lib/rss2nostr_web/(?:components|live)/.*\.(ex|heex)$"
+    ]
+  ]

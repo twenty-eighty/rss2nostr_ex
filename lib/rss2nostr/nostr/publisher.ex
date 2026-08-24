@@ -10,6 +10,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   require Logger
 
   alias Rss2Nostr.Nostr.{NIP19, Relays}
+
   alias Rss2Nostr.Nostr.Publisher.{
     Gap,
     Identifiers,
@@ -20,6 +21,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
     Report,
     Signing
   }
+
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
 
@@ -150,7 +152,9 @@ defmodule Rss2Nostr.Nostr.Publisher do
          {:ok, signed_events} <- Signing.sign_all(signer, events) do
       signed_event = hd(signed_events)
       identifier = Identifiers.from_event(signed_event)
-      {:ok, naddr} = NIP19.encode_naddr(PostKind.published_kind(post), pubkey_hex, identifier, relays)
+
+      {:ok, naddr} =
+        NIP19.encode_naddr(PostKind.published_kind(post), pubkey_hex, identifier, relays)
 
       publish_results =
         if relays != [] do

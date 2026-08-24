@@ -26,7 +26,9 @@ defmodule Rss2Nostr.Nostr.RelayQuery do
     |> Task.async_stream(
       fn url ->
         case Relay.query(url, filter, timeout) do
-          {:ok, events} -> events
+          {:ok, events} ->
+            events
+
           {:error, reason} ->
             Logger.debug("Relay query failed for #{url}: #{inspect(reason)}")
             []

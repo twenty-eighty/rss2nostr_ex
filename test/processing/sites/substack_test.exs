@@ -125,7 +125,8 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
       <p><a href="https://forumgeopolitica.com/article/from-sanctions-to-martial-law-and-a-state-of-emergency#_ftnref1">[1]</a><span> See the definition of censorship by Hofbauer, Hannes: Zensur. Vienna 2022, p. 7</span></p>
       """
 
-      md = convert(html, url: "https://patrikbaab.substack.com/p/from-sanctions-to-martial-law-and")
+      md =
+        convert(html, url: "https://patrikbaab.substack.com/p/from-sanctions-to-martial-law-and")
 
       assert md =~ "[^1]: See the definition of censorship by Hofbauer"
       refute md =~ "[[1]]"
@@ -162,6 +163,7 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
       md = convert(html, url: "https://lebegelassen.substack.com/p/das-schwarze-schaf")
 
       assert md =~ "wahrgenommen wird. [^1]"
+
       assert md =~
                "[^1]: [https://www.bachelorprint.ch/linguistik/redewendungen/schwarzes-schaf/](https://www.bachelorprint.ch/linguistik/redewendungen/schwarzes-schaf/)"
 

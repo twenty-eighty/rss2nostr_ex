@@ -227,7 +227,11 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
       assert video.url == "https://www.corbettreport.com/mp4/nwnw640.mp4"
       assert video.caption == "23:43"
       assert ImageExtractor.clock_to_seconds(video.caption) == 1423
-      assert ImageExtractor.parse_media_caption("23:43 66928694") == %{duration: 1423, size: 66_928_694}
+
+      assert ImageExtractor.parse_media_caption("23:43 66928694") == %{
+               duration: 1423,
+               size: 66_928_694
+             }
     end
   end
 
