@@ -147,6 +147,25 @@ defmodule Rss2NostrWeb.AdminLiveTest do
       assert html =~ "Staging"
     end
 
+    test "enables bulk actions after selecting a staging post", %{conn: conn} do
+      source = create_source(%{name: "Bulk Source"})
+      post = create_post(source, %{title: "Selectable bulk post"})
+
+      {:ok, view, html} =
+        conn
+        |> authed_conn()
+        |> live("/posts?source_id=#{source.id}&page=1")
+
+      assert html =~ ~s(disabled)
+      assert html =~ "Publish selected"
+      assert html =~ "Reprocess selected"
+
+      html = render_click(view, "toggle_post", %{"id" => to_string(post.id)})
+
+      refute html =~ ~r/phx-click="publish_selected"[^>]*disabled/
+      refute html =~ ~r/phx-click="reprocess_selected"[^>]*disabled/
+    end
+
     test "shows a processed post editor", %{conn: conn} do
       source = create_source()
       post = create_post(source, %{title: "Editable post", content: "Hello **world**"})

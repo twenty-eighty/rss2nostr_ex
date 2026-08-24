@@ -63,15 +63,24 @@ defmodule Rss2NostrWeb.PostIndexLive do
         MapSet.put(selected, id)
       end
 
-    {:noreply, assign(socket, :selected_ids, selected)}
+    {:noreply,
+     socket
+     |> assign(:selected_ids, selected)
+     |> assign_selection_flags()}
   end
 
   def handle_event("toggle_all", %{"value" => "on"}, socket) do
-    {:noreply, assign(socket, :selected_ids, MapSet.new(socket.assigns.selectable_ids))}
+    {:noreply,
+     socket
+     |> assign(:selected_ids, MapSet.new(socket.assigns.selectable_ids))
+     |> assign_selection_flags()}
   end
 
   def handle_event("toggle_all", _params, socket) do
-    {:noreply, assign(socket, :selected_ids, MapSet.new())}
+    {:noreply,
+     socket
+     |> assign(:selected_ids, MapSet.new())
+     |> assign_selection_flags()}
   end
 
   def handle_event("publish_selected", _params, socket) do
@@ -377,7 +386,6 @@ defmodule Rss2NostrWeb.PostIndexLive do
       )
 
     selectable_ids = selectable_post_ids(status, source_id, q)
-    selected = socket.assigns.selected_ids
     publishable_ids = MapSet.new(publishable_post_ids(status, source_id, q))
 
     socket
@@ -385,7 +393,17 @@ defmodule Rss2NostrWeb.PostIndexLive do
     |> assign(:sources, Enum.sort_by(Sources.list_sources(), & &1.name))
     |> assign(:per_page, @per_page)
     |> assign(:selectable_ids, selectable_ids)
+    |> assign(:publishable_ids, publishable_ids)
     |> assign(:return_to, posts_path(status: status, source_id: source_id, q: q, page: page))
+    |> assign_selection_flags()
+  end
+
+  defp assign_selection_flags(socket) do
+    selected = socket.assigns.selected_ids
+    selectable_ids = socket.assigns.selectable_ids
+    publishable_ids = socket.assigns.publishable_ids
+
+    socket
     |> assign(:selectable?, selectable_ids != [] and MapSet.size(selected) > 0)
     |> assign(
       :publishable?,
