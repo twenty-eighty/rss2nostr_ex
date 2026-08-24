@@ -28,11 +28,15 @@ RUN mkdir config
 COPY config/config.exs config/prod.exs config/runtime.exs config/
 RUN mix deps.compile
 
+COPY assets assets
 COPY priv priv
 COPY lib lib
 COPY rel rel
 COPY package.json package-lock.json priv/
 RUN cd priv && npm ci --omit=dev
+
+# app.js is gitignored; bundle LiveView/Phoenix JS into the release.
+RUN mix assets.setup && mix assets.deploy
 
 RUN mix release
 
