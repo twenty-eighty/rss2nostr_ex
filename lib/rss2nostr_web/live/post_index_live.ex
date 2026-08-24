@@ -258,6 +258,9 @@ defmodule Rss2NostrWeb.PostIndexLive do
       >
         Reprocess selected
       </button>
+      <span class="article-selection-count">
+        {MapSet.size(@selected_ids)} selected
+      </span>
     </div>
     <p class="help-text">
       Select all includes matching articles, not only this page. Staging articles can be published;

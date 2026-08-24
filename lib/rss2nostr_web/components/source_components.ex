@@ -487,6 +487,9 @@ defmodule Rss2NostrWeb.SourceComponents do
       >
         Reprocess selected
       </button>
+      <span class="article-selection-count">
+        {MapSet.size(@selected_ids)} selected
+      </span>
     </div>
     <p class="help-text">
       Selected staging articles publish to the {@relay_label}. Setup never uses the public list.

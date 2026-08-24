@@ -162,6 +162,7 @@ defmodule Rss2NostrWeb.AdminLiveTest do
 
       html = render_click(view, "toggle_post", %{"id" => to_string(post.id)})
 
+      assert html =~ "1 selected"
       refute html =~ ~r/phx-click="publish_selected"[^>]*disabled/
       refute html =~ ~r/phx-click="reprocess_selected"[^>]*disabled/
     end
@@ -180,6 +181,7 @@ defmodule Rss2NostrWeb.AdminLiveTest do
 
       html = render_click(view, "toggle_all", %{"checked" => "true"})
 
+      assert html =~ "1 selected"
       assert html =~ ~r/value="#{post.id}"[^>]*checked|checked[^>]*value="#{post.id}"/
       refute html =~ ~r/phx-click="publish_selected"[^>]*disabled/
       refute html =~ ~r/phx-click="reprocess_selected"[^>]*disabled/

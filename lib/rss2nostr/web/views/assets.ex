@@ -924,6 +924,11 @@ defmodule Rss2Nostr.Web.Views.Assets do
       margin: 0;
     }
 
+    .article-selection-count {
+      color: var(--gray-500);
+      font-size: 0.9rem;
+    }
+
     .article-select {
       width: 2rem;
       text-align: center;
