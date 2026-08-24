@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="RSS2Nostr">
+  <rect width="128" height="128" rx="28" fill="#4f46e5"/>
+  <!-- Feed arcs radiating from origin -->
+  <g fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round">
+    <path d="M36 88 A36 36 0 0 1 72 52"/>
+    <path d="M36 88 A54 54 0 0 1 90 34"/>
+  </g>
+  <!-- Fan-out into Nostr relay nodes -->
+  <g fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round">
+    <path d="M90 34 C98 30 104 28 110 26"/>
+    <path d="M90 34 C100 40 106 48 110 56"/>
+    <path d="M72 52 C86 58 96 70 102 82"/>
+  </g>
+  <circle cx="36" cy="88" r="8" fill="#fff"/>
+  <circle cx="110" cy="26" r="6" fill="#fff"/>
+  <circle cx="110" cy="56" r="6" fill="#fff"/>
+  <circle cx="102" cy="82" r="6" fill="#fff"/>
+</svg>

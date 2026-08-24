@@ -98,6 +98,24 @@ defmodule Rss2Nostr.Web.Views.Assets do
       font-size: 1.5rem;
       font-weight: bold;
       text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+
+    .nav-logo {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 0.45rem;
+      flex-shrink: 0;
+    }
+
+    .login-logo {
+      display: block;
+      width: 4rem;
+      height: 4rem;
+      margin: 0 auto 1rem;
+      border-radius: 0.9rem;
     }
 
     .nav-links {
@@ -156,11 +174,13 @@ defmodule Rss2Nostr.Web.Views.Assets do
 
     .login-card h1 {
       margin-bottom: 0.5rem;
+      text-align: center;
     }
 
     .login-lead {
       color: var(--gray-700);
       margin-bottom: 1.5rem;
+      text-align: center;
     }
 
     .login-card .btn {

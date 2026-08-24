@@ -3,7 +3,8 @@ defmodule Rss2NostrWeb do
   Phoenix entrypoints for the admin UI LiveView layer.
   """
 
-  def static_paths, do: ~w(assets)
+  def static_paths,
+    do: ~w(assets images favicon.ico favicon.svg apple-touch-icon.png)
 
   def router do
     quote do

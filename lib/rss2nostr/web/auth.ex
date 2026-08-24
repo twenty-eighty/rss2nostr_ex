@@ -221,6 +221,10 @@ defmodule Rss2Nostr.Web.Auth do
       {"GET", ["health"]} -> true
       {"GET", ["static" | _]} -> true
       {"GET", ["assets" | _]} -> true
+      {"GET", ["images" | _]} -> true
+      {"GET", ["favicon.ico"]} -> true
+      {"GET", ["favicon.svg"]} -> true
+      {"GET", ["apple-touch-icon.png"]} -> true
       _ -> false
     end
   end

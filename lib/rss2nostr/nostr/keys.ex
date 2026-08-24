@@ -10,8 +10,6 @@ defmodule Rss2Nostr.Nostr.Keys do
 
   alias Rss2Nostr.Nostr.NIP19
 
-  @sign_script Path.join(:code.priv_dir(:rss2nostr), "sign_event.mjs")
-
   @doc """
   Generates a new random private key.
   Returns a 32-byte binary.
@@ -61,12 +59,13 @@ defmodule Rss2Nostr.Nostr.Keys do
 
     # Use a temp file to avoid shell escaping issues with special characters
     tmp_file = Path.join(System.tmp_dir!(), "nostr_sign_#{:rand.uniform(1_000_000)}.json")
+    script = sign_script()
 
     try do
       File.write!(tmp_file, input)
 
-      case System.cmd("node", [@sign_script],
-             cd: Path.dirname(tmp_file),
+      case System.cmd("node", [script],
+             cd: Path.dirname(script),
              stderr_to_stdout: true,
              env: [{"INPUT_FILE", tmp_file}]
            ) do
@@ -241,4 +240,8 @@ defmodule Rss2Nostr.Nostr.Keys do
   end
 
   def parse_private_key(_), do: {:error, :invalid_input}
+
+  # Resolve at runtime: compile-time :code.priv_dir/1 bakes the Mix _build path
+  # into releases and breaks Docker/prod.
+  defp sign_script, do: Path.join(:code.priv_dir(:rss2nostr), "sign_event.mjs")
 end

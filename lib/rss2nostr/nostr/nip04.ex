@@ -10,8 +10,6 @@ defmodule Rss2Nostr.Nostr.NIP04 do
 
   alias Rss2Nostr.Nostr.Keys
 
-  @nip04_script Path.join(:code.priv_dir(:rss2nostr), "nip04.mjs")
-
   @doc """
   Encrypts a message for a recipient using NIP-04.
 
@@ -53,12 +51,13 @@ defmodule Rss2Nostr.Nostr.NIP04 do
       |> Jason.encode!()
 
     tmp_file = Path.join(System.tmp_dir!(), "nip04_#{:rand.uniform(1_000_000)}.json")
+    script = nip04_script()
 
     try do
       File.write!(tmp_file, input)
 
-      case System.cmd("node", [@nip04_script],
-             cd: Path.dirname(tmp_file),
+      case System.cmd("node", [script],
+             cd: Path.dirname(script),
              stderr_to_stdout: true,
              env: [{"INPUT_FILE", tmp_file}]
            ) do
@@ -82,4 +81,8 @@ defmodule Rss2Nostr.Nostr.NIP04 do
       File.rm(tmp_file)
     end
   end
+
+  # Resolve at runtime: compile-time :code.priv_dir/1 bakes the Mix _build path
+  # into releases and breaks Docker/prod.
+  defp nip04_script, do: Path.join(:code.priv_dir(:rss2nostr), "nip04.mjs")
 end

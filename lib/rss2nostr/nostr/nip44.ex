@@ -7,8 +7,6 @@ defmodule Rss2Nostr.Nostr.NIP44 do
 
   alias Rss2Nostr.Nostr.Keys
 
-  @nip44_script Path.join(:code.priv_dir(:rss2nostr), "nip44.mjs")
-
   @doc """
   Encrypts plaintext to `recipient_pubkey` using the sender's private key.
   """
@@ -25,6 +23,10 @@ defmodule Rss2Nostr.Nostr.NIP44 do
     run_nip44("decrypt", private_key, peer_pubkey, ciphertext: ciphertext)
   end
 
+  # Resolve at runtime: compile-time :code.priv_dir/1 bakes the Mix _build path
+  # into releases and breaks Docker/prod.
+  defp nip44_script, do: Path.join(:code.priv_dir(:rss2nostr), "nip44.mjs")
+
   defp run_nip44(action, private_key, pubkey, opts) do
     input =
       %{
@@ -36,12 +38,13 @@ defmodule Rss2Nostr.Nostr.NIP44 do
       |> Jason.encode!()
 
     tmp_file = Path.join(System.tmp_dir!(), "nip44_#{:rand.uniform(1_000_000)}.json")
+    script = nip44_script()
 
     try do
       File.write!(tmp_file, input)
 
-      case System.cmd("node", [@nip44_script],
-             cd: Path.dirname(tmp_file),
+      case System.cmd("node", [script],
+             cd: Path.dirname(script),
              stderr_to_stdout: true,
              env: [{"INPUT_FILE", tmp_file}]
            ) do
