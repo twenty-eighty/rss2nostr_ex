@@ -11,6 +11,19 @@ defmodule Rss2Nostr.Nostr.NIP19 do
   - nprofile: Profile references with relay hints
   """
 
+  @type decode_data ::
+          String.t()
+          | %{pubkey: String.t(), relays: [String.t()]}
+          | %{event_id: String.t(), author: String.t() | nil, relays: [String.t()]}
+          | %{
+              kind: integer(),
+              pubkey: String.t(),
+              identifier: String.t(),
+              relays: [String.t()]
+            }
+
+  @type decode_error :: atom() | {:unsupported_hrp, String.t()}
+
   # Human-readable prefixes
   @npub_hrp "npub"
   @nsec_hrp "nsec"
@@ -173,7 +186,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
   Decodes a NIP-19 encoded string.
   Returns {:ok, type, data} or {:error, reason}.
   """
-  @spec decode(String.t()) :: {:ok, atom(), any()} | {:error, any()}
+  @spec decode(String.t()) :: {:ok, atom(), decode_data()} | {:error, decode_error()}
   def decode(encoded) when is_binary(encoded) do
     case Bech32.decode(encoded) do
       {:ok, hrp, data} ->
@@ -186,7 +199,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
   end
 
   # Decodes based on HRP type
-  @spec decode_by_hrp(String.t(), binary()) :: {:ok, atom(), any()} | {:error, any()}
+  @spec decode_by_hrp(String.t(), binary()) :: {:ok, atom(), decode_data()} | {:error, decode_error()}
   defp decode_by_hrp(@npub_hrp, data) when byte_size(data) >= 32 do
     pubkey = binary_part(data, 0, 32)
     {:ok, :npub, Base.encode16(pubkey, case: :lower)}
@@ -357,7 +370,7 @@ defmodule Rss2Nostr.Nostr.NIP19 do
     encode_bech32_5bit(hrp, data_5bit)
   end
 
-  @spec encode_bech32_5bit(String.t(), list()) :: {:ok, String.t()}
+  @spec encode_bech32_5bit(String.t(), binary()) :: {:ok, String.t()}
   defp encode_bech32_5bit(hrp, data_5bit) do
     encoded = Bech32.encode_from_5bit(hrp, data_5bit)
     {:ok, encoded}

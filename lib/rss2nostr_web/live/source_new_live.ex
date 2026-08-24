@@ -76,9 +76,6 @@ defmodule Rss2NostrWeb.SourceNewLive do
              |> assign(:details?, true)
              |> assign(:errors, changeset_errors(changeset))
              |> put_flash(:error, format_update_error(changeset))}
-
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, format_update_error(reason))}
         end
 
       not socket.assigns.details? ->

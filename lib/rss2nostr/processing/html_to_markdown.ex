@@ -280,14 +280,14 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     end
   end
 
-  @spec matching_conversion(Floki.html_node()) :: map() | nil
+  @spec matching_conversion(Floki.html_node()) :: Rss2Nostr.Processing.Conversion.rule() | nil
   defp matching_conversion(node) do
     Enum.find(conversion_rules(), fn rule ->
       Rss2Nostr.Processing.Conversion.matches?(node, rule)
     end)
   end
 
-  @spec conversion_rules() :: [map()]
+  @spec conversion_rules() :: [Rss2Nostr.Processing.Conversion.rule()]
   defp conversion_rules do
     Process.get({__MODULE__, :conversion_rules}, [])
   end
@@ -312,7 +312,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   @spec same_video?(String.t() | nil, String.t() | nil) :: boolean()
   def same_video?(a, b), do: EmbedUrls.same_video?(a, b)
 
-  @spec remove_tracking_params(String.t() | any()) :: String.t()
+  @spec remove_tracking_params(String.t() | nil) :: String.t()
   def remove_tracking_params(url), do: TrackingParams.remove(url)
 
   # Postprocess markdown
@@ -351,7 +351,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     Process.get({__MODULE__, :skip_classes}, @default_skip_classes)
   end
 
-  @spec normalize_skip_classes(term()) :: [String.t()]
+  @spec normalize_skip_classes(String.t() | [String.t()] | nil) :: [String.t()]
   defp normalize_skip_classes(classes) when is_list(classes) do
     classes
     |> Enum.map(&to_string/1)
@@ -361,7 +361,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   defp normalize_skip_classes(_), do: @default_skip_classes
 
-  @spec get_attr([{String.t(), String.t()}], String.t(), term()) :: term()
+  @spec get_attr([{String.t(), String.t()}], String.t(), String.t() | nil) :: String.t() | nil
   defp get_attr(attrs, name, default), do: Dom.get_attr(attrs, name, default)
 
   @spec blank_to_nil(String.t()) :: String.t() | nil

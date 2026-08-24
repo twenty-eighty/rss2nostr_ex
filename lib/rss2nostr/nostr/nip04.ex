@@ -10,6 +10,8 @@ defmodule Rss2Nostr.Nostr.NIP04 do
 
   alias Rss2Nostr.Nostr.{Keys, NodeRunner}
 
+  @type nip04_error :: :json_decode_failed | :operation_failed | String.t()
+
   @doc """
   Encrypts a message for a recipient using NIP-04.
 
@@ -20,7 +22,7 @@ defmodule Rss2Nostr.Nostr.NIP04 do
 
   Returns {:ok, ciphertext} or {:error, reason}
   """
-  @spec encrypt(String.t(), binary(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  @spec encrypt(String.t(), binary(), String.t()) :: {:ok, String.t()} | {:error, nip04_error()}
   def encrypt(plaintext, private_key, recipient_pubkey)
       when is_binary(plaintext) and byte_size(private_key) == 32 do
     run_nip04("encrypt", private_key, recipient_pubkey, plaintext: plaintext)
@@ -36,13 +38,14 @@ defmodule Rss2Nostr.Nostr.NIP04 do
 
   Returns {:ok, plaintext} or {:error, reason}
   """
-  @spec decrypt(String.t(), binary(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  @spec decrypt(String.t(), binary(), String.t()) :: {:ok, String.t()} | {:error, nip04_error()}
   def decrypt(ciphertext, private_key, sender_pubkey)
       when is_binary(ciphertext) and byte_size(private_key) == 32 do
     run_nip04("decrypt", private_key, sender_pubkey, ciphertext: ciphertext)
   end
 
-  @spec run_nip04(String.t(), binary(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec run_nip04(String.t(), binary(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, nip04_error()}
   defp run_nip04(action, private_key, pubkey, opts) do
     input =
       %{

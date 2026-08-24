@@ -6,7 +6,20 @@ defmodule Rss2Nostr.Nostr.Publisher.Preview do
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources.Source
 
-  @spec preview_event(Post.t() | map(), keyword()) :: map()
+  @type preview_result :: %{
+          event: map(),
+          parts: [map()],
+          inner: nil,
+          encrypted: boolean(),
+          draft: boolean(),
+          plain_draft: boolean(),
+          json: String.t(),
+          message: [String.t() | map()],
+          relays: [String.t()],
+          signed: boolean()
+        }
+
+  @spec preview_event(Post.t() | map(), keyword()) :: preview_result()
   def preview_event(post_or_attrs, opts \\ []) do
     source = Keyword.get(opts, :source) || source_of(post_or_attrs)
     post_or_attrs = post_or_attrs |> ensure_source_if_post() |> attach_source(source)
@@ -57,7 +70,6 @@ defmodule Rss2Nostr.Nostr.Publisher.Preview do
   defp attach_source(%Post{} = post, %Source{} = source), do: %{post | source: source}
   defp attach_source(%Post{} = post, _), do: post
   defp attach_source(attrs, source) when is_map(attrs), do: Map.put(attrs, :source, source)
-  defp attach_source(other, _), do: other
 
   @spec source_of(Post.t() | map()) :: Source.t() | nil
   defp source_of(%Post{source: %Source{} = source}), do: source

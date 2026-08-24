@@ -6,7 +6,9 @@ defmodule Rss2Nostr.HTTP do
   @user_agent "RSS2Nostr/0.1 (Elixir)"
   @max_redirects 3
 
-  @type response :: %{status: integer(), body: term(), headers: map() | list()}
+  @type headers :: %{String.t() => String.t() | [String.t()]} | [{String.t(), String.t()}]
+
+  @type response :: %{status: integer(), body: binary(), headers: headers()}
 
   @spec get(String.t(), keyword()) :: {:ok, response()} | {:error, Exception.t() | atom()}
   def get(url, opts \\ []), do: request(Keyword.merge(opts, method: :get, url: url))
@@ -20,7 +22,7 @@ defmodule Rss2Nostr.HTTP do
   @spec put(String.t(), keyword()) :: {:ok, response()} | {:error, Exception.t() | atom()}
   def put(url, opts \\ []), do: request(Keyword.merge(opts, method: :put, url: url))
 
-  @spec header(map() | list(), String.t()) :: String.t() | nil
+  @spec header(headers(), String.t()) :: String.t() | nil
   def header(headers, name) when is_map(headers) do
     key = String.downcase(name)
 
@@ -40,7 +42,7 @@ defmodule Rss2Nostr.HTTP do
     end
   end
 
-  @spec headers_to_list(map() | list()) :: [{String.t(), String.t()}]
+  @spec headers_to_list(headers()) :: [{String.t(), String.t()}]
   def headers_to_list(headers) when is_map(headers) do
     Enum.flat_map(headers, fn {key, values} ->
       Enum.map(List.wrap(values), fn value -> {to_string(key), to_string(value)} end)
@@ -111,7 +113,7 @@ defmodule Rss2Nostr.HTTP do
     end
   end
 
-  @spec ensure_user_agent(list()) :: list()
+  @spec ensure_user_agent([{String.t(), String.t()}]) :: [{String.t(), String.t()}]
   defp ensure_user_agent(headers) do
     has_ua? =
       Enum.any?(headers, fn {key, _} -> String.downcase(to_string(key)) == "user-agent" end)

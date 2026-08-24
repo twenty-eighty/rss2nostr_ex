@@ -11,6 +11,13 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
 
   alias Rss2Nostr.Nostr.{NIP05, RelayQuery, Relays}
 
+  @type profile_event :: %{
+          optional(String.t()) => String.t() | integer(),
+          optional(atom()) => String.t() | integer()
+        }
+
+  @type profile_content :: %{optional(String.t()) => String.t()}
+
   @cache :inbox_relays_cache
   @ttl_ms :timer.hours(6)
 
@@ -60,7 +67,7 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     end
   end
 
-  @spec profile(String.t(), keyword()) :: map() | nil
+  @spec profile(String.t(), keyword()) :: profile_event() | nil
   defp profile(hex, opts) do
     cond do
       Keyword.has_key?(opts, :profile) ->
@@ -74,14 +81,14 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     end
   end
 
-  @spec fetch_profile(String.t()) :: map() | nil
+  @spec fetch_profile(String.t()) :: profile_event() | nil
   defp fetch_profile(hex) do
     discovery_relays()
     |> RelayQuery.query_relays(%{"authors" => [hex], "kinds" => [0], "limit" => 5})
     |> Enum.max_by(&created_at/1, fn -> nil end)
   end
 
-  @spec nip05_identifier(map() | nil) :: String.t() | nil
+  @spec nip05_identifier(profile_event() | nil) :: String.t() | nil
   defp nip05_identifier(profile) when is_map(profile) do
     content = field(profile, "content") || field(profile, :content) || ""
 
@@ -165,7 +172,7 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     _ -> :ok
   end
 
-  @spec created_at(map()) :: integer()
+  @spec created_at(profile_event()) :: integer()
   defp created_at(event) do
     case field(event, "created_at") || field(event, :created_at) do
       value when is_integer(value) -> value
@@ -173,10 +180,10 @@ defmodule Rss2Nostr.Nostr.InboxRelays do
     end
   end
 
-  @spec field(map(), atom() | String.t()) :: term()
+  @spec field(profile_event(), atom() | String.t()) :: String.t() | integer() | nil
   defp field(map, key), do: Map.get(map, key)
 
-  @spec decode_content(term()) :: {:ok, map()} | :error
+  @spec decode_content(String.t()) :: {:ok, profile_content()} | :error
   defp decode_content(content) when is_binary(content), do: Jason.decode(content)
   defp decode_content(_), do: :error
 end

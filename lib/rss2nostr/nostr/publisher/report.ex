@@ -29,7 +29,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Report do
     "Reached #{length(urls)} #{relay_word(length(urls))}: #{Enum.map_join(urls, ", ", &relay_label/1)}."
   end
 
-  @spec format_missed([Report.relay_failure()]) :: String.t() | nil
+  @spec format_missed([relay_failure()]) :: String.t() | nil
   defp format_missed([]), do: nil
 
   defp format_missed(failed) do

@@ -181,7 +181,7 @@ defmodule Rss2Nostr.Posts do
   @doc """
   Returns posts by a list of IDs, preloaded with their source.
   """
-  @spec get_posts(list(), keyword()) :: [Post.t()]
+  @spec get_posts([integer() | binary()], keyword()) :: [Post.t()]
   def get_posts(ids, opts \\ []) when is_list(ids) do
     ids = Enum.flat_map(ids, &parse_post_id/1)
 
@@ -196,7 +196,7 @@ defmodule Rss2Nostr.Posts do
     end
   end
 
-  @spec parse_post_id(integer() | binary() | term()) :: [pos_integer()]
+  @spec parse_post_id(integer() | binary()) :: [pos_integer()]
   defp parse_post_id(id) when is_integer(id) and id > 0, do: [id]
 
   defp parse_post_id(id) when is_binary(id) do
@@ -296,7 +296,7 @@ defmodule Rss2Nostr.Posts do
     end
   end
 
-  @spec maybe_filter_pubkey(Ecto.Query.t(), term()) :: Ecto.Query.t()
+  @spec maybe_filter_pubkey(Ecto.Queryable.t(), String.t() | nil) :: Ecto.Queryable.t()
   defp maybe_filter_pubkey(query, pubkey) when is_binary(pubkey) and pubkey != "" do
     where(query, [p], p.pubkey == ^pubkey)
   end
@@ -509,7 +509,8 @@ defmodule Rss2Nostr.Posts do
     list_posts(opts)
   end
 
-  @spec maybe_filter_status(Ecto.Query.t(), term()) :: Ecto.Query.t()
+  @spec maybe_filter_status(Ecto.Queryable.t(), integer() | String.t() | nil) ::
+          Ecto.Queryable.t()
   defp maybe_filter_status(query, nil), do: query
   defp maybe_filter_status(query, ""), do: query
 
@@ -521,7 +522,8 @@ defmodule Rss2Nostr.Posts do
     maybe_filter_status(query, status_from_name(status))
   end
 
-  @spec maybe_filter_source(Ecto.Query.t(), term()) :: Ecto.Query.t()
+  @spec maybe_filter_source(Ecto.Queryable.t(), integer() | String.t() | nil) ::
+          Ecto.Queryable.t()
   defp maybe_filter_source(query, nil), do: query
   defp maybe_filter_source(query, ""), do: query
 
@@ -536,7 +538,7 @@ defmodule Rss2Nostr.Posts do
     end
   end
 
-  @spec maybe_filter_term(Ecto.Query.t(), term()) :: Ecto.Query.t()
+  @spec maybe_filter_term(Ecto.Queryable.t(), String.t() | nil) :: Ecto.Queryable.t()
   defp maybe_filter_term(query, nil), do: query
   defp maybe_filter_term(query, ""), do: query
 

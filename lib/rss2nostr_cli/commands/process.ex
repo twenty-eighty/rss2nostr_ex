@@ -37,5 +37,7 @@ defmodule Rss2Nostr.CLI.Commands.Process do
           Output.info("No posts were processed.")
       end
     end
+
+    :ok
   end
 end

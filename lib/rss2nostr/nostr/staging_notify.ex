@@ -10,7 +10,10 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources.Source
 
-  @spec maybe_notify(Post.t()) :: :ok | {:error, term()}
+  @type notify_error ::
+          :notify_failed | :no_app_private_key | :no_relays | Rss2Nostr.Nostr.NIP17.wrap_error()
+
+  @spec maybe_notify(Post.t()) :: :ok | {:error, notify_error()}
   def maybe_notify(%Post{} = post) do
     post = Rss2Nostr.Posts.preload_source(post)
     source = post.source
@@ -27,7 +30,7 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
     end
   end
 
-  @spec send_dm(Post.t(), Source.t()) :: :ok | {:error, term()}
+  @spec send_dm(Post.t(), Source.t()) :: :ok | {:error, notify_error()}
   defp send_dm(post, source) do
     with {:ok, {:private_key, key}} <- Signer.app_signer(),
          {:ok, wrap} <-
@@ -82,7 +85,7 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
     end
   end
 
-  @spec present?(term()) :: boolean()
+  @spec present?(String.t() | nil) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 end

@@ -15,6 +15,9 @@ defmodule Rss2Nostr.Processing.Composer do
     Youtube
   }
 
+  alias Rss2Nostr.Import.FeedParser
+  alias Rss2Nostr.Nostr.Event
+
   alias Rss2Nostr.Processing.Composer.{
     FeaturedImage,
     FeedItem,
@@ -60,6 +63,25 @@ defmodule Rss2Nostr.Processing.Composer do
           optional(:language) => String.t() | nil,
           optional(:fetch_page_image) => boolean(),
           optional(:soundcloud_artwork) => (String.t() -> String.t() | nil) | false | nil
+        }
+
+  @type compose_result :: %{
+          markdown: String.t(),
+          html: String.t(),
+          selector_matched: boolean(),
+          title: String.t() | nil,
+          image: String.t() | nil,
+          summary: String.t() | nil,
+          link_groups: [Conversion.link_group()],
+          body_regions: [map()],
+          start_blocks: [map()]
+        }
+
+  @type preview_part :: %{
+          index: pos_integer(),
+          total: pos_integer(),
+          markdown: String.t(),
+          html: String.t()
         }
 
   @type preview_context :: %{
@@ -175,7 +197,7 @@ defmodule Rss2Nostr.Processing.Composer do
   @doc """
   Resolves the HTML that should be converted for a feed item.
   """
-  @spec html_for_item(map(), Source.t() | compose_opts() | map()) ::
+  @spec html_for_item(FeedParser.feed_item() | map(), Source.t() | compose_opts() | map()) ::
           {:ok, String.t(), String.t()} | {:error, String.t()}
   def html_for_item(item, source_or_opts) do
     opts = normalize_opts(source_or_opts)
@@ -220,7 +242,7 @@ defmodule Rss2Nostr.Processing.Composer do
   @spec extract_meta(String.t() | nil) :: PageMeta.meta()
   def extract_meta(html), do: PageMeta.extract(html)
 
-  @spec compose(String.t() | nil, compose_opts() | keyword() | map()) :: map()
+  @spec compose(String.t() | nil, compose_opts() | keyword() | map()) :: compose_result()
   def compose(html, opts \\ %{}) do
     opts = normalize_opts(opts)
     selector = resolve_body_selector(opts, html)
@@ -277,7 +299,7 @@ defmodule Rss2Nostr.Processing.Composer do
   @doc """
   Preview payload for each split Nostr part (markdown + rendered HTML).
   """
-  @spec preview_parts([map()]) :: [map()]
+  @spec preview_parts([Event.unsigned_event() | map()]) :: [preview_part()]
   def preview_parts(parts) when is_list(parts) do
     total = length(parts)
 

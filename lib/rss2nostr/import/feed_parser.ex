@@ -6,6 +6,8 @@ defmodule Rss2Nostr.Import.FeedParser do
   import SweetXml
   require Logger
 
+  @type raw_item :: %{optional(atom()) => String.t() | [String.t()] | nil}
+
   @type feed_item :: %{
           title: String.t() | nil,
           link: String.t() | nil,
@@ -19,7 +21,7 @@ defmodule Rss2Nostr.Import.FeedParser do
           enclosure_type: String.t() | nil,
           enclosure_length: integer() | nil,
           duration: String.t() | nil,
-          categories: [String.t()]
+          categories: [String.t()] | nil
         }
 
   @doc """
@@ -140,7 +142,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
-  @spec normalize_rss_item(map()) :: feed_item()
+  @spec normalize_rss_item(raw_item()) :: feed_item()
   defp normalize_rss_item(item) do
     %{
       title: decode_html(item.title),
@@ -159,7 +161,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     }
   end
 
-  @spec extract_rss_image(map()) :: String.t() | nil
+  @spec extract_rss_image(raw_item()) :: String.t() | nil
   defp extract_rss_image(item) do
     cond do
       # Enclosure with image type
@@ -243,7 +245,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
-  @spec normalize_atom_item(map()) :: feed_item()
+  @spec normalize_atom_item(raw_item()) :: feed_item()
   defp normalize_atom_item(item) do
     link = if item.link_href != "", do: item.link_href, else: item.link_default
     published = if item.published != "", do: item.published, else: item.updated
@@ -326,7 +328,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
-  @spec parse_length(term()) :: pos_integer() | nil
+  @spec parse_length(String.t() | integer() | nil) :: pos_integer() | nil
   defp parse_length(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
       {n, _} when n > 0 -> n
@@ -337,7 +339,7 @@ defmodule Rss2Nostr.Import.FeedParser do
   defp parse_length(n) when is_integer(n) and n > 0, do: n
   defp parse_length(_), do: nil
 
-  @spec clean_text(term()) :: String.t() | nil
+  @spec clean_text(String.t() | nil) :: String.t() | nil
   defp clean_text(nil), do: nil
   defp clean_text(""), do: nil
 
@@ -350,7 +352,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
-  @spec decode_html(term()) :: String.t() | nil
+  @spec decode_html(String.t() | nil) :: String.t() | nil
   defp decode_html(nil), do: nil
   defp decode_html(""), do: nil
 
@@ -382,7 +384,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end
   end
 
-  @spec parse_date(term()) :: DateTime.t() | nil
+  @spec parse_date(String.t() | nil) :: DateTime.t() | nil
   defp parse_date(nil), do: nil
   defp parse_date(""), do: nil
 
@@ -412,7 +414,7 @@ defmodule Rss2Nostr.Import.FeedParser do
     end)
   end
 
-  @spec naive_to_utc(term()) :: DateTime.t()
+  @spec naive_to_utc(DateTime.t() | NaiveDateTime.t()) :: DateTime.t()
   defp naive_to_utc(datetime) do
     case DateTime.from_naive(datetime, "Etc/UTC") do
       {:ok, dt} -> dt

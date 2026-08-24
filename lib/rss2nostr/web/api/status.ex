@@ -5,7 +5,27 @@ defmodule Rss2Nostr.Web.API.Status do
 
   alias Rss2Nostr.{Sources, Posts}
 
-  @spec overview() :: map()
+  @type source_counts :: %{total: non_neg_integer(), active: non_neg_integer()}
+
+  @type post_counts :: %{
+          total: non_neg_integer(),
+          new: non_neg_integer(),
+          processing: non_neg_integer(),
+          processed: non_neg_integer(),
+          pending_images: non_neg_integer(),
+          published: non_neg_integer(),
+          error: non_neg_integer()
+        }
+
+  @type overview :: %{
+          sources: source_counts(),
+          posts: post_counts(),
+          scheduler: %{running: boolean()},
+          export_configured: boolean(),
+          version: String.t()
+        }
+
+  @spec overview() :: overview()
   def overview do
     %{
       sources: %{

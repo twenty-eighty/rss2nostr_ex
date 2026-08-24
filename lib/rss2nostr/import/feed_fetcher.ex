@@ -14,7 +14,7 @@ defmodule Rss2Nostr.Import.FeedFetcher do
   Fetches a feed from the given URL.
   Returns {:ok, body} or {:error, reason}.
   """
-  @spec fetch(String.t() | any()) :: {:ok, String.t()} | {:error, String.t()}
+  @spec fetch(String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def fetch(url) when is_binary(url) do
     request(url,
       headers: [
@@ -29,7 +29,7 @@ defmodule Rss2Nostr.Import.FeedFetcher do
   @doc """
   Fetches content from an article URL (for full content extraction).
   """
-  @spec fetch_article(String.t() | any()) :: {:ok, String.t()} | {:error, String.t()}
+  @spec fetch_article(String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def fetch_article(url) when is_binary(url) do
     request(url,
       headers: [

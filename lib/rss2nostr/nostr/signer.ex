@@ -15,6 +15,7 @@ defmodule Rss2Nostr.Nostr.Signer do
 
   @type signer :: {:private_key, binary()} | {:bunker, String.t()}
   @type open_signer :: {:private_key, binary()} | {:bunker, pid()}
+  @type signer_error :: atom() | String.t()
 
   @publish_as_values ~w(draft draft_plain article video)
 
@@ -84,7 +85,7 @@ defmodule Rss2Nostr.Nostr.Signer do
   @doc """
   Opens a bunker connection when needed, runs `fun`, then disconnects.
   """
-  @spec with_open(signer(), (open_signer() -> result)) :: result | {:error, term()}
+  @spec with_open(signer(), (open_signer() -> result)) :: result | {:error, signer_error()}
         when result: var
   def with_open({:private_key, key}, fun), do: fun.({:private_key, key})
 
@@ -92,7 +93,7 @@ defmodule Rss2Nostr.Nostr.Signer do
 
   def with_open({:bunker, url}, fun) when is_binary(url) do
     with {:ok, pid} <- NIP46.start_link(bunker_url: url),
-         {:ok, _} <- NIP46.connect(pid) do
+         :ok <- NIP46.connect(pid) do
       try do
         fun.({:bunker, pid})
       after
@@ -101,7 +102,7 @@ defmodule Rss2Nostr.Nostr.Signer do
     end
   end
 
-  @spec pubkey_hex(open_signer()) :: {:ok, String.t()} | {:error, term()}
+  @spec pubkey_hex(open_signer()) :: {:ok, String.t()} | {:error, signer_error()}
   def pubkey_hex({:private_key, private_key}) do
     {:ok, private_key |> Keys.derive_public_key() |> Keys.to_hex()}
   end
@@ -113,7 +114,8 @@ defmodule Rss2Nostr.Nostr.Signer do
     end
   end
 
-  @spec sign_event(open_signer(), map()) :: {:ok, map()} | {:error, term()}
+  @spec sign_event(open_signer(), Event.unsigned_event()) ::
+          {:ok, Event.event()} | {:error, signer_error()}
   def sign_event({:private_key, private_key}, event), do: Event.sign_event(event, private_key)
 
   def sign_event({:bunker, pid}, event) when is_pid(pid) do
@@ -123,7 +125,7 @@ defmodule Rss2Nostr.Nostr.Signer do
     end
   end
 
-  @spec close(Signer.open_signer()) :: :ok
+  @spec close(open_signer()) :: :ok
   defp close({:bunker, pid}) when is_pid(pid) do
     NIP46.disconnect(pid)
     GenServer.stop(pid, :normal)
@@ -131,7 +133,7 @@ defmodule Rss2Nostr.Nostr.Signer do
     _ -> :ok
   end
 
-  @spec normalize_signed_event(map() | binary(), map()) :: {:ok, map()} | {:error, term()}
+  @spec normalize_signed_event(map(), Event.unsigned_event()) :: {:ok, Event.event()}
   defp normalize_signed_event(signed, event) when is_map(signed) do
     {:ok,
      %{
@@ -144,15 +146,6 @@ defmodule Rss2Nostr.Nostr.Signer do
        sig: signed["sig"] || signed[:sig]
      }}
   end
-
-  defp normalize_signed_event(signed, event) when is_binary(signed) do
-    case Jason.decode(signed) do
-      {:ok, map} -> normalize_signed_event(map, event)
-      _ -> {:error, :invalid_bunker_signature}
-    end
-  end
-
-  defp normalize_signed_event(_, _), do: {:error, :invalid_bunker_signature}
 
   @doc """
   Hex pubkey of the intended Nostr author for this source.
@@ -176,7 +169,7 @@ defmodule Rss2Nostr.Nostr.Signer do
 
   def signing_nsec_configured?(_), do: false
 
-  @spec draft_signer(keyword()) :: {:ok, Signer.signer()} | {:error, atom()}
+  @spec draft_signer(keyword()) :: {:ok, signer()} | {:error, atom()}
   defp draft_signer(opts) do
     cond do
       key = Keyword.get(opts, :private_key) ->
@@ -187,7 +180,7 @@ defmodule Rss2Nostr.Nostr.Signer do
     end
   end
 
-  @spec source_signer(Source.t()) :: {:ok, Signer.signer()} | {:error, atom()}
+  @spec source_signer(Source.t()) :: {:ok, signer()} | {:error, atom()}
   defp source_signer(source) do
     cond do
       signing_nsec_configured?(source) ->
@@ -201,14 +194,14 @@ defmodule Rss2Nostr.Nostr.Signer do
     end
   end
 
-  @spec source_nsec(Source.t()) :: {:ok, Signer.signer()} | {:error, atom()}
+  @spec source_nsec(Source.t()) :: {:ok, signer()} | {:error, atom()}
   defp source_nsec(source) do
     with {:ok, nsec} <- Secret.decrypt(source.signing_nsec_ciphertext) do
       Keys.parse_private_key(nsec) |> wrap_key()
     end
   end
 
-  @spec app_private_key() :: {:ok, Signer.signer()} | {:error, atom()}
+  @spec app_private_key() :: {:ok, signer()} | {:error, atom()}
   defp app_private_key do
     nsec =
       Application.get_env(:rss2nostr, :nostr, [])[:private_key] ||
@@ -224,7 +217,7 @@ defmodule Rss2Nostr.Nostr.Signer do
     end
   end
 
-  @spec normalize_key(binary()) :: {:ok, Signer.signer()} | {:error, atom()}
+  @spec normalize_key(binary()) :: {:ok, signer()} | {:error, atom()}
   defp normalize_key(key) when is_binary(key) and byte_size(key) == 32 do
     {:ok, {:private_key, key}}
   end
@@ -235,7 +228,7 @@ defmodule Rss2Nostr.Nostr.Signer do
 
   defp normalize_key(_), do: {:error, :invalid_private_key}
 
-  @spec wrap_key({:ok, binary()} | {:error, atom()}) :: {:ok, Signer.signer()} | {:error, atom()}
+  @spec wrap_key({:ok, binary()} | {:error, atom()}) :: {:ok, signer()} | {:error, atom()}
   defp wrap_key({:ok, key}), do: {:ok, {:private_key, key}}
   defp wrap_key({:error, reason}), do: {:error, reason}
 
@@ -269,7 +262,7 @@ defmodule Rss2Nostr.Nostr.Signer do
     end
   end
 
-  @spec present?(term()) :: boolean()
+  @spec present?(String.t() | nil) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 end

@@ -13,6 +13,12 @@ defmodule Rss2Nostr.Processing.BodySchema do
   @type schema :: Presets.schema()
   @type region :: Regions.region()
 
+  @type start_block :: %{
+          xpath: String.t(),
+          text: String.t(),
+          selected: boolean()
+        }
+
   @spec schema_for_url(String.t() | nil) :: schema() | nil
   def schema_for_url(url), do: Presets.schema_for_url(url)
 
@@ -48,7 +54,7 @@ defmodule Rss2Nostr.Processing.BodySchema do
   @spec extract(String.t() | nil, String.t() | nil) :: String.t() | nil
   def extract(html, selector), do: Extract.extract(html, selector)
 
-  @spec start_blocks(String.t() | nil, keyword()) :: [map()]
+  @spec start_blocks(String.t() | nil, keyword()) :: [start_block()]
   def start_blocks(html, opts \\ []), do: Extract.start_blocks(html, opts)
 
   @spec apply_start_at(String.t() | nil, String.t() | nil) :: String.t() | nil

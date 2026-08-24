@@ -10,15 +10,23 @@ defmodule Rss2Nostr.Nostr.Blossom do
   """
 
   alias Rss2Nostr.HTTP
+  alias Rss2Nostr.Nostr.Event
   alias Rss2Nostr.Nostr.Blossom.{Client, PostImages}
   alias Rss2Nostr.Nostr.Signer
+
+  @type upload_error ::
+          {:file_error, atom()}
+          | {:http_error, integer()}
+          | atom()
+          | String.t()
+          | Exception.t()
 
   @type upload_result :: %{
           url: String.t(),
           sha256: String.t() | nil,
           size: integer() | nil,
           type: String.t() | nil,
-          nip94: list(),
+          nip94: [Event.tag()],
           dimensions: {integer(), integer()} | nil
         }
 
@@ -104,13 +112,13 @@ defmodule Rss2Nostr.Nostr.Blossom do
   @doc """
   BUD-11 `Authorization` header for a signed kind 24242 event.
   """
-  @spec authorization_header(map()) :: String.t()
+  @spec authorization_header(Event.event()) :: String.t()
   def authorization_header(signed_event), do: Client.authorization_header(signed_event)
 
   @doc """
   HEAD `/upload` to see if a Blossom server is reachable.
   """
-  @spec probe_server(String.t()) :: {:ok, integer()} | {:error, term()}
+  @spec probe_server(String.t()) :: {:ok, integer()} | {:error, upload_error()}
   def probe_server(server_url) do
     case HTTP.head(upload_url(server_url), receive_timeout: 10_000, retry: false) do
       {:ok, %{status: status}} when status in [200, 201, 400, 401, 403, 411, 413, 415] ->
@@ -132,7 +140,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
   - `:server` — Blossom base URL (default: `NOSTR_UPLOAD_ENDPOINT` only)
   - `:content_type`
   """
-  @spec upload_file(String.t(), keyword()) :: {:ok, upload_result()} | {:error, term()}
+  @spec upload_file(String.t(), keyword()) :: {:ok, upload_result()} | {:error, upload_error()}
   def upload_file(file_path, opts \\ []) do
     case File.read(file_path) do
       {:ok, data} ->
@@ -148,14 +156,14 @@ defmodule Rss2Nostr.Nostr.Blossom do
   Uploads binary data. Filename is unused by Blossom (hash-addressed) but kept
   for call-site compatibility.
   """
-  @spec upload_data(binary(), String.t(), keyword()) :: {:ok, upload_result()} | {:error, term()}
+  @spec upload_data(binary(), String.t(), keyword()) :: {:ok, upload_result()} | {:error, upload_error()}
   def upload_data(data, filename, opts \\ []), do: Client.upload_data(data, filename, opts)
 
   @doc """
   Uploads a post's featured image to the configured Blossom server if needed.
   """
   @spec ensure_post_image(Rss2Nostr.Posts.Post.t(), Signer.signer() | binary()) ::
-          {:ok, Rss2Nostr.Posts.Post.t()} | {:error, term()}
+          {:ok, Rss2Nostr.Posts.Post.t()} | {:error, upload_error()}
   def ensure_post_image(post, signer), do: PostImages.ensure_post_images(post, signer)
 
   @doc """
@@ -167,7 +175,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
   is still missing so the caller can leave the post pending.
   """
   @spec ensure_post_images(Rss2Nostr.Posts.Post.t(), Signer.signer() | binary()) ::
-          {:ok, Rss2Nostr.Posts.Post.t()} | {:error, term()}
+          {:ok, Rss2Nostr.Posts.Post.t()} | {:error, upload_error()}
   def ensure_post_images(post, signer), do: PostImages.ensure_post_images(post, signer)
 
   @doc """
@@ -186,7 +194,7 @@ defmodule Rss2Nostr.Nostr.Blossom do
   @doc """
   Downloads an image from a URL and uploads it to Blossom.
   """
-  @spec upload_from_url(String.t(), keyword()) :: {:ok, upload_result()} | {:error, term()}
+  @spec upload_from_url(String.t(), keyword()) :: {:ok, upload_result()} | {:error, upload_error()}
   def upload_from_url(image_url, opts \\ []), do: Client.upload_from_url(image_url, opts)
 
   @doc """

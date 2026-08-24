@@ -10,13 +10,20 @@ defmodule Rss2Nostr.Nostr.RelayQuery do
 
   alias Rss2Nostr.Nostr.Relay
 
+  @type relay_event :: %{
+          optional(String.t()) => String.t() | integer() | list(),
+          optional(atom()) => String.t() | integer() | list()
+        }
+
+  @type relay_filter :: %{String.t() => [String.t()] | [integer()] | integer()}
+
   @default_timeout 8_000
 
   @doc """
   Queries `filter` on each URL and returns unique events by id.
   Connection or timeout failures are skipped.
   """
-  @spec query_relays([String.t()], map(), keyword()) :: [map()]
+  @spec query_relays([String.t()], relay_filter(), keyword()) :: [relay_event()]
   def query_relays(urls, filter, opts \\ []) when is_list(urls) and is_map(filter) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
 
@@ -46,7 +53,7 @@ defmodule Rss2Nostr.Nostr.RelayQuery do
     |> Enum.reject(&is_nil(event_id(&1)))
   end
 
-  @spec event_id(map()) :: String.t() | nil
+  @spec event_id(relay_event()) :: String.t() | nil
   defp event_id(%{"id" => id}) when is_binary(id), do: id
   defp event_id(%{id: id}) when is_binary(id), do: id
   defp event_id(_), do: nil

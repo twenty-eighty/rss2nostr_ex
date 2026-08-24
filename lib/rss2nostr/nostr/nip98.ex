@@ -12,7 +12,29 @@ defmodule Rss2Nostr.Nostr.NIP98 do
   - content: "" (empty)
   """
 
-  alias Rss2Nostr.Nostr.Keys
+  alias Rss2Nostr.Nostr.{Event, Keys}
+
+  @type auth_event :: %{
+          String.t() => String.t() | integer() | Event.tags()
+        }
+
+  @type auth_error ::
+          :invalid_base64
+          | :invalid_json
+          | :invalid_auth_format
+          | :invalid_signature
+          | :invalid_event_id
+          | :invalid_hex
+          | :missing_url_tag
+          | :url_mismatch
+          | :missing_method_tag
+          | :method_mismatch
+          | :missing_payload_tag
+          | :payload_mismatch
+          | :timestamp_in_future
+          | :timestamp_expired
+          | atom()
+          | String.t()
 
   @kind_http_auth 27235
 
@@ -25,7 +47,8 @@ defmodule Rss2Nostr.Nostr.NIP98 do
 
   Returns {:ok, "Nostr base64_event"} or {:error, reason}
   """
-  @spec create_auth(String.t(), String.t(), binary(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec create_auth(String.t(), String.t(), binary(), keyword()) ::
+          {:ok, String.t()} | {:error, auth_error()}
   def create_auth(url, method, private_key, opts \\ []) do
     payload_hash = Keyword.get(opts, :payload_hash)
 
@@ -84,7 +107,8 @@ defmodule Rss2Nostr.Nostr.NIP98 do
 
   Returns {:ok, pubkey} if valid, {:error, reason} otherwise.
   """
-  @spec verify_auth(String.t(), String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec verify_auth(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, auth_error()}
   def verify_auth(auth_header, url, method, opts \\ []) do
     expected_payload_hash = Keyword.get(opts, :payload_hash)
     max_age = Keyword.get(opts, :max_age, 60)
@@ -99,7 +123,7 @@ defmodule Rss2Nostr.Nostr.NIP98 do
     end
   end
 
-  @spec decode_auth_header(String.t()) :: {:ok, map()} | {:error, atom()}
+  @spec decode_auth_header(String.t()) :: {:ok, auth_event()} | {:error, atom()}
   defp decode_auth_header(header) do
     with ["Nostr", base64_event] <- String.split(header, " ", parts: 2),
          {:ok, json} <- Base.decode64(base64_event),
@@ -112,7 +136,7 @@ defmodule Rss2Nostr.Nostr.NIP98 do
     end
   end
 
-  @spec verify_event_signature(map()) :: :ok | {:error, atom()}
+  @spec verify_event_signature(auth_event()) :: :ok | {:error, atom()}
   defp verify_event_signature(event) do
     expected_id = compute_event_id(event)
 
@@ -128,7 +152,7 @@ defmodule Rss2Nostr.Nostr.NIP98 do
     end
   end
 
-  @spec compute_event_id(map()) :: String.t()
+  @spec compute_event_id(auth_event()) :: String.t()
   defp compute_event_id(event) do
     [0, event["pubkey"], event["created_at"], event["kind"], event["tags"], event["content"]]
     |> Jason.encode!()
@@ -140,7 +164,7 @@ defmodule Rss2Nostr.Nostr.NIP98 do
   defp verify_event_id(id, expected_id) when id == expected_id, do: :ok
   defp verify_event_id(_, _), do: {:error, :invalid_event_id}
 
-  @spec verify_url_tag(map(), String.t()) :: :ok | {:error, atom()}
+  @spec verify_url_tag(auth_event(), String.t()) :: :ok | {:error, atom()}
   defp verify_url_tag(event, expected_url) do
     case find_tag(event["tags"], "u") do
       nil ->
@@ -153,7 +177,7 @@ defmodule Rss2Nostr.Nostr.NIP98 do
     end
   end
 
-  @spec verify_method_tag(map(), String.t()) :: :ok | {:error, atom()}
+  @spec verify_method_tag(auth_event(), String.t()) :: :ok | {:error, atom()}
   defp verify_method_tag(event, expected_method) do
     case find_tag(event["tags"], "method") do
       nil ->
@@ -166,7 +190,7 @@ defmodule Rss2Nostr.Nostr.NIP98 do
     end
   end
 
-  @spec verify_payload_tag(map(), String.t() | nil) :: :ok | {:error, atom()}
+  @spec verify_payload_tag(auth_event(), String.t() | nil) :: :ok | {:error, atom()}
   defp verify_payload_tag(_event, nil), do: :ok
 
   defp verify_payload_tag(event, expected_hash) do
@@ -176,7 +200,7 @@ defmodule Rss2Nostr.Nostr.NIP98 do
     end
   end
 
-  @spec verify_timestamp(map(), non_neg_integer()) :: :ok | {:error, atom()}
+  @spec verify_timestamp(auth_event(), non_neg_integer()) :: :ok | {:error, atom()}
   defp verify_timestamp(event, max_age) do
     now = System.os_time(:second)
     created_at = event["created_at"]
@@ -188,7 +212,7 @@ defmodule Rss2Nostr.Nostr.NIP98 do
     end
   end
 
-  @spec find_tag(list() | term(), String.t()) :: String.t() | nil
+  @spec find_tag(Event.tags() | term(), String.t()) :: String.t() | nil
   defp find_tag(tags, name) when is_list(tags) do
     case Enum.find(tags, fn [tag | _] -> tag == name end) do
       [_, value | _] -> value

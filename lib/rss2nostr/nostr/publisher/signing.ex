@@ -29,7 +29,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
 
   def pubkey_for_signer({:bunker, url}) do
     with {:ok, pid} <- NIP46.start_link(bunker_url: url),
-         {:ok, _} <- NIP46.connect(pid),
+         :ok <- NIP46.connect(pid),
          {:ok, pubkey} <- NIP46.get_public_key(pid) do
       {:ok, pubkey_hex(pubkey), {:bunker, pid}}
     end
@@ -76,7 +76,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
     end
   end
 
-  @spec wrap_all([map()], Post.t(), Signing.signer()) :: {:ok, [map()]} | {:error, term()}
+  @spec wrap_all([map()], Post.t(), signer()) :: {:ok, [map()]} | {:error, term()}
   defp wrap_all(inners, post, signer) do
     Enum.reduce_while(inners, {:ok, []}, fn inner, {:ok, acc} ->
       case wrap_draft_event(inner, post, signer) do
@@ -86,7 +86,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
     end)
   end
 
-  @spec wrap_draft_event(map(), Post.t(), Signing.signer()) :: {:ok, map()} | {:error, term()}
+  @spec wrap_draft_event(map(), Post.t(), signer()) :: {:ok, map()} | {:error, term()}
   defp wrap_draft_event(inner, post, {:private_key, key}) do
     Event.wrap_draft(inner, key,
       identifier: Identifiers.from_event(inner),
@@ -107,7 +107,7 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
     end
   end
 
-  @spec normalize_signed_event(map() | binary(), map()) :: {:ok, map()} | {:error, term()}
+  @spec normalize_signed_event(map(), map()) :: {:ok, map()}
   defp normalize_signed_event(signed, event) when is_map(signed) do
     {:ok,
      %{
@@ -120,15 +120,6 @@ defmodule Rss2Nostr.Nostr.Publisher.Signing do
        sig: signed["sig"] || signed[:sig]
      }}
   end
-
-  defp normalize_signed_event(signed, event) when is_binary(signed) do
-    case Jason.decode(signed) do
-      {:ok, map} -> normalize_signed_event(map, event)
-      _ -> {:error, :invalid_bunker_signature}
-    end
-  end
-
-  defp normalize_signed_event(_, _), do: {:error, :invalid_bunker_signature}
 
   @spec pubkey_hex(String.t()) :: String.t()
   defp pubkey_hex(value) when is_binary(value), do: String.downcase(value)

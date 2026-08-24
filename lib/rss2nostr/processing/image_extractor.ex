@@ -78,7 +78,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   @doc """
   Extracts images from Markdown using regex patterns.
   """
-  @spec extract_markdown_images(String.t() | any()) :: [image_info()]
+  @spec extract_markdown_images(String.t()) :: [image_info()]
   def extract_markdown_images(markdown) when is_binary(markdown) do
     pattern = ~r/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/
 
@@ -97,7 +97,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   @spec extract_audio(String.t() | nil) :: [image_info()]
   def extract_audio(content), do: Media.extract_audio(content)
 
-  @spec extract_markdown_audio(String.t() | any()) :: [image_info()]
+  @spec extract_markdown_audio(String.t()) :: [image_info()]
   def extract_markdown_audio(markdown), do: Media.extract_markdown_audio(markdown)
 
   @spec audio_url?(String.t() | nil) :: boolean()
@@ -118,7 +118,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   @spec clock_to_seconds(String.t() | nil) :: integer() | nil
   def clock_to_seconds(value), do: Media.clock_to_seconds(value)
 
-  @spec replace_image_urls(String.t() | any(), map()) :: String.t()
+  @spec replace_image_urls(String.t(), %{String.t() => String.t()}) :: String.t()
   def replace_image_urls(content, url_mapping) when is_binary(content) and is_map(url_mapping) do
     Enum.reduce(url_mapping, content, fn {original_url, new_url}, acc ->
       String.replace(acc, original_url, new_url)
@@ -228,7 +228,8 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
     |> MapSet.new()
   end
 
-  @spec image_referenced?(map(), MapSet.t(String.t())) :: boolean()
+  @spec image_referenced?(Rss2Nostr.Posts.ArticleImage.t() | image_info(), MapSet.t(String.t())) ::
+          boolean()
   defp image_referenced?(image, wanted) do
     [image.original_url, image.uploaded_url]
     |> Enum.flat_map(&url_variants/1)

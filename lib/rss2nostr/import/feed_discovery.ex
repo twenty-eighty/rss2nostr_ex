@@ -16,7 +16,8 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
   @type feed :: %{
           url: String.t(),
           title: String.t() | nil,
-          type: String.t() | nil
+          type: String.t() | nil,
+          language: String.t() | nil
         }
 
   @type item :: %{
@@ -227,7 +228,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     }
   end
 
-  @spec datetime_to_iso(DateTime.t() | term()) :: String.t() | nil
+  @spec datetime_to_iso(DateTime.t() | nil) :: String.t() | nil
   defp datetime_to_iso(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp datetime_to_iso(_), do: nil
 
@@ -266,7 +267,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
 
       "alternate" in rels and feed_mime?(type_lower) ->
         case resolve_url(base_url, href) do
-          {:ok, url} -> [%{url: url, title: title, type: type_from_mime(type_lower)}]
+          {:ok, url} -> [%{url: url, title: title, type: type_from_mime(type_lower), language: nil}]
           _ -> []
         end
 
@@ -322,7 +323,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     _ -> {:error, "Invalid feed URL"}
   end
 
-  @spec blank_to_nil(term()) :: String.t() | nil
+  @spec blank_to_nil(String.t() | nil) :: String.t() | nil
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 

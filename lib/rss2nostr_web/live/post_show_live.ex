@@ -676,8 +676,6 @@ defmodule Rss2NostrWeb.PostShowLive do
   end
 
   @spec escape_text(String.t()) :: String.t()
-  defp escape_text(nil), do: ""
-
   defp escape_text(str) when is_binary(str) do
     str
     |> String.replace("&", "&amp;")

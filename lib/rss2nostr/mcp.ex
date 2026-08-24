@@ -8,7 +8,9 @@ defmodule Rss2Nostr.MCP do
 
   @server_info %{name: "rss2nostr", version: "0.1.0"}
 
-  @spec server_info() :: map()
+  @type server_info :: %{name: String.t(), version: String.t()}
+
+  @spec server_info() :: server_info()
   def server_info, do: @server_info
 
   @spec token() :: String.t() | nil
@@ -29,7 +31,7 @@ defmodule Rss2Nostr.MCP do
     Application.get_env(:rss2nostr, :mcp, [])[:allow_loopback] == true
   end
 
-  @spec start_stdio() :: {:ok, pid()} | {:error, term()}
+  @spec start_stdio() :: GenServer.on_start()
   def start_stdio do
     Rss2Nostr.MCP.Server.start_link(transport: :stdio)
   end

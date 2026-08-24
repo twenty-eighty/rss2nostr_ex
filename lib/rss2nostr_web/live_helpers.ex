@@ -8,6 +8,28 @@ defmodule Rss2NostrWeb.LiveHelpers do
   alias Rss2Nostr.Sources.Source
   alias Rss2NostrWeb.Language
 
+  alias Rss2Nostr.Sources.Source
+
+  @type source_option :: String.t() | [String.t()] | boolean() | integer() | nil
+
+  @type import_notice_result :: %{
+          imported: non_neg_integer(),
+          processed: non_neg_integer(),
+          skipped: non_neg_integer(),
+          errors: [String.t()]
+        }
+
+  @type publish_notice_result :: %{
+          published: non_neg_integer(),
+          failed: non_neg_integer(),
+          errors: [String.t()]
+        }
+
+  @type reprocess_notice_result :: %{
+          processed: non_neg_integer(),
+          errors: non_neg_integer()
+        }
+
   @avatar_placeholder "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect fill='%23e5e7eb' width='32' height='32' rx='16'/%3E%3C/svg%3E"
 
   @spec truncate(String.t() | nil, integer()) :: String.t()
@@ -36,14 +58,14 @@ defmodule Rss2NostrWeb.LiveHelpers do
   @spec status_label(integer()) :: String.t()
   def status_label(status), do: Post.status_label(status)
 
-  @spec option(map() | nil, atom() | String.t()) :: term()
+  @spec option(Source.t() | map() | nil, atom() | String.t()) :: source_option()
   def option(nil, _key), do: nil
 
   def option(source, key) do
     (source.options || %{})[key]
   end
 
-  @spec skip_classes_text(map() | nil) :: String.t()
+  @spec skip_classes_text(Source.t() | map() | nil) :: String.t()
   def skip_classes_text(nil), do: Composer.default_skip_classes_text()
 
   def skip_classes_text(source) do
@@ -55,7 +77,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
     end
   end
 
-  @spec known_body_schema?(term(), map() | nil) :: boolean()
+  @spec known_body_schema?(String.t() | nil, Source.t() | map() | nil) :: boolean()
   def known_body_schema?(selector, source) do
     sel = selector |> to_string() |> String.trim()
     url = source && Map.get(source, :url)
@@ -64,7 +86,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
       (sel == "" and is_binary(BodySchema.selector_for_url(url)))
   end
 
-  @spec start_label(map(), term(), term()) :: String.t()
+  @spec start_label(Source.t() | map(), String.t() | nil, String.t() | nil) :: String.t()
   def start_label(source, start_guid, start_at) do
     cond do
       start_guid not in [nil, ""] -> start_guid
@@ -129,12 +151,12 @@ defmodule Rss2NostrWeb.LiveHelpers do
 
   def shorten_npub(npub), do: npub
 
-  @spec error_text(nil | list() | term()) :: String.t() | nil
+  @spec error_text(nil | [String.t()] | String.t()) :: String.t() | nil
   def error_text(nil), do: nil
   def error_text(msgs) when is_list(msgs), do: Enum.join(msgs, ", ")
   def error_text(msg), do: to_string(msg)
 
-  @spec changeset_errors(Ecto.Changeset.t()) :: map()
+  @spec changeset_errors(Ecto.Changeset.t()) :: %{atom() => [String.t()]}
   def changeset_errors(%Ecto.Changeset{} = changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
       Enum.reduce(opts, msg, fn {key, value}, acc ->
@@ -143,7 +165,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
     end)
   end
 
-  @spec format_update_error(Ecto.Changeset.t() | term()) :: String.t()
+  @spec format_update_error(Ecto.Changeset.t() | String.t() | atom()) :: String.t()
   def format_update_error(%Ecto.Changeset{} = changeset) do
     changeset
     |> changeset_errors()
@@ -174,7 +196,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
     end
   end
 
-  @spec import_notice(map()) :: String.t()
+  @spec import_notice(import_notice_result()) :: String.t()
   def import_notice(result) do
     skipped =
       if result.skipped > 0 do
@@ -192,7 +214,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
     "Imported #{result.imported} articles, processed #{result.processed}.#{skipped}#{errors}"
   end
 
-  @spec publish_notice(map()) :: {:info | :warning | :error, String.t()}
+  @spec publish_notice(publish_notice_result()) :: {:info | :warning | :error, String.t()}
   def publish_notice(result) do
     base = "Published #{result.published}. Failed #{result.failed}."
 
@@ -213,7 +235,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
     {kind, message}
   end
 
-  @spec reprocess_notice(map()) :: String.t()
+  @spec reprocess_notice(reprocess_notice_result()) :: String.t()
   def reprocess_notice(result) do
     "Reprocessed #{result.processed}. Failed #{result.errors}."
   end
@@ -226,7 +248,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
   @spec publishable?(Rss2Nostr.Posts.Post.t()) :: boolean()
   def publishable?(%Post{} = post), do: post.status == Post.status_processed()
 
-  @spec join_tags(nil | list() | term()) :: String.t()
+  @spec join_tags(nil | [String.t()] | String.t()) :: String.t()
   def join_tags(nil), do: ""
   def join_tags(list) when is_list(list), do: Enum.join(list, ", ")
   def join_tags(value), do: to_string(value)
@@ -239,7 +261,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
 
   def source_path(%Source{id: id}, _tab), do: "/sources/#{id}"
 
-  @spec post_preview_href(map(), Rss2Nostr.Posts.Post.t()) :: String.t()
+  @spec post_preview_href(Source.t() | map(), Rss2Nostr.Posts.Post.t()) :: String.t()
   def post_preview_href(source, post) do
     "/posts/#{post.id}?return_to=" <>
       URI.encode_www_form("/sources/#{source.id}?tab=articles")
@@ -259,7 +281,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
     end
   end
 
-  @spec format_interval(integer() | term()) :: String.t()
+  @spec format_interval(integer() | nil) :: String.t()
   def format_interval(ms) when is_integer(ms) do
     cond do
       rem(ms, 3_600_000) == 0 -> "#{div(ms, 3_600_000)}h"
@@ -271,7 +293,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
 
   def format_interval(other), do: to_string(other || "-")
 
-  @spec format_last_run(DateTime.t() | nil | term()) :: String.t()
+  @spec format_last_run(DateTime.t() | nil | String.t()) :: String.t()
   def format_last_run(nil), do: "Never"
   def format_last_run(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
   def format_last_run(other), do: to_string(other)

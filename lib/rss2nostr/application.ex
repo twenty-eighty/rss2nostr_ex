@@ -4,7 +4,7 @@ defmodule Rss2Nostr.Application do
   use Application
 
   @impl true
-  @spec start(Application.start_type(), Application.start_args()) :: Supervisor.on_start()
+  @spec start(Application.start_type(), term()) :: Supervisor.on_start()
   def start(_type, _args) do
     Rss2Nostr.Web.RateLimit.setup()
 
@@ -31,7 +31,7 @@ defmodule Rss2Nostr.Application do
     Supervisor.start_link(children, opts)
   end
 
-  @spec web_children() :: [Supervisor.child_spec()]
+  @spec web_children() :: [module()]
   defp web_children do
     if Application.get_env(:rss2nostr, :start_web_server, false) do
       [Rss2Nostr.Web.Server]

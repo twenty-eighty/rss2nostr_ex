@@ -10,6 +10,9 @@ defmodule Rss2Nostr.Nostr.Keys do
 
   alias Rss2Nostr.Nostr.{NIP19, NodeRunner}
 
+  @type signed_event_fields :: %{id: String.t(), sig: String.t(), pubkey: String.t()}
+  @type sign_error :: :json_decode_failed | :signing_failed | atom() | String.t()
+
   @doc """
   Generates a new random private key.
   Returns a 32-byte binary.
@@ -43,7 +46,7 @@ defmodule Rss2Nostr.Nostr.Keys do
   Signs a Nostr event using Node.js nostr-tools.
   Returns {:ok, %{id: ..., sig: ..., pubkey: ...}} or {:error, reason}
   """
-  @spec sign_event(map(), binary()) :: {:ok, map()} | {:error, atom() | String.t()}
+  @spec sign_event(map(), binary()) :: {:ok, signed_event_fields()} | {:error, sign_error()}
   def sign_event(event, private_key)
       when is_binary(private_key) and byte_size(private_key) == 32 do
     input =
@@ -81,7 +84,7 @@ defmodule Rss2Nostr.Nostr.Keys do
   Note: This uses K256 which has issues. Use sign_event/2 instead for Nostr events.
   Returns a 64-byte signature.
   """
-  @spec sign(binary(), binary()) :: {:ok, binary()} | {:error, any()}
+  @spec sign(binary(), binary()) :: {:ok, binary()} | {:error, atom()}
   def sign(message, private_key) when byte_size(message) == 32 and byte_size(private_key) == 32 do
     case K256.Schnorr.create_signature(message, private_key) do
       {:ok, signature} when byte_size(signature) == 64 ->
@@ -136,7 +139,7 @@ defmodule Rss2Nostr.Nostr.Keys do
   @doc """
   Validates that a string is a valid 64-character hex pubkey.
   """
-  @spec valid_pubkey?(String.t() | any()) :: boolean()
+  @spec valid_pubkey?(String.t() | nil) :: boolean()
   def valid_pubkey?(pubkey) when is_binary(pubkey) do
     case Base.decode16(pubkey, case: :mixed) do
       {:ok, bin} when byte_size(bin) == 32 -> true
@@ -150,7 +153,7 @@ defmodule Rss2Nostr.Nostr.Keys do
   Parses a public key from either npub (bech32) or hex format.
   Returns {:ok, lowercase hex} or {:error, reason}.
   """
-  @spec parse_public_key(String.t() | any()) :: {:ok, String.t()} | {:error, atom()}
+  @spec parse_public_key(String.t() | nil) :: {:ok, String.t()} | {:error, atom()}
   def parse_public_key(input) when is_binary(input) do
     trimmed = String.trim(input)
 
@@ -205,7 +208,7 @@ defmodule Rss2Nostr.Nostr.Keys do
   Parses a private key from either nsec (bech32) or hex format.
   Returns {:ok, 32-byte binary} or {:error, reason}
   """
-  @spec parse_private_key(String.t() | any()) :: {:ok, binary()} | {:error, atom()}
+  @spec parse_private_key(String.t() | nil) :: {:ok, binary()} | {:error, atom()}
   def parse_private_key(input) when is_binary(input) do
     cond do
       String.starts_with?(input, "nsec") ->

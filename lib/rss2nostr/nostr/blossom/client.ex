@@ -4,7 +4,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
   require Logger
 
   alias Rss2Nostr.HTTP
-  alias Rss2Nostr.Nostr.{Blossom, Signer}
+  alias Rss2Nostr.Nostr.{Blossom, Event, Signer}
   alias Rss2Nostr.Processing.{ImageExtractor, VideoProbe}
 
   @kind_auth 24242
@@ -15,7 +15,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
   @audio_upload_ms 180_000
   @mirror_min_bytes 5_000_000
 
-  @spec authorization_header(map()) :: String.t()
+  @spec authorization_header(Event.event()) :: String.t()
   def authorization_header(signed_event) do
     json =
       Jason.encode!(%{
@@ -352,7 +352,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
   end
 
-  @spec content_type_for(String.t(), list()) :: String.t()
+  @spec content_type_for(String.t(), Rss2Nostr.HTTP.headers()) :: String.t()
   defp content_type_for(url, headers) do
     header =
       headers

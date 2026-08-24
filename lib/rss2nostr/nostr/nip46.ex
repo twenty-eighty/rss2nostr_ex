@@ -38,6 +38,8 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   ]
 
   @type t :: %__MODULE__{}
+  @type connect_error :: atom() | String.t()
+  @type signed_event :: Rss2Nostr.Nostr.Event.event()
 
   # ============================================================================
   # Public API
@@ -110,7 +112,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   @doc """
   Connects to the remote signer.
   """
-  @spec connect(pid(), timeout()) :: :ok | {:error, term()}
+  @spec connect(pid(), timeout()) :: :ok | {:error, connect_error()}
   def connect(pid, timeout \\ @request_timeout) do
     GenServer.call(pid, :connect, timeout)
   end
@@ -118,7 +120,7 @@ defmodule Rss2Nostr.Nostr.NIP46 do
   @doc """
   Gets the public key from the remote signer.
   """
-  @spec get_public_key(pid(), timeout()) :: {:ok, String.t()} | {:error, term()}
+  @spec get_public_key(pid(), timeout()) :: {:ok, String.t()} | {:error, connect_error()}
   def get_public_key(pid, timeout \\ @request_timeout) do
     GenServer.call(pid, :get_public_key, timeout)
   end
@@ -131,7 +133,8 @@ defmodule Rss2Nostr.Nostr.NIP46 do
 
   Returns {:ok, signed_event} or {:error, reason}
   """
-  @spec sign_event(pid(), map(), timeout()) :: {:ok, map()} | {:error, term()}
+  @spec sign_event(pid(), Rss2Nostr.Nostr.Event.unsigned_event(), timeout()) ::
+          {:ok, signed_event()} | {:error, connect_error()}
   def sign_event(pid, event, timeout \\ @request_timeout) do
     GenServer.call(pid, {:sign_event, event}, timeout)
   end

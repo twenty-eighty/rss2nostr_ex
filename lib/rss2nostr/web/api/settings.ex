@@ -7,7 +7,31 @@ defmodule Rss2Nostr.Web.API.Settings do
   alias Rss2Nostr.Processing.Composer
   alias Rss2NostrWeb.Language
 
-  @spec get() :: map()
+  @type label_selector :: %{label: String.t(), selector: String.t()}
+
+  @type language_choice :: %{code: String.t(), label: String.t()}
+
+  @type compose_options :: %{
+          body_presets: [label_selector()],
+          languages: [language_choice()],
+          default_skip_classes: String.t(),
+          fetch_source_from: [String.t()],
+          publish_as: [String.t()],
+          mirror_media: [String.t()],
+          modes: [String.t()]
+        }
+
+  @type settings :: %{
+          nostr_nsec_configured: boolean(),
+          relays: Relays.relay_lists(),
+          upload_endpoint: String.t() | nil,
+          blossom_servers: [String.t()],
+          scheduler_intervals: map(),
+          compose: compose_options(),
+          version: String.t()
+        }
+
+  @spec get() :: settings()
   def get do
     %{
       nostr_nsec_configured: System.get_env("NOSTR_NSEC") != nil,
@@ -21,7 +45,7 @@ defmodule Rss2Nostr.Web.API.Settings do
     }
   end
 
-  @spec compose_options() :: map()
+  @spec compose_options() :: compose_options()
   defp compose_options do
     %{
       body_presets:

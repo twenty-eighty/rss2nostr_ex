@@ -3,6 +3,9 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
 
   alias Rss2Nostr.Processing.{Conversion, HtmlToMarkdown}
 
+  @type block_candidate :: %{xpath: String.t(), text: String.t()}
+  @type start_block :: %{xpath: String.t(), text: String.t(), selected: boolean()}
+
   @spec matches?(String.t(), String.t()) :: boolean()
   def matches?(html, selector) when is_binary(html) and is_binary(selector) and selector != "" do
     case Floki.parse_document(html) do
@@ -37,7 +40,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
     _ -> nil
   end
 
-  @spec start_blocks(String.t() | nil, keyword()) :: [map()]
+  @spec start_blocks(String.t() | nil, keyword()) :: [start_block()]
   def start_blocks(html, opts \\ [])
   def start_blocks(html, _opts) when html in [nil, ""], do: []
 
@@ -133,7 +136,7 @@ defmodule Rss2Nostr.Processing.BodySchema.Extract do
     if kept == [], do: Enum.map(scored, &elem(&1, 0)), else: kept
   end
 
-  @spec block_from_node(term()) :: [map()]
+  @spec block_from_node(term()) :: [block_candidate()]
   defp block_from_node({tag, _attrs, _children} = node) do
     text = node |> Floki.text() |> normalize_space()
 

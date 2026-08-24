@@ -94,10 +94,10 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
           image: composed.image,
           source_url: article_url,
           published_at: FeedItem.field(item, :published_at),
-          language: language || (source && source.language),
+          language: language || source.language,
           categories: FeedItem.field(item, :categories) || [],
-          type: source && source.default_post_kind,
-          pubkey: source && source.pubkey
+          type: source.default_post_kind,
+          pubkey: source.pubkey
         },
         source: source
       )
@@ -154,15 +154,12 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
   defp event_hashtags(_), do: []
 
   @spec apply_excluded_hashtags(Source.t(), map()) :: Source.t()
-  defp apply_excluded_hashtags(source, params) do
+  defp apply_excluded_hashtags(%Source{} = source, params) do
     if Map.has_key?(params, "excluded_hashtags") or Map.has_key?(params, :excluded_hashtags) do
       tags =
         Event.normalize_hashtags(params["excluded_hashtags"] || params[:excluded_hashtags])
 
-      case source do
-        %Source{} = source -> %{source | excluded_hashtags: tags}
-        nil -> %Source{excluded_hashtags: tags}
-      end
+      %{source | excluded_hashtags: tags}
     else
       source
     end
@@ -275,7 +272,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
 
   defp fetch_feed(_), do: {:error, "Feed URL is required"}
 
-  @spec parse_items(String.t(), atom() | nil) :: {:ok, [map()]} | {:error, String.t()}
+  @spec parse_items(String.t(), atom() | nil) :: {:ok, [FeedParser.feed_item()]} | {:error, String.t()}
   defp parse_items(_body, nil), do: {:error, "Not an RSS or Atom feed"}
 
   defp parse_items(body, type) do
@@ -286,7 +283,8 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
     end
   end
 
-  @spec find_item([map()], String.t() | nil) :: {:ok, map()} | {:error, String.t()}
+  @spec find_item([FeedParser.feed_item()], String.t() | nil) ::
+          {:ok, FeedParser.feed_item()} | {:error, String.t()}
   defp find_item([first | _], guid) when guid in [nil, ""], do: {:ok, first}
 
   defp find_item(items, guid) do
@@ -299,9 +297,8 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
   end
 
   @spec preview_language(map(), Source.t()) :: String.t() | nil
-  defp preview_language(params, source) do
-    blank_to_nil(params["language"] || params[:language]) ||
-      (source && blank_to_nil(source.language))
+  defp preview_language(params, %Source{} = source) do
+    blank_to_nil(params["language"] || params[:language]) || blank_to_nil(source.language)
   end
 
   @spec preview_selector(Composer.compose_opts(), map(), String.t() | nil, String.t() | nil) :: String.t() | nil

@@ -10,8 +10,9 @@ defmodule Rss2Nostr.MCP.Actions do
 
   @type args :: map()
   @type action_result :: {:ok, term()} | {:error, String.t()}
+  @type status_result :: {:ok, Status.overview()} | {:error, String.t()}
 
-  @spec get_status() :: action_result()
+  @spec get_status() :: status_result()
   def get_status, do: {:ok, Status.overview()}
 
   @spec get_settings() :: action_result()
@@ -137,7 +138,7 @@ defmodule Rss2Nostr.MCP.Actions do
         {:ok, source} -> {:ok, source_detail(source)}
         {:error, :not_found} -> {:error, "Source not found"}
         {:error, :invalid_id} -> {:error, "Invalid source_id"}
-        {:error, changeset} -> {:error, format_changeset(changeset)}
+        {:error, %Ecto.Changeset{} = changeset} -> {:error, format_changeset(changeset)}
       end
     end
   end
@@ -149,7 +150,7 @@ defmodule Rss2Nostr.MCP.Actions do
         {:ok, source} -> {:ok, source_detail(source)}
         {:error, :not_found} -> {:error, "Source not found"}
         {:error, :invalid_id} -> {:error, "Invalid source_id"}
-        {:error, changeset} -> {:error, format_changeset(changeset)}
+        {:error, %Ecto.Changeset{} = changeset} -> {:error, format_changeset(changeset)}
       end
     end
   end
@@ -486,7 +487,7 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
-  @spec optional_int(args(), atom(), pos_integer()) :: pos_integer()
+  @spec optional_int(args(), atom(), pos_integer() | nil) :: pos_integer() | nil
   defp optional_int(args, key, default) do
     case arg(args, key) do
       value when is_integer(value) and value > 0 ->

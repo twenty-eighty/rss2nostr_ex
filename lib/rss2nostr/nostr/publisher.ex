@@ -16,16 +16,21 @@ defmodule Rss2Nostr.Nostr.Publisher do
     Identifiers,
     PostKind,
     PostLoader,
-    Preview,
     RelayPublish,
     Report,
     Signing
   }
 
+  alias Rss2Nostr.Nostr.Publisher.Preview
+
+  @type preview_result :: Preview.preview_result()
+
+  alias Rss2Nostr.Nostr.Event
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
 
   @type relay_failure :: Report.relay_failure()
+  @type publish_error :: :no_relays | atom() | String.t()
 
   @type publish_result :: %{
           success: boolean(),
@@ -33,7 +38,18 @@ defmodule Rss2Nostr.Nostr.Publisher do
           naddr: String.t() | nil,
           successful_relays: [String.t()],
           failed_relays: [relay_failure()],
-          report: String.t()
+          report: String.t(),
+          parts: non_neg_integer()
+        }
+
+  @type batch_entry ::
+          {pos_integer(),
+           publish_result() | %{success: false, error: publish_error()}}
+
+  @type export_result :: %{
+          event: Event.event(),
+          naddr: String.t(),
+          publish_results: [{String.t(), :ok | {:error, term()}}]
         }
 
   @doc """
@@ -45,7 +61,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   - :relays - List of relay URLs (optional; unknown sources cannot use public relays)
   - :min_success - Minimum number of successful publishes (default: 1)
   """
-  @spec publish_post(Post.t(), keyword()) :: {:ok, Publisher.publish_result()} | {:error, term()}
+  @spec publish_post(Post.t(), keyword()) :: {:ok, publish_result()} | {:error, publish_error()}
   def publish_post(%Post{} = post, opts) do
     post = PostLoader.ensure_source(post)
     relays = Relays.publish_relays(post, opts)
@@ -62,7 +78,8 @@ defmodule Rss2Nostr.Nostr.Publisher do
     end
   end
 
-  @spec do_publish_post(Post.t(), Signing.signer(), [String.t()], non_neg_integer()) :: {:ok, Publisher.publish_result()} | {:error, term()}
+  @spec do_publish_post(Post.t(), Signing.signer(), [String.t()], non_neg_integer()) ::
+          {:ok, publish_result()} | {:error, publish_error()}
   defp do_publish_post(post, signer, relays, min_success) do
     with {:ok, pubkey_hex, signer} <- Signing.pubkey_for_signer(signer),
          {:ok, events} <- Signing.prepare_events(post, pubkey_hex, signer),
@@ -90,7 +107,8 @@ defmodule Rss2Nostr.Nostr.Publisher do
     end
   end
 
-  @spec summarize_publish(Post.t(), String.t(), list()) :: {:ok, Publisher.publish_result()}
+  @spec summarize_publish(Post.t(), String.t(), [RelayPublish.publish_part_result()]) ::
+          {:ok, publish_result()}
   defp summarize_publish(post, pubkey_hex, results) do
     first = List.first(results) || %{success: false, event_id: nil, naddr: nil}
     success = results != [] and Enum.all?(results, & &1.success)
@@ -138,14 +156,14 @@ defmodule Rss2Nostr.Nostr.Publisher do
   `id` and `sig` are omitted until publish. `created_at` is a preview
   timestamp and is replaced when the event is signed.
   """
-  @spec preview_event(Post.t() | map(), keyword()) :: map()
+  @spec preview_event(Post.t() | map(), keyword()) :: preview_result()
   def preview_event(post_or_attrs, opts \\ []), do: Preview.preview_event(post_or_attrs, opts)
 
   @doc """
   Exports a post to Nostr without updating the database.
   Returns the signed event and publishing results.
   """
-  @spec export_post(Post.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec export_post(Post.t(), keyword()) :: {:ok, export_result()} | {:error, publish_error()}
   def export_post(%Post{} = post, opts) do
     post = PostLoader.ensure_source(post)
     relays = Relays.publish_relays(post, Keyword.put_new(opts, :relays, []))
@@ -184,7 +202,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   @doc """
   Batch publishes multiple posts.
   """
-  @spec publish_posts(list(), keyword()) :: list()
+  @spec publish_posts([Post.t()], keyword()) :: [batch_entry()]
   def publish_posts(posts, opts) do
     each_with_gap(posts, fn post ->
       case publish_post(post, opts) do
@@ -203,7 +221,7 @@ defmodule Rss2Nostr.Nostr.Publisher do
   @doc """
   Maps `fun` over `items`, sleeping `publish_gap_ms/0` between calls.
   """
-  @spec each_with_gap(list(), (term() -> term())) :: list()
+  @spec each_with_gap([item], (item -> result)) :: [result] when item: var, result: var
   def each_with_gap(items, fun), do: Gap.each_with_gap(items, fun)
 
   @doc """

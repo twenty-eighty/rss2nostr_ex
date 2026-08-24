@@ -345,7 +345,7 @@ defmodule Rss2Nostr.Processing.Markdown do
     |> String.replace("&gt;", ">")
   end
 
-  @spec escape(String.t() | term()) :: String.t()
+  @spec escape(String.t() | nil) :: String.t()
   defp escape(text) when is_binary(text), do: Plug.HTML.html_escape(text)
   defp escape(_), do: ""
 

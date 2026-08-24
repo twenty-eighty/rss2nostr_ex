@@ -11,7 +11,7 @@ defmodule Rss2Nostr.Processing.Sites do
 
   @adapters [Corbett, Substack]
 
-  @spec preprocess(String.t() | nil, keyword() | map()) :: String.t() | nil
+  @spec preprocess(String.t() | nil, keyword() | %{optional(atom()) => term()}) :: String.t() | nil
   def preprocess(html, opts \\ [])
   def preprocess(html, _opts) when html in [nil, ""], do: html
 

@@ -48,7 +48,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
-  @spec process(String.t()) :: {:ok, Post.t()} | {:error, atom()}
+  @spec process(String.t()) :: {:ok, Post.t()} | {:error, term()}
   def process(id) do
     with {:ok, post_id} <- parse_id(id),
          %Post{} = post <- Posts.get_post(post_id) do
@@ -59,7 +59,7 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
-  @spec reprocess(String.t()) :: {:ok, Post.t()} | {:error, atom()}
+  @spec reprocess(String.t()) :: {:ok, Post.t()} | {:error, term()}
   def reprocess(id) do
     with {:ok, post_id} <- parse_id(id),
          %Post{} = post <- Posts.get_post(post_id) do

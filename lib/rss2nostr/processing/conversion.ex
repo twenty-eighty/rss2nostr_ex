@@ -31,7 +31,7 @@ defmodule Rss2Nostr.Processing.Conversion do
 
   @generic_classes ~w(p div span strong em b i text content node wp-block-image)
 
-  @spec parse_rules(term()) :: [rule()]
+  @spec parse_rules(nil | String.t() | [map()]) :: [rule()]
   def parse_rules(nil), do: []
   def parse_rules(""), do: []
 
@@ -311,7 +311,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     _ -> "Link"
   end
 
-  @spec valid_href?(term()) :: boolean()
+  @spec valid_href?(String.t() | nil) :: boolean()
   defp valid_href?(href) do
     is_binary(href) and href != "" and
       not String.starts_with?(href, "/") and
@@ -350,7 +350,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     end
   end
 
-  @spec parse_xpath(term()) :: {:ok, xpath_spec()} | :error
+  @spec parse_xpath(String.t() | nil) :: {:ok, xpath_spec()} | :error
   defp parse_xpath(xpath) when is_binary(xpath) do
     xpath = String.trim(xpath)
 
@@ -402,7 +402,7 @@ defmodule Rss2Nostr.Processing.Conversion do
   defp find_tags({_, _, children}, tag), do: find_tags(children, tag)
   defp find_tags(_, _), do: []
 
-  @spec attr([{String.t(), String.t()}], String.t(), term()) :: term()
+  @spec attr([{String.t(), String.t()}], String.t(), String.t() | nil) :: String.t() | nil
   defp attr(attrs, name, default \\ nil) do
     case List.keyfind(attrs, name, 0) do
       {_, value} -> value
@@ -429,7 +429,7 @@ defmodule Rss2Nostr.Processing.Conversion do
     String.replace(text, "'", " ")
   end
 
-  @spec blank_to_nil(term()) :: term()
+  @spec blank_to_nil(String.t() | nil | term()) :: String.t() | nil | term()
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
 

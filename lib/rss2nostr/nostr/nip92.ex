@@ -8,13 +8,33 @@ defmodule Rss2Nostr.Nostr.NIP92 do
 
   @zero_noise ~w(duration bitrate)
 
+  alias Rss2Nostr.Nostr.Event
+
   @type pair :: String.t()
-  @type tag :: [String.t()]
+  @type tag :: Event.tag()
+
+  @type stored_image_attrs :: %{
+          sha256: String.t() | nil,
+          mime_type: String.t() | nil,
+          file_size: integer() | nil,
+          dim: String.t() | nil,
+          thumb: String.t() | nil,
+          imeta: [pair()]
+        }
+
+  @type image_map :: %{
+          optional(atom()) => String.t() | integer() | [pair()] | nil
+        }
+
+  @type descriptor_map :: %{
+          optional(atom()) => String.t() | integer() | [Event.tag()] | nil,
+          optional(String.t()) => String.t() | integer() | [Event.tag()] | nil
+        }
 
   @doc """
   Attributes to persist on an article image after a Blossom upload.
   """
-  @spec stored_attrs(map(), keyword()) :: map()
+  @spec stored_attrs(descriptor_map(), keyword()) :: stored_image_attrs()
   def stored_attrs(result, opts \\ []) when is_map(result) do
     pairs = pairs_from_descriptor(result, opts)
 
@@ -31,7 +51,7 @@ defmodule Rss2Nostr.Nostr.NIP92 do
   @doc """
   `imeta` pairs from a BUD-02 descriptor, including optional BUD-08 `nip94`.
   """
-  @spec pairs_from_descriptor(map(), keyword()) :: [pair()]
+  @spec pairs_from_descriptor(descriptor_map(), keyword()) :: [pair()]
   def pairs_from_descriptor(result, opts \\ []) when is_map(result) do
     nip94 = normalize_nip94(result[:nip94] || result["nip94"])
 
@@ -77,7 +97,7 @@ defmodule Rss2Nostr.Nostr.NIP92 do
   @doc """
   Stored pairs for an article image, synthesizing them when needed.
   """
-  @spec pairs_from_image(map()) :: [pair()]
+  @spec pairs_from_image(image_map()) :: [pair()]
   def pairs_from_image(image) when is_map(image) do
     stored = List.wrap(Map.get(image, :imeta) || Map.get(image, "imeta"))
     url = Map.get(image, :uploaded_url) || Map.get(image, :original_url)
@@ -106,7 +126,7 @@ defmodule Rss2Nostr.Nostr.NIP92 do
   @doc """
   NIP-92 tags for media whose URL appears in `content` or as the featured image.
   """
-  @spec tags_for_event([map()], String.t() | nil, keyword()) :: [tag()]
+  @spec tags_for_event([image_map()], String.t() | nil, keyword()) :: [tag()]
   def tags_for_event(images, content, opts \\ []) when is_list(images) do
     featured = Keyword.get(opts, :featured)
     haystack = [content, featured] |> Enum.filter(&is_binary/1) |> Enum.join("\n")
@@ -147,25 +167,25 @@ defmodule Rss2Nostr.Nostr.NIP92 do
   def url_from_pairs(pairs) when is_list(pairs), do: pair_value(pairs, "url")
   def url_from_pairs(_), do: nil
 
-  @spec normalize_nip94(term()) :: list()
+  @spec normalize_nip94([Event.tag()] | %{String.t() => [Event.tag()]}) :: [Event.tag()]
   defp normalize_nip94(tags) when is_list(tags), do: tags
   defp normalize_nip94(%{"tags" => tags}) when is_list(tags), do: tags
   defp normalize_nip94(_), do: []
 
-  @spec tag_to_pair(list()) :: [NIP92.pair()]
+  @spec tag_to_pair(Event.tag()) :: [pair()]
   defp tag_to_pair([key, value | _]) when is_binary(key) and not is_nil(value) do
     List.wrap(pair(key, value))
   end
 
   defp tag_to_pair(_), do: []
 
-  @spec pair(String.t(), term()) :: pair() | nil
+  @spec pair(String.t(), String.t() | integer() | nil) :: pair() | nil
   defp pair(_key, value) when value in [nil, ""], do: nil
   defp pair(key, value) when is_integer(value), do: "#{key} #{value}"
   defp pair(key, value) when is_binary(value), do: "#{key} #{String.trim(value)}"
   defp pair(_, _), do: nil
 
-  @spec maybe_put_pair([NIP92.pair()], String.t(), term()) :: [NIP92.pair()]
+  @spec maybe_put_pair([pair()], String.t(), String.t() | integer() | nil) :: [pair()]
   defp maybe_put_pair(pairs, _key, value) when value in [nil, ""], do: pairs
 
   defp maybe_put_pair(pairs, key, value) do
@@ -176,7 +196,7 @@ defmodule Rss2Nostr.Nostr.NIP92 do
     end
   end
 
-  @spec sanitize_pairs([NIP92.pair()]) :: [NIP92.pair()]
+  @spec sanitize_pairs([pair()]) :: [pair()]
   defp sanitize_pairs(pairs) do
     pairs
     |> Enum.reject(&is_nil/1)
@@ -201,12 +221,12 @@ defmodule Rss2Nostr.Nostr.NIP92 do
     String.match?(value, ~r/\A0+x0+\z/i)
   end
 
-  @spec pair_key(NIP92.pair()) :: String.t()
+  @spec pair_key(pair()) :: String.t()
   defp pair_key(pair) do
     pair |> String.split(" ", parts: 2) |> hd()
   end
 
-  @spec pair_value([NIP92.pair()], String.t()) :: String.t() | nil
+  @spec pair_value([pair()], String.t()) :: String.t() | nil
   defp pair_value(pairs, key) do
     prefix = key <> " "
 
@@ -216,26 +236,26 @@ defmodule Rss2Nostr.Nostr.NIP92 do
     end)
   end
 
-  @spec put_url_first([NIP92.pair()]) :: [NIP92.pair()]
+  @spec put_url_first([pair()]) :: [pair()]
   defp put_url_first(pairs) do
     {urls, rest} = Enum.split_with(pairs, &String.starts_with?(&1, "url "))
     urls ++ rest
   end
 
-  @spec valid_pairs?(term()) :: boolean()
+  @spec valid_pairs?([pair()]) :: boolean()
   defp valid_pairs?(pairs) when is_list(pairs) do
     match?("url " <> _, List.first(pairs)) and length(pairs) >= 2
   end
 
   defp valid_pairs?(_), do: false
 
-  @spec image_alt(map()) :: String.t() | nil
+  @spec image_alt(image_map()) :: String.t() | nil
   defp image_alt(image) do
     alt = Map.get(image, :alt_text) || Map.get(image, :caption)
     if present?(alt), do: alt
   end
 
-  @spec present?(term()) :: boolean()
+  @spec present?(String.t() | nil) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
 

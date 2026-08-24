@@ -5,7 +5,17 @@ defmodule Rss2Nostr.Nostr.NIP05 do
 
   alias Rss2Nostr.HTTP
 
-  @type document :: map()
+  @type document :: %{
+          optional(String.t()) => term(),
+          optional(atom()) => term()
+        }
+
+  @type fetch_error ::
+          :invalid_identifier
+          | :invalid_response
+          | {:http_error, integer()}
+          | Jason.DecodeError.t()
+          | term()
 
   @spec parse_identifier(String.t()) :: {:ok, String.t(), String.t()} | :error
   def parse_identifier(identifier) when is_binary(identifier) do
@@ -32,7 +42,7 @@ defmodule Rss2Nostr.Nostr.NIP05 do
     "https://#{domain}/.well-known/nostr.json?name=#{URI.encode_www_form(name)}"
   end
 
-  @spec fetch(String.t()) :: {:ok, document()} | {:error, term()}
+  @spec fetch(String.t()) :: {:ok, document()} | {:error, fetch_error()}
   def fetch(identifier) do
     with {:ok, name, domain} <- parse_identifier(identifier),
          {:ok, %{status: 200, body: body}} <-
@@ -43,7 +53,6 @@ defmodule Rss2Nostr.Nostr.NIP05 do
       :error -> {:error, :invalid_identifier}
       {:ok, %{status: status}} -> {:error, {:http_error, status}}
       {:error, reason} -> {:error, reason}
-      _ -> {:error, :invalid_response}
     end
   end
 
@@ -76,21 +85,21 @@ defmodule Rss2Nostr.Nostr.NIP05 do
     is_binary(listed) and String.downcase(listed) == hex
   end
 
-  @spec relays_map(document()) :: map()
+  @spec relays_map(document()) :: %{String.t() => [String.t()] | String.t()}
   defp relays_map(document) do
     (document["relays"] || document[:relays] || %{})
     |> stringify_map()
     |> Map.new(fn {key, value} -> {String.downcase(key), value} end)
   end
 
-  @spec stringify_map(map()) :: map()
+  @spec stringify_map(map()) :: %{String.t() => term()}
   defp stringify_map(map) when is_map(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
 
   defp stringify_map(_), do: %{}
 
-  @spec normalize_relay(term()) :: [String.t()]
+  @spec normalize_relay(String.t()) :: [String.t()]
   defp normalize_relay(url) when is_binary(url) do
     trimmed = String.trim(url)
 
@@ -108,7 +117,6 @@ defmodule Rss2Nostr.Nostr.NIP05 do
     String.contains?(domain, ".") and not String.contains?(domain, "/")
   end
 
-  @spec decode_body(binary() | iodata()) :: {:ok, term()} | {:error, term()}
+  @spec decode_body(binary()) :: {:ok, document()} | {:error, Jason.DecodeError.t()}
   defp decode_body(body) when is_binary(body), do: Jason.decode(body)
-  defp decode_body(body), do: body |> IO.iodata_to_binary() |> Jason.decode()
 end

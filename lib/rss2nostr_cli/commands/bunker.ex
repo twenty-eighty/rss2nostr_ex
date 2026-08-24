@@ -82,7 +82,7 @@ defmodule Rss2Nostr.CLI.Commands.Bunker do
   @spec connect_and_get_pubkey(pid()) :: :ok
   defp connect_and_get_pubkey(pid) do
     case NIP46.connect(pid, 30_000) do
-      {:ok, "ack"} ->
+      :ok ->
         Output.success("Connected!")
         Output.info("Getting public key...")
         get_pubkey_and_disconnect(pid)

@@ -24,6 +24,14 @@ defmodule Rss2Nostr.Nostr.Relays do
   alias Rss2Nostr.Sources.Source
 
   @type audience :: :draft | :test | :public
+  @type relay_bucket :: audience() | :inbox
+
+  @type relay_lists :: %{
+          draft: [String.t()],
+          test: [String.t()],
+          public: [String.t()],
+          inbox: [String.t()]
+        }
 
   @doc """
   Relays used for NIP-37 draft wraps.
@@ -159,19 +167,14 @@ defmodule Rss2Nostr.Nostr.Relays do
   @doc """
   Configured lists.
   """
-  @spec all() :: %{
-          draft: [String.t()],
-          test: [String.t()],
-          public: [String.t()],
-          inbox: [String.t()]
-        }
+  @spec all() :: relay_lists()
   def all, do: configured_relays()
 
   @doc """
   Parses `"draft"` / `"test"` / `"public"` from CLI or form params.
   Returns `nil` if absent or invalid.
   """
-  @spec parse_audience(term()) :: audience() | nil
+  @spec parse_audience(String.t() | atom() | nil) :: audience() | nil
   def parse_audience(nil), do: nil
   def parse_audience(:draft), do: :draft
   def parse_audience(:test), do: :test
@@ -267,7 +270,7 @@ defmodule Rss2Nostr.Nostr.Relays do
     if filtered == [], do: test(), else: filtered
   end
 
-  @spec list(audience()) :: [String.t()]
+  @spec list(relay_bucket()) :: [String.t()]
   defp list(audience) do
     configured_relays()
     |> Map.get(audience, [])
@@ -277,7 +280,7 @@ defmodule Rss2Nostr.Nostr.Relays do
     |> Enum.reject(&(&1 == ""))
   end
 
-  @spec configured_relays() :: %{draft: [String.t()], test: [String.t()], public: [String.t()], inbox: [String.t()]}
+  @spec configured_relays() :: relay_lists()
   defp configured_relays do
     case Application.get_env(:rss2nostr, :nostr, []) |> Access.get(:relays) do
       %{test: test, public: public} = map ->
@@ -304,7 +307,7 @@ defmodule Rss2Nostr.Nostr.Relays do
     end
   end
 
-  @spec wrap_list(term()) :: list()
+  @spec wrap_list([String.t()] | String.t() | nil) :: [String.t()]
   defp wrap_list(list) when is_list(list), do: list
   defp wrap_list(nil), do: []
   defp wrap_list(other), do: List.wrap(other)

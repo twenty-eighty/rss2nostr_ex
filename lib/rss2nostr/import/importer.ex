@@ -90,7 +90,7 @@ defmodule Rss2Nostr.Import.Importer do
   end
 
   # Import a single feed item
-  @spec import_item(map(), Source.t(), boolean(), boolean(), boolean(), String.t() | nil) ::
+  @spec import_item(FeedParser.feed_item(), Source.t(), boolean(), boolean(), boolean(), String.t() | nil) ::
           {:ok, :imported | :skipped, boolean()} | {:error, String.t(), boolean()}
   defp import_item(item, source, force, started?, guid_in_feed?, start_guid) do
     reached_start? = started? or (guid_in_feed? and item.guid == start_guid)
@@ -128,7 +128,7 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
-  @spec adopt_or_create_post(map(), Source.t(), String.t(), boolean()) ::
+  @spec adopt_or_create_post(FeedParser.feed_item(), Source.t(), String.t(), boolean()) ::
           {:ok, :imported} | {:error, String.t()}
   defp adopt_or_create_post(item, source, url_hash, true) do
     create_post(item, source, url_hash, true)
@@ -148,7 +148,7 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
-  @spec resolve_source_html(map(), Source.t()) :: {:ok, String.t()} | {:error, String.t()}
+  @spec resolve_source_html(FeedParser.feed_item(), Source.t()) :: {:ok, String.t()} | {:error, String.t()}
   defp resolve_source_html(item, source) do
     case Composer.html_for_item(item, source) do
       {:ok, html, _source} -> {:ok, html}
@@ -156,7 +156,7 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
-  @spec duplicate_identity?(map(), Source.t()) :: boolean()
+  @spec duplicate_identity?(FeedParser.feed_item(), Source.t()) :: boolean()
   defp duplicate_identity?(item, source) do
     Posts.exists_by_identity?(ItemIdentity.identity_values(item), pubkey: source.pubkey)
   end
@@ -171,7 +171,7 @@ defmodule Rss2Nostr.Import.Importer do
 
   defp source_start_guid(_), do: nil
 
-  @spec should_skip_by_date?(map(), Source.t()) :: boolean()
+  @spec should_skip_by_date?(FeedParser.feed_item(), Source.t()) :: boolean()
   defp should_skip_by_date?(item, source) do
     case {source.publish_after_date, item.published_at} do
       {nil, _} -> false
@@ -180,7 +180,7 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
-  @spec create_post(map(), Source.t(), String.t(), boolean()) ::
+  @spec create_post(FeedParser.feed_item(), Source.t(), String.t(), boolean()) ::
           {:ok, :imported} | {:error, String.t()}
   defp create_post(item, source, url_hash, force) do
     with {:ok, source_html} <- resolve_source_html(item, source) do

@@ -12,6 +12,22 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
 
   alias Rss2Nostr.Nostr.{Event, Keys, Publisher, Relay, RelayQuery, Relays, Signer}
   alias Rss2Nostr.Posts
+  alias Rss2Nostr.Posts.Post
+
+  @type relay_event :: %{
+          optional(String.t()) => String.t() | integer() | Event.tags(),
+          optional(atom()) => String.t() | integer() | Event.tags()
+        }
+
+  @type relay_filter :: %{String.t() => [String.t()] | [integer()] | integer()}
+
+  @type draft_group :: %{
+          identifier: String.t(),
+          author: String.t() | nil,
+          event_ids: [String.t()]
+        }
+
+  @type signed_event :: Event.event()
 
   @reason "replaced by published article"
 
@@ -61,7 +77,8 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     {:ok, %{deleted: deleted, skipped: skipped}}
   end
 
-  @spec cleanup_group(map(), binary(), String.t(), MapSet.t(), [String.t()], term(), list()) :: :deleted | :skipped
+  @spec cleanup_group(draft_group(), binary(), String.t(), MapSet.t(), [String.t()], function(), [Post.t()]) ::
+          :deleted | :skipped
   defp cleanup_group(group, key, app_pubkey, published, delete_on, publish, posts) do
     %{identifier: identifier, author: author, event_ids: event_ids} = group
 
@@ -107,7 +124,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end
   end
 
-  @spec draft_groups(list(), list()) :: [map()]
+  @spec draft_groups([relay_event()], [Post.t()]) :: [draft_group()]
   defp draft_groups(drafts, posts) do
     %{}
     |> add_draft_events(drafts)
@@ -121,7 +138,8 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end)
   end
 
-  @spec add_draft_events(map(), list()) :: map()
+  @spec add_draft_events(%{{String.t(), String.t() | nil} => [String.t()]}, [relay_event()]) ::
+          %{{String.t(), String.t() | nil} => [String.t()]}
   defp add_draft_events(groups, drafts) do
     Enum.reduce(drafts, groups, fn event, acc ->
       identifier = tag_value(event, "d")
@@ -137,7 +155,8 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end)
   end
 
-  @spec add_local_posts(map(), list()) :: map()
+  @spec add_local_posts(%{{String.t(), String.t() | nil} => [String.t()]}, [Post.t()]) ::
+          %{{String.t(), String.t() | nil} => [String.t()]}
   defp add_local_posts(groups, posts) do
     Enum.reduce(posts, groups, fn post, acc ->
       identifier = Publisher.identifier(post)
@@ -153,7 +172,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end)
   end
 
-  @spec mark_local_posts(list(), String.t(), String.t()) :: :ok
+  @spec mark_local_posts([Post.t()], String.t(), String.t()) :: :ok
   defp mark_local_posts(posts, identifier, author) do
     posts
     |> Enum.filter(fn post ->
@@ -164,7 +183,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end)
   end
 
-  @spec all_drafts_filter(String.t(), pos_integer()) :: map()
+  @spec all_drafts_filter(String.t(), pos_integer()) :: relay_filter()
   defp all_drafts_filter(app_pubkey, limit) do
     %{
       "kinds" => [Event.kind_long_form_draft(), Event.kind_draft_wrap()],
@@ -173,7 +192,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     }
   end
 
-  @spec published_keys(list(), term(), [String.t()]) :: MapSet.t()
+  @spec published_keys([draft_group()], function(), [String.t()]) :: MapSet.t()
   defp published_keys([], _query, _urls), do: MapSet.new()
 
   defp published_keys(groups, query, urls) do
@@ -196,7 +215,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end)
   end
 
-  @spec article_filter(list(), String.t()) :: map()
+  @spec article_filter([String.t()], String.t()) :: relay_filter()
   defp article_filter(identifiers, author) do
     ids = List.wrap(identifiers)
 
@@ -208,7 +227,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     }
   end
 
-  @spec event_pubkey(map()) :: String.t() | nil
+  @spec event_pubkey(relay_event()) :: String.t() | nil
   defp event_pubkey(event) do
     event["pubkey"] || event[:pubkey]
   end
@@ -221,13 +240,13 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     ]
   end
 
-  @spec source_author(map()) :: String.t() | nil
+  @spec source_author(Post.t()) :: String.t() | nil
   defp source_author(post) do
     pubkey = post.source && post.source.pubkey
     normalize_pubkey(pubkey)
   end
 
-  @spec author_p_tag(map()) :: String.t() | nil
+  @spec author_p_tag(relay_event()) :: String.t() | nil
   defp author_p_tag(event) do
     event
     |> tag_values("p")
@@ -239,7 +258,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     if Keys.valid_pubkey?(pubkey), do: String.downcase(pubkey)
   end
 
-  @spec tag_value(map(), String.t()) :: String.t()
+  @spec tag_value(relay_event(), String.t()) :: String.t()
   defp tag_value(event, name) do
     event
     |> tag_values(name)
@@ -250,7 +269,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end
   end
 
-  @spec tag_values(map(), String.t()) :: [String.t()]
+  @spec tag_values(relay_event(), String.t()) :: [String.t()]
   defp tag_values(event, name) do
     event
     |> event_tags()
@@ -260,12 +279,12 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end)
   end
 
-  @spec event_tags(map()) :: list()
+  @spec event_tags(relay_event()) :: Event.tags()
   defp event_tags(event) do
     event[:tags] || event["tags"] || []
   end
 
-  @spec compact_ids(list()) :: [String.t()]
+  @spec compact_ids([String.t() | nil]) :: [String.t()]
   defp compact_ids(ids) do
     ids
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
@@ -285,7 +304,7 @@ defmodule Rss2Nostr.Nostr.DraftCleanup do
     end
   end
 
-  @spec event_id(map()) :: String.t() | nil
+  @spec event_id(relay_event()) :: String.t() | nil
   defp event_id(%{"id" => id}), do: id
   defp event_id(%{id: id}), do: id
   defp event_id(_), do: nil

@@ -7,19 +7,12 @@ defmodule Rss2Nostr.Import.ItemIdentity do
   unless the source publishes videos.
   """
 
+  alias Rss2Nostr.Import.FeedParser
+
   @media_ext ~w(mp3 mp4 m4a m4v aac ogg opus wav webm mov)
 
-  @type feed_item :: %{
-          optional(:link) => String.t() | nil,
-          optional(:guid) => String.t() | nil,
-          optional(:enclosure_url) => String.t() | nil,
-          optional(:enclosure_type) => String.t() | nil,
-          optional(atom()) => any()
-        }
+  @type feed_item :: FeedParser.feed_item()
 
-  @doc """
-  True when the item references audio/video and has no HTML page URL.
-  """
   @spec media_without_page?(feed_item()) :: boolean()
   def media_without_page?(item) when is_map(item) do
     media_ref?(item) and is_nil(page_url(item))
@@ -109,7 +102,7 @@ defmodule Rss2Nostr.Import.ItemIdentity do
   @spec page_url?(String.t()) :: boolean()
   defp page_url?(value), do: http_url?(value) and not media_url?(value)
 
-  @spec media_type?(term()) :: boolean()
+  @spec media_type?(String.t() | nil) :: boolean()
   defp media_type?(type) when is_binary(type) do
     type = String.downcase(type)
     String.starts_with?(type, "audio/") or String.starts_with?(type, "video/")
@@ -117,7 +110,7 @@ defmodule Rss2Nostr.Import.ItemIdentity do
 
   defp media_type?(_), do: false
 
-  @spec media_url?(term()) :: boolean()
+  @spec media_url?(String.t() | nil) :: boolean()
   defp media_url?(url) when is_binary(url) do
     ext =
       url
@@ -134,7 +127,7 @@ defmodule Rss2Nostr.Import.ItemIdentity do
 
   defp media_url?(_), do: false
 
-  @spec http_url?(term()) :: boolean()
+  @spec http_url?(String.t() | nil) :: boolean()
   defp http_url?(value) when is_binary(value) do
     trimmed = String.trim(value)
     String.starts_with?(trimmed, "http://") or String.starts_with?(trimmed, "https://")
@@ -161,7 +154,8 @@ defmodule Rss2Nostr.Import.ItemIdentity do
     end
   end
 
-  @spec field(feed_item(), atom()) :: term()
+  @spec field(feed_item(), atom()) ::
+          String.t() | DateTime.t() | integer() | [String.t()] | nil
   defp field(item, key) do
     Map.get(item, key) || Map.get(item, Atom.to_string(key))
   end

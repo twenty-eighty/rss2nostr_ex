@@ -240,10 +240,8 @@ defmodule Rss2Nostr.Processing.BodySchema.Regions do
     _ -> %{first_line: "", word_count: 0}
   end
 
-  @spec mark_selected([region()], String.t() | nil) :: [region()]
-  defp mark_selected(regions, selected) do
-    selected = selected || ""
-
+  @spec mark_selected([region()], String.t()) :: [region()]
+  defp mark_selected(regions, selected) when is_binary(selected) do
     Enum.map(regions, fn region ->
       %{region | selected: region.selector == selected}
     end)

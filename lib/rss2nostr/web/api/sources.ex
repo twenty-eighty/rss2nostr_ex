@@ -53,6 +53,8 @@ defmodule Rss2Nostr.Web.API.Sources do
     Composer.preview(params)
   end
 
+  @type source_options :: %{String.t() => term()}
+
   @spec create(map()) :: {:ok, Source.t()} | {:error, Ecto.Changeset.t()}
   def create(params) do
     attrs =
@@ -81,7 +83,7 @@ defmodule Rss2Nostr.Web.API.Sources do
   end
 
   @spec update(Source.t() | String.t(), map()) ::
-          {:ok, Source.t()} | {:error, atom() | Ecto.Changeset.t()}
+          {:ok, Source.t()} | {:error, :not_found | :invalid_id | Ecto.Changeset.t()}
   def update(%Source{} = source, params) do
     options = composition_options(params, source.options || %{})
 
@@ -181,7 +183,8 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
-  @spec toggle(String.t()) :: {:ok, Source.t()} | {:error, atom() | Ecto.Changeset.t()}
+  @spec toggle(String.t()) ::
+          {:ok, Source.t()} | {:error, :not_found | :invalid_id | Ecto.Changeset.t()}
   def toggle(id) do
     with {:ok, source_id} <- parse_id(id),
          %Source{} = source <- Sources.get_source(source_id) do
@@ -241,7 +244,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     }
   end
 
-  @spec composition_options(map(), map()) :: map()
+  @spec composition_options(map(), source_options()) :: source_options()
   defp composition_options(params, existing \\ %{}) do
     existing = existing || %{}
 
@@ -320,7 +323,7 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
-  @spec maybe_put(map(), atom(), term()) :: map()
+  @spec maybe_put(map(), atom() | String.t(), term()) :: map()
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 

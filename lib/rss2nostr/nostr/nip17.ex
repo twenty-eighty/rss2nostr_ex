@@ -6,11 +6,18 @@ defmodule Rss2Nostr.Nostr.NIP17 do
 
   alias Rss2Nostr.Nostr.{Event, Keys, NIP44}
 
+  @type rumor :: Event.unsigned_event() | Event.event()
+  @type wrap_error ::
+          Rss2Nostr.Nostr.NIP44.nip44_error()
+          | Jason.DecodeError.t()
+          | atom()
+          | String.t()
+
   @kind_dm 14
   @kind_seal 13
   @kind_gift_wrap 1059
 
-  @spec wrap(String.t(), binary(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec wrap(String.t(), binary(), String.t(), keyword()) :: {:ok, Event.event()} | {:error, wrap_error()}
   def wrap(plaintext, sender_key, recipient_hex, opts \\ [])
       when is_binary(plaintext) and byte_size(sender_key) == 32 do
     recipient = String.downcase(recipient_hex)
@@ -29,7 +36,7 @@ defmodule Rss2Nostr.Nostr.NIP17 do
     end
   end
 
-  @spec unwrap(map(), binary()) :: {:ok, map()} | {:error, term()}
+  @spec unwrap(Event.event(), binary()) :: {:ok, rumor()} | {:error, wrap_error()}
   def unwrap(wrap, recipient_key) when is_map(wrap) and byte_size(recipient_key) == 32 do
     with {:ok, seal_json} <-
            NIP44.decrypt(field(wrap, :content), recipient_key, field(wrap, :pubkey)),
@@ -40,7 +47,7 @@ defmodule Rss2Nostr.Nostr.NIP17 do
     end
   end
 
-  @spec rumor(String.t(), String.t(), String.t(), integer(), String.t() | nil) :: map()
+  @spec rumor(String.t(), String.t(), String.t(), integer(), String.t() | nil) :: rumor()
   defp rumor(sender_pub, recipient, plaintext, created_at, subject) do
     tags = [["p", recipient]]
     tags = if subject, do: tags ++ [["subject", subject]], else: tags
@@ -56,7 +63,7 @@ defmodule Rss2Nostr.Nostr.NIP17 do
     Map.put(event, :id, Event.compute_id(event))
   end
 
-  @spec rumor_payload(map()) :: map()
+  @spec rumor_payload(rumor()) :: map()
   defp rumor_payload(event) do
     %{
       "id" => event.id,
@@ -68,7 +75,7 @@ defmodule Rss2Nostr.Nostr.NIP17 do
     }
   end
 
-  @spec gift_wrap(map(), String.t()) :: {:ok, map()} | {:error, term()}
+  @spec gift_wrap(Event.event(), String.t()) :: {:ok, Event.event()} | {:error, wrap_error()}
   defp gift_wrap(seal, recipient) do
     ephemeral = Keys.generate_private_key()
     ephemeral_pub = ephemeral |> Keys.derive_public_key() |> Keys.to_hex()
@@ -84,17 +91,17 @@ defmodule Rss2Nostr.Nostr.NIP17 do
     end
   end
 
-  @spec stamp_created_at(map()) :: map()
+  @spec stamp_created_at(Event.unsigned_event()) :: Event.unsigned_event()
   defp stamp_created_at(event) do
     %{event | created_at: System.os_time(:second) - :rand.uniform(2 * 24 * 60 * 60)}
   end
 
-  @spec field(map(), atom()) :: term()
+  @spec field(Event.event(), atom()) :: String.t() | integer() | Event.tags() | nil
   defp field(map, key) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
-  @spec signed_payload(map()) :: map()
+  @spec signed_payload(Event.event()) :: map()
   defp signed_payload(event) do
     %{
       "id" => event.id,

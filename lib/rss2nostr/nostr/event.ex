@@ -9,6 +9,17 @@ defmodule Rss2Nostr.Nostr.Event do
 
   alias Rss2Nostr.Nostr.{Keys, NIP44, NIP92}
 
+  @type tag :: [String.t()]
+  @type tags :: [tag()]
+
+  @type unsigned_event :: %{
+          pubkey: String.t(),
+          created_at: integer(),
+          kind: integer(),
+          tags: tags(),
+          content: String.t()
+        }
+
   # Event kinds
   @kind_text_note 1
   @kind_deletion 5
@@ -30,7 +41,7 @@ defmodule Rss2Nostr.Nostr.Event do
           pubkey: String.t(),
           created_at: integer(),
           kind: integer(),
-          tags: list(),
+          tags: tags(),
           content: String.t(),
           sig: String.t()
         }
@@ -51,7 +62,7 @@ defmodule Rss2Nostr.Nostr.Event do
   - :author_pubkey - Intended author (added as a `p` tag on drafts)
   - :client - when true, adds the Pareto NIP-89 `client` tag (kind 30023 only)
   """
-  @spec build_long_form(String.t(), String.t(), keyword()) :: map()
+  @spec build_long_form(String.t(), String.t(), keyword()) :: unsigned_event()
   def build_long_form(pubkey, content, opts \\ []) do
     title = Keyword.fetch!(opts, :title)
     summary = Keyword.get(opts, :summary)
@@ -88,7 +99,8 @@ defmodule Rss2Nostr.Nostr.Event do
   signer's own public key. Tags: `d`, `k` (inner kind), `expiration`
   (now + 90 days), and `p` when an intended author is given.
   """
-  @spec wrap_draft(map(), binary(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec wrap_draft(unsigned_event() | event(), binary(), keyword()) ::
+          {:ok, unsigned_event()} | {:error, term()}
   def wrap_draft(inner_event, private_key, opts \\ [])
       when is_map(inner_event) and byte_size(private_key) == 32 do
     with {:ok, signer_pubkey} <- signer_pubkey_hex(private_key),
@@ -114,7 +126,8 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   Decrypts a NIP-37 wrap back to the inner unsigned event map.
   """
-  @spec unwrap_draft(map(), binary()) :: {:ok, map()} | {:error, term()}
+  @spec unwrap_draft(event() | unsigned_event(), binary()) ::
+          {:ok, unsigned_event()} | {:error, term()}
   def unwrap_draft(wrap_event, private_key)
       when is_map(wrap_event) and byte_size(private_key) == 32 do
     content = wrap_event[:content] || wrap_event["content"]
@@ -129,7 +142,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   Creates a simple text note (Kind 1).
   """
-  @spec build_text_note(String.t(), String.t(), list()) :: map()
+  @spec build_text_note(String.t(), String.t(), tags()) :: unsigned_event()
   def build_text_note(pubkey, content, tags \\ []) do
     build_event(pubkey, @kind_text_note, tags, content)
   end
@@ -137,7 +150,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   NIP-09 deletion event. Tags: `e` for event ids, `a` for addressable coords.
   """
-  @spec build_deletion(String.t(), keyword()) :: map()
+  @spec build_deletion(String.t(), keyword()) :: unsigned_event()
   def build_deletion(pubkey, opts \\ []) do
     event_ids = Keyword.get(opts, :event_ids, [])
     addresses = Keyword.get(opts, :addresses, [])
@@ -153,7 +166,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   Creates an unsigned event structure.
   """
-  @spec build_event(String.t(), integer(), list(), String.t()) :: map()
+  @spec build_event(String.t(), integer(), tags(), String.t()) :: unsigned_event()
   def build_event(pubkey, kind, tags, content) do
     created_at = System.os_time(:second)
 
@@ -169,7 +182,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   Computes the event ID (SHA256 of serialized event).
   """
-  @spec compute_id(map()) :: String.t()
+  @spec compute_id(unsigned_event() | event()) :: String.t()
   def compute_id(event) do
     serialized = serialize_for_id(event)
     Keys.sha256(serialized) |> Keys.to_hex()
@@ -179,7 +192,7 @@ defmodule Rss2Nostr.Nostr.Event do
   Signs an event with a private key using Node.js nostr-tools.
   Returns the complete signed event.
   """
-  @spec sign_event(map(), binary()) :: {:ok, event()} | {:error, any()}
+  @spec sign_event(unsigned_event() | event(), binary()) :: {:ok, event()} | {:error, term()}
   def sign_event(event, private_key) do
     case Keys.sign_event(event, private_key) do
       {:ok, %{id: id, sig: sig, pubkey: pubkey}} ->
@@ -202,7 +215,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   Verifies an event's signature.
   """
-  @spec verify_event(map()) :: {:ok, map()} | {:error, atom()}
+  @spec verify_event(event()) :: {:ok, event()} | {:error, atom()}
   def verify_event(event) do
     # Recompute event ID
     expected_id = compute_id(event)
@@ -228,7 +241,7 @@ defmodule Rss2Nostr.Nostr.Event do
   Serializes event for ID computation according to NIP-01.
   Returns JSON array: [0, pubkey, created_at, kind, tags, content]
   """
-  @spec serialize_for_id(map()) :: String.t()
+  @spec serialize_for_id(unsigned_event() | event()) :: String.t()
   def serialize_for_id(event) do
     [
       0,
@@ -244,7 +257,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   Converts event to JSON string for relay transmission.
   """
-  @spec to_json(map()) :: String.t()
+  @spec to_json(unsigned_event() | event()) :: String.t()
   def to_json(event) do
     Jason.encode!(event)
   end
@@ -309,7 +322,7 @@ defmodule Rss2Nostr.Nostr.Event do
   Base64), so an inner event that fits 65535 bytes can still produce a
   wrap the relay rejects.
   """
-  @spec estimate_wrap_message_size(map(), keyword()) :: non_neg_integer()
+  @spec estimate_wrap_message_size(unsigned_event() | event(), keyword()) :: non_neg_integer()
   def estimate_wrap_message_size(inner_event, opts \\ []) when is_map(inner_event) do
     case draft_plaintext(inner_event) do
       {:ok, json} ->
@@ -346,7 +359,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   Estimated size of the `["EVENT", event]` JSON published for a long-form article.
   """
-  @spec estimate_event_message_size(map()) :: non_neg_integer()
+  @spec estimate_event_message_size(unsigned_event() | event()) :: non_neg_integer()
   def estimate_event_message_size(event) when is_map(event) do
     fake = %{
       id: event[:id] || event["id"] || String.duplicate("0", 64),
@@ -374,7 +387,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   JSON payload that NIP-44 encrypts for a NIP-37 wrap.
   """
-  @spec draft_plaintext(map()) :: {:ok, String.t()} | {:error, term()}
+  @spec draft_plaintext(unsigned_event() | event()) :: {:ok, String.t()} | {:error, term()}
   def draft_plaintext(event) when is_map(event) do
     Jason.encode(inner_payload(event))
   end
@@ -382,7 +395,7 @@ defmodule Rss2Nostr.Nostr.Event do
   @doc """
   Byte size of `draft_plaintext/1`, or 0 if it cannot be encoded.
   """
-  @spec draft_plaintext_size(map()) :: non_neg_integer()
+  @spec draft_plaintext_size(unsigned_event() | event()) :: non_neg_integer()
   def draft_plaintext_size(event) when is_map(event) do
     case draft_plaintext(event) do
       {:ok, json} -> byte_size(json)
@@ -390,15 +403,15 @@ defmodule Rss2Nostr.Nostr.Event do
     end
   end
 
-  @spec maybe_summary_or_alt(list(), integer(), String.t() | nil) :: list()
+  @spec maybe_summary_or_alt(tags(), integer(), String.t() | nil) :: tags()
   defp maybe_summary_or_alt(tags, @kind_video, summary), do: maybe_tag(tags, "alt", summary)
   defp maybe_summary_or_alt(tags, _kind, summary), do: maybe_tag(tags, "summary", summary)
 
-  @spec maybe_tag(list(), String.t(), String.t() | nil) :: list()
+  @spec maybe_tag(tags(), String.t(), String.t() | nil) :: tags()
   defp maybe_tag(tags, _name, value) when value in [nil, ""], do: tags
   defp maybe_tag(tags, name, value) when is_binary(value), do: tags ++ [[name, value]]
 
-  @spec maybe_published_at(list(), integer() | nil) :: list()
+  @spec maybe_published_at(tags(), integer() | nil) :: tags()
   defp maybe_published_at(tags, published_at) when is_integer(published_at) do
     tags ++ [["published_at", to_string(published_at)]]
   end
@@ -439,14 +452,14 @@ defmodule Rss2Nostr.Nostr.Event do
     |> Enum.reject(&MapSet.member?(skip, &1))
   end
 
-  @spec maybe_hashtag_tags(list(), term()) :: list()
+  @spec maybe_hashtag_tags(tags(), term()) :: tags()
   defp maybe_hashtag_tags(tags, hashtags) do
     hashtags
     |> normalize_hashtags()
     |> Enum.reduce(tags, fn tag, acc -> acc ++ [["t", tag]] end)
   end
 
-  @spec maybe_language_tags(list(), term()) :: list()
+  @spec maybe_language_tags(tags(), term()) :: tags()
   defp maybe_language_tags(tags, language) do
     case normalize_language(language) do
       {code, namespace} -> tags ++ [["L", namespace], ["l", code, namespace]]
@@ -454,7 +467,7 @@ defmodule Rss2Nostr.Nostr.Event do
     end
   end
 
-  @spec maybe_canonical_url(list(), String.t() | nil) :: list()
+  @spec maybe_canonical_url(tags(), String.t() | nil) :: tags()
   defp maybe_canonical_url(tags, url) when is_binary(url) do
     trimmed = String.trim(url)
 
@@ -467,7 +480,7 @@ defmodule Rss2Nostr.Nostr.Event do
 
   defp maybe_canonical_url(tags, _), do: tags
 
-  @spec maybe_imeta_tags(list(), list()) :: list()
+  @spec maybe_imeta_tags(tags(), list()) :: tags()
   defp maybe_imeta_tags(tags, imeta) when is_list(imeta) do
     tags ++
       Enum.flat_map(imeta, fn item ->
@@ -529,7 +542,7 @@ defmodule Rss2Nostr.Nostr.Event do
 
   defp normalize_language(_), do: nil
 
-  @spec maybe_author_tag(list(), String.t() | nil) :: list()
+  @spec maybe_author_tag(tags(), String.t() | nil) :: tags()
   defp maybe_author_tag(tags, author_pubkey)
        when is_binary(author_pubkey) and author_pubkey != "" do
     tags ++ [["p", String.downcase(author_pubkey)]]
@@ -537,7 +550,7 @@ defmodule Rss2Nostr.Nostr.Event do
 
   defp maybe_author_tag(tags, _), do: tags
 
-  @spec maybe_client_tag(list(), boolean(), integer()) :: list()
+  @spec maybe_client_tag(tags(), boolean(), integer()) :: tags()
   defp maybe_client_tag(tags, true, @kind_long_form), do: tags ++ [@pareto_client_tag]
   defp maybe_client_tag(tags, _, _), do: tags
 
@@ -574,7 +587,7 @@ defmodule Rss2Nostr.Nostr.Event do
     }
   end
 
-  @spec event_identifier(map()) :: String.t()
+  @spec event_identifier(unsigned_event() | event()) :: String.t()
   defp event_identifier(event) do
     tags = event[:tags] || event["tags"] || []
 
