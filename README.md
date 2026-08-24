@@ -221,7 +221,9 @@ The HTTP server starts the scheduler process idle. Set `SCHEDULER_AUTO_START=tru
 
 #### MCP (AI clients)
 
-stdio (Cursor, Claude Desktop, and similar):
+[MCP](https://modelcontextprotocol.io/) exposes the same operations as the admin UI and CLI so agents can discover feeds, tune composition, import articles, and run the scheduler.
+
+**stdio** (Cursor, Claude Desktop, and similar):
 
 ```bash
 mix rss2nostr.mcp
@@ -231,9 +233,90 @@ mix rss2nostr.mcp
 
 Copy `.cursor/mcp.json.example` to `.cursor/mcp.json` (that file is gitignored). Cursor can omit `cwd` when the project is already the workspace.
 
-When the web server is running, the same tools are also at `http://localhost:4000/mcp`. Loopback clients need no token. Set `MCP_TOKEN` and send `Authorization: Bearer …` for anything else.
+**HTTP** (remote agents or when the web server is already running):
 
-Tools cover sources (discover, add, update, import, delete), articles (list, process, publish), the scheduler, and status.
+```
+http://localhost:4000/mcp
+```
+
+Loopback clients (`127.0.0.1` / `::1`) need no token. For anything else, set `MCP_TOKEN` and send `Authorization: Bearer <token>`.
+
+##### Resources and prompts
+
+| URI / name | Description |
+|------------|-------------|
+| `rss2nostr://status` | Source and post counts |
+| `rss2nostr://sources` | All configured sources |
+| `rss2nostr://settings` | Non-secret app settings |
+| prompt `add_source` | Step-by-step feed discovery and source setup |
+| prompt `triage_posts` | Review articles that need processing or publishing |
+
+##### Tools
+
+**Overview**
+
+| Tool | Description |
+|------|-------------|
+| `get_status` | Dashboard-style counts and scheduler summary |
+| `get_settings` | Relays, upload endpoint, scheduler intervals, and `compose` presets (body presets, languages, fetch/publish modes, default skip classes) |
+
+**Sources**
+
+| Tool | Description |
+|------|-------------|
+| `list_sources` | All sources |
+| `get_source` | One source with flattened composition options |
+| `discover_feeds` | Find RSS/Atom feeds on a site URL |
+| `preview_feed` | Sample items from a feed URL without saving |
+| `preview_compose` | Dry-run Markdown conversion and Nostr event shape for one item (works without a saved source) |
+| `add_source` | Create a source (feed URL, language, `publish_as`, signing, composition, `start_guid`, staging hold, hashtags) |
+| `update_source` | Change any of the above plus `active`, `public`, and `mode` (`setup` → `automated`) |
+| `toggle_source` | Enable or disable imports |
+| `duplicate_source` | Copy a source |
+| `delete_source` | Delete a source and its articles |
+| `import_source` | Fetch new items and process them |
+
+`preview_compose` and `add_source` accept composition fields such as `fetch_source_from` (`content` or `fetch_from_url`), `body_selector`, `start_at`, `skip_classes`, `body_selector_auto`, `conversion_rules`, `fixed_hashtags`, `excluded_hashtags`, and `mirror_media` (for video). Draft modes need `pubkey`; article mode needs `signing_nsec` or `bunker_connection`.
+
+**Articles**
+
+| Tool | Description |
+|------|-------------|
+| `list_posts` | Filter by `status`, `source_id`, or search text |
+| `get_post` | One article including Markdown |
+| `process_post` | Convert HTML to Markdown and upload images |
+| `upload_post_images` | Upload images for `pending_images` articles |
+| `reprocess_post` | Reconvert one article from stored HTML |
+| `reprocess_posts` | Reconvert multiple articles by id |
+| `publish_post` | Publish one staging article (or republish) |
+| `publish_source_posts` | Publish selected staging articles from a source |
+| `update_post` | Edit title, summary, hashtags, language, or Markdown |
+| `revise_post` | Reconvert a published article and move it back to staging |
+| `delete_post` | Delete one article |
+
+Post `status` values: `new`, `processing`, `staging`, `processed`, `pending_images`, `published`, `error`.
+
+**Scheduler**
+
+| Tool | Description |
+|------|-------------|
+| `scheduler_status` | Running state and last task runs |
+| `start_scheduler` | Start import/process/export timers |
+| `stop_scheduler` | Stop the scheduler |
+| `run_scheduler_task` | Run `import`, `process`, `export`, or `cleanup` once |
+
+The HTTP server starts the scheduler idle unless `SCHEDULER_AUTO_START=true` is set.
+
+##### Typical agent workflow
+
+1. `get_settings` — relays, Blossom endpoint, compose presets, languages.
+2. `discover_feeds` on the site URL, then `preview_feed` on the best feed.
+3. `preview_compose` on a sample item. Tune `fetch_source_from`, `body_selector`, `publish_as`, and `pubkey` until the Markdown and event look right.
+4. `add_source` with the same fields plus `start_guid` from `preview_feed` if you want to limit the import window.
+5. `update_source` with `mode: automated` once signing is configured.
+6. `import_source`, then `list_posts`. Use `upload_post_images` or `reprocess_post` for failures; `publish_post` only when status is `processed` or staging rules allow it.
+
+Use the built-in `add_source` prompt with a website URL for a shorter checklist an agent can follow.
 
 #### NIP-46 Bunker (Remote Signing)
 
