@@ -271,6 +271,16 @@ defmodule Rss2NostrWeb.PostLiveTest do
       assert html =~ source.name or html =~ "Images"
     end
 
+    test "shows the feed name", %{conn: conn} do
+      {source, post} = create_test_post()
+
+      html = page(conn, "/posts/#{post.id}")
+
+      assert html =~ "Feed:"
+      assert html =~ source.name
+      assert html =~ ~s(href="/sources/#{source.id}?tab=articles")
+    end
+
     test "shows post details", %{conn: conn} do
       {source, post} = create_test_post()
 

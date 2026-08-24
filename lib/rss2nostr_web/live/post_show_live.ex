@@ -162,8 +162,12 @@ defmodule Rss2NostrWeb.PostShowLive do
     </div>
 
     <div class="post-meta">
+      <p :if={match?(%Source{}, @post.source)}>
+        <strong>Feed:</strong>
+        <a href={"/sources/#{@post.source.id}?tab=articles"}>{@post.source.name}</a>
+      </p>
       <p :if={@post.source_url}>
-        <strong>Source:</strong>
+        <strong>Article:</strong>
         <a href={@post.source_url} target="_blank">{truncate(@post.source_url, 60)}</a>
       </p>
       <p :if={@post.published_at}>
