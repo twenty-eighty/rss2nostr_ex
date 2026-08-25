@@ -48,28 +48,35 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
         ""
 
       true ->
-        text = process_link_children(children, process_nodes) |> String.trim()
-
         clean_href =
           href
           |> Links.ensure_absolute_url()
           |> TrackingParams.remove()
           |> Embeds.with_soundcloud_params()
 
-        label = link_display_label(attrs, children, text, clean_href)
+        case single_heading_child(children) do
+          {level, inner} ->
+            title = process_link_children(inner, process_nodes) |> String.trim()
+            prefix = String.duplicate("#", level)
+            "\n\n#{prefix} [#{title}](#{clean_href})\n\n"
 
-        icon =
-          if Links.tweet_status_link?(clean_href) and text != "" and
-               not url_like_label?(text, clean_href) do
-            nil
-          else
-            Links.network_icon_url(children, label, clean_href)
-          end
+          nil ->
+            text = process_link_children(children, process_nodes) |> String.trim()
+            label = link_display_label(attrs, children, text, clean_href)
 
-        if icon do
-          Links.markdown_icon_link(clean_href, label, icon, Links.link_icon_order(children, text))
-        else
-          markdown_media_link(label, clean_href, Dom.get_attr(attrs, "title"))
+            icon =
+              if Links.tweet_status_link?(clean_href) and text != "" and
+                   not url_like_label?(text, clean_href) do
+                nil
+              else
+                Links.network_icon_url(children, label, clean_href)
+              end
+
+            if icon do
+              Links.markdown_icon_link(clean_href, label, icon, Links.link_icon_order(children, text))
+            else
+              markdown_media_link(label, clean_href, Dom.get_attr(attrs, "title"))
+            end
         end
     end
   end
@@ -266,4 +273,20 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     |> Map.get("action")
     |> Kernel.==("share")
   end
+
+  # Substack post embeds wrap <h2> inside <a>; Markdown needs ## [title](url).
+  @spec single_heading_child(list()) :: {pos_integer(), list()} | nil
+  defp single_heading_child(children) do
+    case Enum.reject(children, &blank_text_node?/1) do
+      [{tag, _, inner}] when tag in ~w(h1 h2 h3 h4 h5 h6) ->
+        {String.to_integer(String.slice(tag, 1, 1)), inner}
+
+      _ ->
+        nil
+    end
+  end
+
+  @spec blank_text_node?(term()) :: boolean()
+  defp blank_text_node?(text) when is_binary(text), do: String.trim(text) == ""
+  defp blank_text_node?(_), do: false
 end

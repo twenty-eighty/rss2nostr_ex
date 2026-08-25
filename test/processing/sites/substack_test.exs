@@ -232,6 +232,30 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
     end
   end
 
+  describe "post embeds" do
+    test "turns a linked h2 into a Markdown heading link" do
+      html = """
+      <div data-component-name="DigestPostEmbed">
+        <a href="https://www.freischwebende-intelligenz.org/p/warten-auf-armaggodot">
+          <h2>Warten auf Armaggodot</h2>
+        </a>
+        <p class="caption">Warten auf Godot. Zwei Männer stehen da.</p>
+        <a href="https://www.freischwebende-intelligenz.org/p/warten-auf-armaggodot">Ganze Geschichte lesen</a>
+      </div>
+      """
+
+      md =
+        convert(html,
+          url: "https://www.freischwebende-intelligenz.org/p/der-real-existierende-surrealismus"
+        )
+
+      assert md =~ "## [Warten auf Armaggodot](https://www.freischwebende-intelligenz.org/p/warten-auf-armaggodot)"
+      refute md =~ "[## Warten auf Armaggodot]"
+      assert md =~ "Warten auf Godot. Zwei Männer stehen da."
+      assert md =~ "[Ganze Geschichte lesen](https://www.freischwebende-intelligenz.org/p/warten-auf-armaggodot)"
+    end
+  end
+
   test "Composer applies Substack rules from the article URL" do
     html = """
     <div class="body markup">
