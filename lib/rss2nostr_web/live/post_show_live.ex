@@ -333,6 +333,7 @@ defmodule Rss2NostrWeb.PostShowLive do
       |> assign(:pending?, status == Post.status_pending_images())
       |> assign(:staging?, status == Post.status_processed())
       |> assign(:published?, status == Post.status_published())
+      |> assign(:error?, status == Post.status_error())
 
     ~H"""
     <button
@@ -397,6 +398,15 @@ defmodule Rss2NostrWeb.PostShowLive do
       disabled={@busy}
     >
       Revise
+    </button>
+    <button
+      :if={@error?}
+      type="button"
+      class="btn btn-primary"
+      phx-click="reprocess"
+      disabled={@busy}
+    >
+      Retry processing
     </button>
     """
   end

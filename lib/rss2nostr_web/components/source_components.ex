@@ -499,7 +499,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     </div>
     <p class="help-text">
       Selected staging articles publish to the {@relay_label}. Setup never uses the public list.
-      Pending-images articles can be reprocessed; they stay pending until featured and inline images are uploaded.
+      Pending-images and error articles can be reprocessed; pending articles stay pending until featured and inline images are uploaded.
       Manual publish ignores the staging hold.
     </p>
     <table class="table">
@@ -557,6 +557,16 @@ defmodule Rss2NostrWeb.SourceComponents do
                 disabled={@busy}
               >
                 Upload images
+              </button>
+              <button
+                :if={post.status == Post.status_error()}
+                type="button"
+                class="btn btn-small"
+                phx-click="reprocess_post"
+                phx-value-id={post.id}
+                disabled={@busy}
+              >
+                Retry
               </button>
             </td>
           </tr>

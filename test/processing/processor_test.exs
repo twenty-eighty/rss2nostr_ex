@@ -358,5 +358,20 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
       refute Enum.any?(urls, &String.contains?(&1, "vgwort"))
       assert photo in urls
     end
+
+    test "reprocess_post resets error posts and clears last_error", %{source: source} do
+      post =
+        create_post(source, %{
+          source_html: "<p>Retry me</p>",
+          status: Post.status_error(),
+          last_error: "Blossom upload failed"
+        })
+
+      {:ok, result} = Processor.reprocess_post(post)
+
+      assert result.status in [Post.status_processed(), Post.status_pending_images(), Post.status_new()]
+      assert is_nil(result.last_error)
+      assert result.content =~ "Retry me"
+    end
   end
 end

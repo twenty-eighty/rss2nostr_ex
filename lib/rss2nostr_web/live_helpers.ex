@@ -242,7 +242,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
 
   @spec reprocessable?(Rss2Nostr.Posts.Post.t()) :: boolean()
   def reprocessable?(%Post{} = post) do
-    post.status in [Post.status_processed(), Post.status_pending_images()]
+    post.status in [Post.status_processed(), Post.status_pending_images(), Post.status_error()]
   end
 
   @spec publishable?(Rss2Nostr.Posts.Post.t()) :: boolean()

@@ -278,7 +278,7 @@ defmodule Rss2Nostr.Processing.Processor do
   """
   @spec reprocess_post(Post.t()) :: {:ok, Post.t()} | {:error, any()}
   def reprocess_post(%Post{} = post) do
-    attrs = %{status: Post.status_new()}
+    attrs = %{status: Post.status_new(), last_error: nil}
 
     attrs =
       if post.status == Post.status_published(), do: Map.put(attrs, :staged_at, nil), else: attrs

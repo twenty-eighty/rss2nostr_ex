@@ -111,6 +111,13 @@ defmodule Rss2NostrWeb.PostIndexLive do
      |> start_async(:one, fn -> PostsAPI.process(id) end)}
   end
 
+  def handle_event("reprocess_post", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:one, fn -> PostsAPI.reprocess(id) end)}
+  end
+
   def handle_event("publish_post", %{"id" => id}, socket) do
     {:noreply,
      socket
@@ -225,6 +232,12 @@ defmodule Rss2NostrWeb.PostIndexLive do
       >
         Published
       </.link>
+      <.link
+        patch={posts_path(status: "8", source_id: @source_id, q: @q)}
+        class={["btn btn-small", @status == "8" && "btn-active"]}
+      >
+        Error
+      </.link>
       <form phx-change="filter" phx-submit="filter" class="filter-source">
         <label for="source_id">Source</label>
         <select id="source_id" name="source_id">
@@ -269,7 +282,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
     </div>
     <p class="help-text">
       Select all includes matching articles, not only this page. Staging articles can be published;
-      pending-images articles can be reprocessed. Relays come from each source: drafts use the draft list,
+      pending-images and error articles can be reprocessed. Relays come from each source: drafts use the draft list,
       articles use public or test from the source flag.
     </p>
 
@@ -351,6 +364,16 @@ defmodule Rss2NostrWeb.PostIndexLive do
                 disabled={@busy}
               >
                 Export
+              </button>
+              <button
+                :if={post.status == Post.status_error()}
+                type="button"
+                class="btn btn-small"
+                phx-click="reprocess_post"
+                phx-value-id={post.id}
+                disabled={@busy}
+              >
+                Retry
               </button>
             </td>
           </tr>
@@ -441,13 +464,17 @@ defmodule Rss2NostrWeb.PostIndexLive do
     cond do
       status_filter in [nil, ""] ->
         post_ids_for(Post.status_processed(), source_id, q) ++
-          post_ids_for(Post.status_pending_images(), source_id, q)
+          post_ids_for(Post.status_pending_images(), source_id, q) ++
+          post_ids_for(Post.status_error(), source_id, q)
 
       status_filter == "2" ->
         post_ids_for(Post.status_processed(), source_id, q)
 
       status_filter == "9" ->
         post_ids_for(Post.status_pending_images(), source_id, q)
+
+      status_filter == "8" ->
+        post_ids_for(Post.status_error(), source_id, q)
 
       true ->
         []

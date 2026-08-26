@@ -252,6 +252,13 @@ defmodule Rss2NostrWeb.SourceLive do
      |> start_async(:upload, fn -> PostsAPI.process(id) end)}
   end
 
+  def handle_event("reprocess_post", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:upload, fn -> PostsAPI.reprocess(id) end)}
+  end
+
   @impl true
   @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:feed_items, {:ok, {:ok, result}}, socket) do

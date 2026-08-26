@@ -44,6 +44,7 @@ defmodule Rss2NostrWeb.PostLiveTest do
       html = page(conn, "/posts")
 
       assert html =~ "status" or html =~ "filter" or html =~ "All"
+      assert html =~ "Error"
     end
 
     test "shows posts when they exist", %{conn: conn} do
@@ -367,6 +368,24 @@ defmodule Rss2NostrWeb.PostLiveTest do
       assert html =~ "Republish"
       assert html =~ "Revise"
       assert html =~ ~s(phx-click="revise")
+    end
+
+    test "offers retry processing for error posts", %{conn: conn} do
+      {_source, post} = create_test_post()
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          status: Post.status_error(),
+          last_error: "Blossom upload failed with status 403"
+        })
+
+      html = page(conn, "/posts/#{post.id}")
+
+      assert html =~ "error"
+      assert html =~ "Last error"
+      assert html =~ "403"
+      assert html =~ "Retry processing"
+      assert html =~ ~s(phx-click="reprocess")
     end
 
     test "backs to the source articles tab by default", %{conn: conn} do
