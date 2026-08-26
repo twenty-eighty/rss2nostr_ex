@@ -114,6 +114,14 @@ defmodule Rss2Nostr.SchedulerTest do
   end
 
   describe "run_task/1" do
+    test "status returns while a task is marked running" do
+      :sys.replace_state(Scheduler, fn state ->
+        %{state | task_status: Map.put(state.task_status, :cleanup, :running)}
+      end)
+
+      assert Scheduler.status().task_status.cleanup == :running
+    end
+
     test "runs import task" do
       result = Scheduler.run_task(:import)
       # Should complete without crashing

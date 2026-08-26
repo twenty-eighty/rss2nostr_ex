@@ -33,7 +33,8 @@ defmodule Rss2Nostr.Scheduler do
     running: false,
     task_status: %{},
     last_run: %{},
-    last_result: %{}
+    last_result: %{},
+    task_waiters: %{}
   ]
 
   @type t :: %__MODULE__{}
@@ -203,9 +204,14 @@ defmodule Rss2Nostr.Scheduler do
   end
 
   @impl true
-  def handle_call({:run_task, task}, _from, state) do
-    {result, new_state} = execute_task(task, state)
-    {:reply, result, new_state}
+  def handle_call({:run_task, task}, from, state) do
+    case Map.get(state.task_status, task) do
+      :running ->
+        {:reply, {:error, :already_running}, state}
+
+      _ ->
+        {:noreply, start_task_async(state, task, waiter: from)}
+    end
   end
 
   @impl true
@@ -238,13 +244,39 @@ defmodule Rss2Nostr.Scheduler do
   end
 
   def handle_info({:execute, task}, state) do
-    {_result, new_state} = execute_task(task, state)
-
-    # Reschedule
-    timer = schedule_task(task, state.intervals[task])
-    new_state = %{new_state | timers: Map.put(new_state.timers, task, timer)}
+    new_state =
+      if Map.get(state.task_status, task) == :running do
+        Logger.warning("Scheduler skipped #{task}: previous run still in progress")
+        state
+      else
+        start_task_async(state, task, reschedule: true)
+      end
 
     {:noreply, new_state}
+  end
+
+  def handle_info({:task_done, task, result, meta}, state) do
+    state = finish_task(state, task, result)
+
+    state =
+      case Map.pop(state.task_waiters, task) do
+        {nil, _} ->
+          state
+
+        {from, waiters} ->
+          GenServer.reply(from, result)
+          %{state | task_waiters: waiters}
+      end
+
+    state =
+      if meta[:reschedule] && state.running do
+        timer = schedule_task(task, state.intervals[task])
+        %{state | timers: Map.put(state.timers, task, timer)}
+      else
+        state
+      end
+
+    {:noreply, state}
   end
 
   @impl true
@@ -292,35 +324,69 @@ defmodule Rss2Nostr.Scheduler do
     Process.cancel_timer(timer)
   end
 
-  @spec execute_task(atom(), t()) :: {{:ok, map()} | {:error, term()}, t()}
-  defp execute_task(task, state) do
+  @spec start_task_async(t(), atom(), keyword()) :: t()
+  defp start_task_async(state, task, opts) do
     Logger.info("Executing scheduled task: #{task}")
-    state = %{state | task_status: Map.put(state.task_status, task, :running)}
+    export_config = state.export_config
+    parent = self()
+    meta = Keyword.take(opts, [:reschedule])
 
-    result =
-      try do
-        case task do
-          :import -> Tasks.run_import()
-          :process -> Tasks.run_process()
-          :export -> Tasks.run_export(state.export_config)
-          :cleanup -> Tasks.run_cleanup()
-        end
-      rescue
-        e ->
-          Logger.error("Task #{task} failed with error: #{inspect(e)}")
-          {:error, e}
+    spawn(fn ->
+      allow_repo_access(parent)
+      result = run_task_work(task, export_config)
+      send(parent, {:task_done, task, result, meta})
+    end)
+
+    state
+    |> Map.update!(:task_status, &Map.put(&1, task, :running))
+    |> then(fn state ->
+      case Keyword.get(opts, :waiter) do
+        nil -> state
+        from -> %{state | task_waiters: Map.put(state.task_waiters, task, from)}
       end
+    end)
+  end
 
+  @spec finish_task(t(), atom(), {:ok, map()} | {:error, term()}) :: t()
+  defp finish_task(state, task, result) do
     status = if match?({:ok, _}, result), do: :completed, else: :failed
 
-    state = %{
+    %{
       state
       | task_status: Map.put(state.task_status, task, status),
         last_run: Map.put(state.last_run, task, DateTime.utc_now()),
         last_result: Map.put(state.last_result, task, summarize_result(result))
     }
+  end
 
-    {result, state}
+  @spec run_task_work(atom(), map()) :: {:ok, map()} | {:error, term()}
+  defp run_task_work(task, export_config) do
+    try do
+      case task do
+        :import -> Tasks.run_import()
+        :process -> Tasks.run_process()
+        :export -> Tasks.run_export(export_config)
+        :cleanup -> Tasks.run_cleanup()
+      end
+    rescue
+      e ->
+        Logger.error("Task #{task} failed with error: #{inspect(e)}")
+        {:error, e}
+    end
+  end
+
+  @spec allow_repo_access(pid()) :: :ok
+  defp allow_repo_access(parent) do
+    if Code.ensure_loaded?(Ecto.Adapters.SQL.Sandbox) and
+         function_exported?(Ecto.Adapters.SQL.Sandbox, :allow, 3) do
+      try do
+        :ok = Ecto.Adapters.SQL.Sandbox.allow(Rss2Nostr.Repo, parent, self())
+      rescue
+        _ -> :ok
+      end
+    else
+      :ok
+    end
   end
 
   @spec summarize_result({:ok, map()} | {:error, term()}) :: map()
