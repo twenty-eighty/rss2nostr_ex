@@ -17,6 +17,10 @@ defmodule Rss2Nostr.MCP.ServerTest do
     assert "upload_post_images" in names
     assert "reprocess_post" in names
     assert "run_scheduler_task" in names
+    assert "follow_list_status" in names
+    assert "follow_list_member" in names
+    assert "follow_list_refresh" in names
+    assert "reprocess_errors" in names
   end
 
   test "exposes status and sources resources" do
@@ -25,5 +29,6 @@ defmodule Rss2Nostr.MCP.ServerTest do
 
     assert "rss2nostr://status" in uris
     assert "rss2nostr://sources" in uris
+    assert "rss2nostr://follow_list" in uris
   end
 end

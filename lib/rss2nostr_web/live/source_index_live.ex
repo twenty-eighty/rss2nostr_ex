@@ -3,7 +3,7 @@ defmodule Rss2NostrWeb.SourceIndexLive do
 
   use Rss2NostrWeb, :live_view
 
-  alias Rss2Nostr.Nostr.{FollowList, Signer}
+  alias Rss2Nostr.Nostr.FollowList
   alias Rss2Nostr.Sources
   alias Rss2Nostr.Web.API.Sources, as: SourcesAPI
 
@@ -147,36 +147,11 @@ defmodule Rss2NostrWeb.SourceIndexLive do
 
   defp follow_list_members(sources, %{configured: true}) do
     Map.new(sources, fn source ->
-      case follow_list_membership(source) do
+      case FollowList.membership_for_source(source) do
         nil -> {source.id, nil}
         :unknown -> {source.id, :unknown}
-        {:ok, member?} -> {source.id, member?}
+        member? when is_boolean(member?) -> {source.id, member?}
       end
     end)
   end
-
-  @spec follow_list_membership(map()) :: nil | :unknown | {:ok, boolean()}
-  defp follow_list_membership(source) do
-    case author_pubkey(source) do
-      pubkey when is_binary(pubkey) ->
-        {:ok, FollowList.member?(pubkey)}
-
-      _ ->
-        if article_signer_configured?(source), do: :unknown, else: nil
-    end
-  end
-
-  @spec article_signer_configured?(map()) :: boolean()
-  defp article_signer_configured?(%{publish_as: publish_as} = source)
-       when publish_as in ["article", "video"] do
-    Signer.signing_nsec_configured?(source) or present_bunker?(source)
-  end
-
-  defp article_signer_configured?(_), do: false
-
-  @spec present_bunker?(map()) :: boolean()
-  defp present_bunker?(%{bunker_connection: bunker}) when is_binary(bunker),
-    do: String.trim(bunker) != ""
-
-  defp present_bunker?(_), do: false
 end

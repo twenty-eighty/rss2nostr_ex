@@ -16,7 +16,8 @@ defmodule Rss2Nostr.Nostr.FollowList do
   use GenServer
   require Logger
 
-  alias Rss2Nostr.Nostr.{FollowList.Fetcher, Keys}
+  alias Rss2Nostr.Nostr.{FollowList.Fetcher, Keys, Signer}
+  alias Rss2Nostr.Sources.Source
 
   @refresh_interval :timer.hours(1)
 
@@ -89,6 +90,52 @@ defmodule Rss2Nostr.Nostr.FollowList do
     GenServer.call(__MODULE__, :refresh_sync, timeout)
   end
 
+  @doc """
+  Returns sorted hex pubkeys on the cached follow list.
+  """
+  @spec members() :: [String.t()]
+  def members do
+    GenServer.call(__MODULE__, :members)
+  end
+
+  @doc """
+  Follow-list membership for a source.
+
+  Returns `nil` when the list is not configured or the source has no author
+  pubkey, `:unknown` when signing is configured but the pubkey could not be
+  resolved, otherwise a boolean.
+  """
+  @spec membership_for_source(Source.t() | map()) :: nil | :unknown | boolean()
+  def membership_for_source(source) do
+    if configured?() do
+      case author_pubkey_for_membership(source) do
+        pubkey when is_binary(pubkey) -> member?(pubkey)
+        _ -> if article_signer_configured?(source), do: :unknown, else: nil
+      end
+    end
+  end
+
+  @doc """
+  JSON-friendly membership value for APIs.
+  """
+  @spec encode_membership(nil | :unknown | boolean()) :: nil | boolean() | String.t()
+  def encode_membership(nil), do: nil
+  def encode_membership(:unknown), do: "unknown"
+  def encode_membership(bool) when is_boolean(bool), do: bool
+
+  @doc """
+  Follow-list block for source responses when a list is configured.
+  """
+  @spec source_membership_map(Source.t() | map()) :: map() | nil
+  def source_membership_map(source) do
+    if configured?() do
+      %{
+        configured: true,
+        member: encode_membership(membership_for_source(source))
+      }
+    end
+  end
+
   @impl true
   def init(_opts) do
     state = %State{pubkey: configured_pubkey()}
@@ -123,6 +170,11 @@ defmodule Rss2Nostr.Nostr.FollowList do
 
   def handle_call(:status, _from, state) do
     {:reply, status_from_state(state), state}
+  end
+
+  def handle_call(:members, _from, state) do
+    members = state.members |> MapSet.to_list() |> Enum.sort()
+    {:reply, members, state}
   end
 
   def handle_call(:refresh_sync, from, state) do
@@ -251,4 +303,26 @@ defmodule Rss2Nostr.Nostr.FollowList do
       refreshing: state.refreshing
     }
   end
+
+  @spec article_signer_configured?(Source.t() | map()) :: boolean()
+  defp article_signer_configured?(%{publish_as: publish_as} = source)
+       when publish_as in ["article", "video"] do
+    Signer.signing_nsec_configured?(source) or present_bunker?(source)
+  end
+
+  defp article_signer_configured?(_), do: false
+
+  @spec author_pubkey_for_membership(Source.t() | map()) :: String.t() | nil
+  defp author_pubkey_for_membership(%Source{} = source), do: Signer.author_pubkey(source)
+
+  defp author_pubkey_for_membership(%{pubkey: pubkey}) when is_binary(pubkey) and pubkey != "",
+    do: String.downcase(pubkey)
+
+  defp author_pubkey_for_membership(_), do: nil
+
+  @spec present_bunker?(map()) :: boolean()
+  defp present_bunker?(%{bunker_connection: bunker}) when is_binary(bunker),
+    do: String.trim(bunker) != ""
+
+  defp present_bunker?(_), do: false
 end

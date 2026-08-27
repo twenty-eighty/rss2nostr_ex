@@ -43,6 +43,25 @@ defmodule Rss2Nostr.Nostr.FollowListTest do
     refute FollowList.member?(nil)
   end
 
+  test "members/0 returns sorted pubkey list" do
+    assert FollowList.members() == [@followed]
+  end
+
+  test "membership_for_source/1 resolves author pubkey membership" do
+    source = %{publish_as: "article", pubkey: @followed}
+    assert FollowList.membership_for_source(source)
+
+    refute FollowList.membership_for_source(%{publish_as: "article", pubkey: @other})
+    assert FollowList.membership_for_source(%{publish_as: "draft", pubkey: nil}) == nil
+  end
+
+  test "source_membership_map/1 encodes membership for APIs" do
+    assert FollowList.source_membership_map(%{publish_as: "article", pubkey: @followed}) == %{
+             configured: true,
+             member: true
+           }
+  end
+
   test "status/0 returns immediately while a refresh is in progress" do
     original = Application.get_env(:rss2nostr, :nostr)
 

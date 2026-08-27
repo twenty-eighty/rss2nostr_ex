@@ -1,8 +1,8 @@
 defmodule Rss2Nostr.MCP.Actions do
   @moduledoc false
 
-  alias Rss2Nostr.Processing.Composer
-  alias Rss2Nostr.Nostr.Signer
+  alias Rss2Nostr.Processing.{Composer, Processor}
+  alias Rss2Nostr.Nostr.{FollowList, Signer}
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources.Source
@@ -12,6 +12,8 @@ defmodule Rss2Nostr.MCP.Actions do
   @type action_result :: {:ok, term()} | {:error, String.t()}
   @type status_result :: {:ok, Status.overview()} | {:error, String.t()}
 
+  @max_bulk_reprocess 500
+
   @spec get_status() :: status_result()
   def get_status, do: {:ok, Status.overview()}
 
@@ -20,7 +22,18 @@ defmodule Rss2Nostr.MCP.Actions do
 
   @spec list_sources() :: action_result()
   def list_sources do
-    {:ok, %{sources: Sources.list()}}
+    structs = Rss2Nostr.Sources.list_sources()
+    summaries = Sources.list()
+
+    sources =
+      Enum.zip(summaries, structs)
+      |> Enum.map(fn {summary, source} ->
+        summary
+        |> Map.put(:author_pubkey, Signer.author_pubkey(source))
+        |> Map.put(:follow_list, FollowList.source_membership_map(source))
+      end)
+
+    {:ok, %{sources: sources}}
   end
 
   @spec get_source(args()) :: action_result()
@@ -206,6 +219,26 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec reprocess_errors(args()) :: action_result()
+  def reprocess_errors(args) do
+    source_id = optional_int(args, :source_id, nil)
+
+    opts =
+      [status: Post.status_error(), limit: @max_bulk_reprocess]
+      |> maybe_kw(:source_id, source_id)
+
+    posts = Rss2Nostr.Posts.list_posts(opts)
+
+    results = Enum.map(posts, &Processor.reprocess_post/1)
+
+    {:ok,
+     %{
+       processed: Enum.count(results, &match?({:ok, _}, &1)),
+       errors: Enum.count(results, &match?({:error, _}, &1)),
+       post_ids: Enum.map(posts, & &1.id)
+     }}
+  end
+
   @spec publish_source_posts(args()) :: action_result()
   def publish_source_posts(args) do
     with {:ok, source_id} <- require_id(args, :source_id),
@@ -350,7 +383,15 @@ defmodule Rss2Nostr.MCP.Actions do
   end
 
   @spec scheduler_status() :: action_result()
-  def scheduler_status, do: {:ok, Scheduler.status()}
+  def scheduler_status do
+    status = Scheduler.status()
+
+    {:ok,
+     Map.put(status, :cleanup_stats, %{
+       deleted: Rss2Nostr.Posts.count_draft_cleaned(),
+       pending: Rss2Nostr.Posts.count_draft_cleanup_candidates()
+     })}
+  end
 
   @spec start_scheduler() :: {:ok, String.t()} | {:error, term()}
   def start_scheduler, do: Scheduler.start()
@@ -362,6 +403,55 @@ defmodule Rss2Nostr.MCP.Actions do
   def run_scheduler_task(args) do
     with {:ok, task} <- require_string(args, :task) do
       Scheduler.run_task(task)
+    end
+  end
+
+  @spec follow_list_status(args()) :: action_result()
+  def follow_list_status(args) do
+    if truthy?(arg(args, :refresh)), do: FollowList.refresh_sync()
+
+    {:ok, follow_list_status_map(truthy?(arg(args, :include_members)))}
+  end
+
+  @spec follow_list_refresh() :: action_result()
+  def follow_list_refresh do
+    :ok = FollowList.refresh()
+    {:ok, follow_list_status_map(false)}
+  end
+
+  @spec follow_list_status_map(boolean()) :: map()
+  defp follow_list_status_map(include_members?) do
+    status = FollowList.status()
+
+    result = %{
+      configured: status.configured,
+      pubkey: status.pubkey,
+      count: status.count,
+      fetched_at: status.fetched_at,
+      error: status.error,
+      refreshing: status.refreshing
+    }
+
+    if include_members? do
+      Map.put(result, :members, FollowList.members())
+    else
+      result
+    end
+  end
+
+  @spec follow_list_member(args()) :: action_result()
+  def follow_list_member(args) do
+    unless FollowList.configured?() do
+      {:error, "Follow list is not configured"}
+    else
+      with {:ok, pubkey} <- resolve_follow_list_pubkey(args) do
+        {:ok,
+         %{
+           configured: true,
+           author_pubkey: pubkey,
+           member: FollowList.member?(pubkey)
+         }}
+      end
     end
   end
 
@@ -396,7 +486,8 @@ defmodule Rss2Nostr.MCP.Actions do
       skip_classes: skip_classes_text(options),
       conversion_rules: options["conversion_rules"] || [],
       publish_after_date: source.publish_after_date,
-      options: options
+      options: options,
+      follow_list: FollowList.source_membership_map(source)
     }
   end
 
@@ -420,9 +511,19 @@ defmodule Rss2Nostr.MCP.Actions do
       published_at: post.published_at,
       staged_at: post.staged_at,
       event_id: post.event_id,
-      last_error: post.last_error
+      last_error: post.last_error,
+      reprocessable: reprocessable?(post),
+      publishable: publishable?(post)
     }
   end
+
+  @spec reprocessable?(Post.t()) :: boolean()
+  defp reprocessable?(%Post{} = post) do
+    post.status in [Post.status_processed(), Post.status_pending_images(), Post.status_error()]
+  end
+
+  @spec publishable?(Post.t()) :: boolean()
+  defp publishable?(%Post{} = post), do: post.status == Post.status_processed()
 
   @spec post_detail(Post.t()) :: map()
   defp post_detail(%Post{} = post) do
@@ -562,4 +663,33 @@ defmodule Rss2Nostr.MCP.Actions do
   @spec present?(term()) :: boolean()
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
+
+  @spec truthy?(term()) :: boolean()
+  defp truthy?(value), do: value in [true, "true", "1", 1]
+
+  @spec resolve_follow_list_pubkey(args()) :: {:ok, String.t()} | {:error, String.t()}
+  defp resolve_follow_list_pubkey(args) do
+    pubkey = arg(args, :pubkey)
+    source_id = arg(args, :source_id)
+
+    cond do
+      is_binary(pubkey) and pubkey != "" ->
+        case Rss2Nostr.Nostr.Keys.parse_public_key(pubkey) do
+          {:ok, hex} -> {:ok, hex}
+          {:error, _} -> {:error, "Invalid pubkey"}
+        end
+
+      not is_nil(source_id) ->
+        with {:ok, id} <- require_id(args, :source_id),
+             {:ok, source} <- Sources.get(id) do
+          case Signer.author_pubkey(source) do
+            hex when is_binary(hex) -> {:ok, hex}
+            _ -> {:error, "Source has no resolved author pubkey"}
+          end
+        end
+
+      true ->
+        {:error, "pubkey or source_id is required"}
+    end
+  end
 end

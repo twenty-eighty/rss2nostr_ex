@@ -14,9 +14,30 @@ defmodule Rss2Nostr.MCP.Server do
   end
 
   tool "get_settings",
-       "Non-secret settings: relays, upload endpoint, scheduler intervals, compose presets" do
+       "Non-secret settings: relays, upload endpoint, scheduler intervals, compose presets, follow list" do
     annotations(readOnlyHint: true)
     run(fn _args, state -> reply(Actions.get_settings(), state) end)
+  end
+
+  tool "follow_list_status",
+       "Follow list cache status (configured pubkey, count, last fetch). Optionally refresh and wait, or include member pubkeys." do
+    annotations(readOnlyHint: true)
+    param(:refresh, :boolean, description: "Refresh from relays and wait before returning status")
+    param(:include_members, :boolean, description: "Include sorted list of followed pubkey hex values")
+    run(fn args, state -> reply(Actions.follow_list_status(args), state) end)
+  end
+
+  tool "follow_list_refresh",
+       "Start a background follow-list refresh from relays (returns current cache immediately)" do
+    run(fn _args, state -> reply(Actions.follow_list_refresh(), state) end)
+  end
+
+  tool "follow_list_member",
+       "Check whether an author pubkey or source is on the configured follow list" do
+    annotations(readOnlyHint: true)
+    param(:pubkey, :string, description: "Author npub or hex pubkey")
+    param(:source_id, :integer, description: "Source id (uses resolved author_pubkey)")
+    run(fn args, state -> reply(Actions.follow_list_member(args), state) end)
   end
 
   tool "list_sources", "List all RSS/Atom sources" do
@@ -193,6 +214,12 @@ defmodule Rss2Nostr.MCP.Server do
     run(fn args, state -> reply(Actions.reprocess_posts(args), state) end)
   end
 
+  tool "reprocess_errors",
+       "Reconvert all error-status articles, optionally limited to one source (same as bulk Retry on the Error tab)" do
+    param(:source_id, :integer, description: "Optional source id to limit retries")
+    run(fn args, state -> reply(Actions.reprocess_errors(args), state) end)
+  end
+
   tool "publish_source_posts", "Publish selected staging articles from a source" do
     param(:source_id, :integer, required: true)
     param(:post_ids, {:array, :integer}, required: true)
@@ -308,6 +335,15 @@ defmodule Rss2Nostr.MCP.Server do
     end)
   end
 
+  resource "rss2nostr://follow_list", "Configured Nostr follow list cache status" do
+    mime_type("application/json")
+
+    read(fn %{uri: uri}, state ->
+      {:ok, data} = Actions.follow_list_status(%{})
+      {:ok, %{uri: uri, text: Jason.encode!(data, pretty: true)}, state}
+    end)
+  end
+
   prompt "add_source", "Walk through discovering a feed and adding a source" do
     arg(:website, required: true, description: "Website or feed URL")
 
@@ -339,8 +375,10 @@ defmodule Rss2Nostr.MCP.Server do
 
        1. get_status
        2. list_posts with status pending_images, then processed, then error
-       3. upload_post_images, process_post, reprocess_post, or reprocess_posts for failures
-       4. publish_post only for processed articles
+       3. reprocess_errors for all error articles, or reprocess_post / reprocess_posts for specific ids
+       4. upload_post_images or process_post for pending_images
+       5. publish_post only when publishable is true (status processed)
+       6. follow_list_status / follow_list_member when NOSTR_AUTHORS_FOLLOW_LIST_PUBKEY is set
        """, state}
     end)
   end
