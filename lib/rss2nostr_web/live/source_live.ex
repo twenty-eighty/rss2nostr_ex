@@ -5,6 +5,7 @@ defmodule Rss2NostrWeb.SourceLive do
 
   import Rss2NostrWeb.SourceComponents
 
+  alias Rss2Nostr.Nostr.FollowList
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Processing.{BodySchema, Composer}
   alias Rss2Nostr.Web.API.Posts, as: PostsAPI
@@ -34,7 +35,8 @@ defmodule Rss2NostrWeb.SourceLive do
          |> assign(:show_split, false)
          |> assign(:compose, compose_form(source))
          |> assign(:feed, feed_form(source))
-         |> assign(:publishing, publishing_form(source))}
+         |> assign(:publishing, publishing_form(source))
+         |> assign_follow_list(source)}
 
       {:error, _} ->
         {:ok,
@@ -414,6 +416,7 @@ defmodule Rss2NostrWeb.SourceLive do
         <span class={"badge #{relay_badge_class(target_for(@source))}"}>
           {relay_target_label(target_for(@source))}
         </span>
+        <.follow_list_badge :if={@follow_list.configured} member={@follow_list_member} />
         <button type="button" class="btn btn-secondary" phx-click="duplicate">Duplicate</button>
         <a href="/sources" class="btn btn-secondary">Back to sources</a>
       </div>
@@ -475,6 +478,7 @@ defmodule Rss2NostrWeb.SourceLive do
           |> assign(:compose, compose_form(updated, socket.assigns.compose))
           |> assign(:feed, feed_form(updated))
           |> assign(:publishing, publishing_form(updated))
+          |> assign_follow_list(updated)
           |> put_flash(:info, "Settings saved.")
 
         socket = if form_key == :compose, do: maybe_preview(socket), else: socket
@@ -617,4 +621,23 @@ defmodule Rss2NostrWeb.SourceLive do
   @spec feed_item_list(:not_loaded | list()) :: list()
   defp feed_item_list(:not_loaded), do: []
   defp feed_item_list(items) when is_list(items), do: items
+
+  @spec assign_follow_list(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
+  defp assign_follow_list(socket, source) do
+    follow_list = FollowList.status()
+
+    member =
+      if follow_list.configured do
+        case author_pubkey(source) do
+          nil -> nil
+          pubkey -> FollowList.member?(pubkey)
+        end
+      else
+        nil
+      end
+
+    socket
+    |> assign(:follow_list, follow_list)
+    |> assign(:follow_list_member, member)
+  end
 end

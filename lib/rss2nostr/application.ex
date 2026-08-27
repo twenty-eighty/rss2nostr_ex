@@ -24,6 +24,7 @@ defmodule Rss2Nostr.Application do
         # Import / process / export / cleanup. The process always stays up;
         # timers start when SCHEDULER_AUTO_START=true or when Start is clicked.
         {Rss2Nostr.Scheduler, []},
+        {Rss2Nostr.Nostr.FollowList, []},
         {Phoenix.PubSub, name: Rss2Nostr.PubSub}
       ] ++ web_children()
 

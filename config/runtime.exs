@@ -181,6 +181,21 @@ case System.get_env("ADMIN_NOSTR_PUBKEYS") do
     :ok
 end
 
+case System.get_env("NOSTR_AUTHORS_FOLLOW_LIST_PUBKEY") do
+  value when is_binary(value) and value != "" ->
+    case Rss2Nostr.Nostr.Keys.parse_public_key(value) do
+      {:ok, hex} ->
+        config :rss2nostr, :nostr, authors_follow_list_pubkey: hex
+
+      {:error, reason} ->
+        require Logger
+        Logger.warning("Invalid NOSTR_AUTHORS_FOLLOW_LIST_PUBKEY: #{inspect(reason)}")
+    end
+
+  _ ->
+    :ok
+end
+
 mcp_opts = Application.get_env(:rss2nostr, :mcp, [])
 
 mcp_opts =

@@ -148,15 +148,39 @@ defmodule Rss2Nostr.Nostr.Signer do
   end
 
   @doc """
+  Hex pubkey derived from a 32-byte private key.
+  """
+  @spec pubkey_hex_from_private_key(binary()) :: String.t() | nil
+  def pubkey_hex_from_private_key(private_key) when is_binary(private_key) do
+    case Keys.derive_public_key(private_key) do
+      pubkey when is_binary(pubkey) -> Keys.to_hex(pubkey)
+      _ -> nil
+    end
+  end
+
+  @doc """
   Hex pubkey of the intended Nostr author for this source.
 
-  Uses the stored author pubkey, then a source nsec, then the bunker URL.
+  Article and video sources use the stored author pubkey (kept in sync with the
+  source nsec or bunker when publishing settings are saved), then try to derive
+  it again from the signer. Drafts use the stored author pubkey, then a signer.
   """
   @spec author_pubkey(Source.t() | nil) :: String.t() | nil
   def author_pubkey(nil), do: nil
 
+  def author_pubkey(%Source{publish_as: publish_as} = source)
+      when publish_as in ["article", "video"] do
+    parse_hex(source.pubkey) || signer_author_pubkey(source)
+  end
+
   def author_pubkey(%Source{} = source) do
-    parse_hex(source.pubkey) || pubkey_from_nsec(source) || pubkey_from_bunker(source)
+    parse_hex(source.pubkey) || signer_author_pubkey(source)
+  end
+
+  @doc false
+  @spec signer_author_pubkey(Source.t()) :: String.t() | nil
+  def signer_author_pubkey(%Source{} = source) do
+    pubkey_from_nsec(source) || pubkey_from_bunker(source)
   end
 
   @spec configured?(Source.t() | nil) :: boolean()

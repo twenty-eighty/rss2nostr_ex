@@ -19,6 +19,50 @@ defmodule Rss2Nostr.SourcesTest do
     }
   end
 
+  describe "backfill_author_pubkeys/0" do
+    setup do
+      :persistent_term.erase({Rss2Nostr.Sources, :author_pubkey_backfill})
+
+      on_exit(fn -> :persistent_term.erase({Rss2Nostr.Sources, :author_pubkey_backfill}) end)
+
+      :ok
+    end
+
+    test "copies a known author pubkey to article siblings with the same notify pubkey" do
+      hex = "0000000000000000000000000000000000000000000000000000000000000001"
+      expected = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      notify = "0f4795bf31824a414148daf1b589bb8138fb0a03963f984c84462e40a8365abe"
+
+      {:ok, _sibling} =
+        Sources.create_source(
+          valid_attrs()
+          |> Map.put(:name, "Sibling Feed")
+          |> Map.put(:publish_as, "article")
+          |> Map.put(:signing_nsec, hex)
+          |> Map.put(:notify_pubkey, notify)
+        )
+
+      {:ok, missing} =
+        Sources.create_source(
+          valid_attrs()
+          |> Map.put(:name, "Missing Pubkey Feed")
+          |> Map.put(:publish_as, "article")
+          |> Map.put(:signing_nsec, hex)
+          |> Map.put(:notify_pubkey, notify)
+        )
+
+      {:ok, missing} =
+        missing
+        |> Ecto.Changeset.change(pubkey: nil)
+        |> Rss2Nostr.Repo.update!()
+        |> then(&{:ok, &1})
+
+      assert is_nil(missing.pubkey)
+      assert Sources.backfill_author_pubkeys() == 1
+      assert Sources.get_source!(missing.id).pubkey == expected
+    end
+  end
+
   describe "list_sources/0" do
     test "returns all sources" do
       {:ok, source} = Sources.create_source(valid_attrs())
@@ -144,6 +188,42 @@ defmodule Rss2Nostr.SourcesTest do
 
       refute changeset.valid?
       assert changeset.errors[:signing_nsec]
+    end
+
+    test "stores the author pubkey derived from the source nsec for articles" do
+      hex = "0000000000000000000000000000000000000000000000000000000000000001"
+      expected = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+      {:ok, source} =
+        Sources.create_source(
+          valid_attrs()
+          |> Map.put(:publish_as, "article")
+          |> Map.put(:signing_nsec, hex)
+        )
+
+      assert source.pubkey == expected
+    end
+
+    test "replaces a stale draft pubkey when switching to article with an nsec" do
+      draft_author = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      hex = "0000000000000000000000000000000000000000000000000000000000000001"
+      expected = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+
+      {:ok, source} =
+        Sources.create_source(
+          valid_attrs()
+          |> Map.put(:publish_as, "draft_plain")
+          |> Map.put(:pubkey, draft_author)
+        )
+
+      {:ok, updated} =
+        Sources.update_source(source, %{
+          publish_as: "article",
+          signing_nsec: hex
+        })
+
+      assert updated.publish_as == "article"
+      assert updated.pubkey == expected
     end
 
     test "requires a signer before switching to automated article mode" do

@@ -3,7 +3,7 @@ defmodule Rss2Nostr.Web.API.Settings do
   API handlers for settings operations.
   """
 
-  alias Rss2Nostr.Nostr.{Blossom, Relays}
+  alias Rss2Nostr.Nostr.{Blossom, FollowList, Relays}
   alias Rss2Nostr.Processing.Composer
   alias Rss2NostrWeb.Language
 
@@ -21,6 +21,14 @@ defmodule Rss2Nostr.Web.API.Settings do
           modes: [String.t()]
         }
 
+  @type follow_list_status :: %{
+          configured: boolean(),
+          pubkey: String.t() | nil,
+          count: non_neg_integer(),
+          fetched_at: DateTime.t() | nil,
+          error: String.t() | nil
+        }
+
   @type settings :: %{
           nostr_nsec_configured: boolean(),
           relays: Relays.relay_lists(),
@@ -28,6 +36,7 @@ defmodule Rss2Nostr.Web.API.Settings do
           blossom_servers: [String.t()],
           scheduler_intervals: map(),
           compose: compose_options(),
+          follow_list: follow_list_status(),
           version: String.t()
         }
 
@@ -41,6 +50,7 @@ defmodule Rss2Nostr.Web.API.Settings do
       scheduler_intervals:
         Application.get_env(:rss2nostr, Rss2Nostr.Scheduler, [])[:intervals] || %{},
       compose: compose_options(),
+      follow_list: FollowList.status(),
       version: "0.1.0"
     }
   end

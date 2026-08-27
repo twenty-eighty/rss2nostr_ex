@@ -39,13 +39,26 @@ defmodule Rss2Nostr.Nostr.SignerTest do
     assert {:ok, {:bunker, "bunker://abc?relay=wss://relay.example"}} = Signer.resolve(source)
   end
 
-  test "author_pubkey/1 prefers the stored author pubkey" do
+  test "author_pubkey/1 prefers the stored author pubkey for drafts" do
     source = %Source{
+      publish_as: "draft",
       pubkey: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
     }
 
     assert Signer.author_pubkey(source) ==
              "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  end
+
+  test "author_pubkey/1 uses the stored pubkey for articles when present" do
+    stored = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+    source = %Source{
+      publish_as: "article",
+      pubkey: stored,
+      signing_nsec_ciphertext: "present-but-not-used-for-display"
+    }
+
+    assert Signer.author_pubkey(source) == stored
   end
 
   test "author_pubkey/1 derives the pubkey from a source nsec" do

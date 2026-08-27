@@ -62,6 +62,56 @@ defmodule Rss2NostrWeb.SourceLiveTest do
       assert html =~ ~s(data-pubkey="#{pubkey}")
       assert html =~ ~s(phx-hook="SourceAvatars")
     end
+
+    test "shows follow list membership when configured", %{conn: conn} do
+      followed = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      owner = "0000000000000000000000000000000000000000000000000000000000000001"
+
+      original = Application.get_env(:rss2nostr, :nostr)
+
+      on_exit(fn ->
+        Application.put_env(:rss2nostr, :nostr, original)
+        _ = Rss2Nostr.Nostr.FollowList.refresh_sync()
+      end)
+
+      Application.put_env(
+        :rss2nostr,
+        :nostr,
+        Keyword.merge(original || [],
+          authors_follow_list_pubkey: owner,
+          follow_list_fetch: fn _ -> {:ok, MapSet.new([followed])} end
+        )
+      )
+
+      :ok = Rss2Nostr.Nostr.FollowList.refresh_sync()
+
+      {:ok, on_list} =
+        SourcesContext.create_source(%{
+          name: "Followed Feed",
+          url: unique_url(),
+          type: "rss",
+          language: "en",
+          pubkey: followed
+        })
+
+      {:ok, off_list} =
+        SourcesContext.create_source(%{
+          name: "Other Feed",
+          url: unique_url(),
+          type: "rss",
+          language: "en",
+          pubkey: other
+        })
+
+      html = page(conn, "/sources")
+
+      assert html =~ "Follow list"
+      assert html =~ on_list.name
+      assert html =~ off_list.name
+      assert html =~ "Yes"
+      assert html =~ "No"
+    end
   end
 
   describe "compose" do

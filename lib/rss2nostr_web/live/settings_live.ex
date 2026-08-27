@@ -4,12 +4,14 @@ defmodule Rss2NostrWeb.SettingsLive do
   use Rss2NostrWeb, :live_view
 
   alias Rss2Nostr.Nostr.NIP19
+  alias Rss2Nostr.Nostr.FollowList
   alias Rss2Nostr.Web.API.Settings
   alias Rss2Nostr.Web.Auth
 
   @impl true
   def mount(_params, _session, socket) do
     settings = Settings.get()
+    follow_list = FollowList.status()
 
     {:ok,
      socket
@@ -18,6 +20,7 @@ defmodule Rss2NostrWeb.SettingsLive do
      |> assign(:nsec_configured, settings.nostr_nsec_configured)
      |> assign(:relays, settings.relays)
      |> assign(:upload_endpoint, settings.upload_endpoint)
+     |> assign(:follow_list, follow_list)
      |> assign(:admin_keys, admin_keys())}
   end
 
@@ -81,6 +84,35 @@ defmodule Rss2NostrWeb.SettingsLive do
         relays={Map.get(@relays, :inbox, [])}
         empty="None configured; DMs use NIP-05 or public relays only"
       />
+    </div>
+
+    <div class="settings-section">
+      <h2>Follow list</h2>
+      <%= if @follow_list.configured do %>
+        <p>
+          The sources table shows whether each feed's author pubkey is on this account's kind-3 contact list.
+          The list is refreshed hourly.
+        </p>
+        <div class="setting-item">
+          <label>Follow-list pubkey</label>
+          <code>{follow_list_display(@follow_list.pubkey)}</code>
+        </div>
+        <div class="setting-item">
+          <label>Followed authors</label>
+          <span>{@follow_list.count}</span>
+        </div>
+        <div class="setting-item">
+          <label>Last refreshed</label>
+          <span>{format_datetime(@follow_list.fetched_at) || "Not yet loaded"}</span>
+        </div>
+        <p :if={@follow_list.error} class="error">{@follow_list.error}</p>
+      <% else %>
+        <p class="help-text">
+          Set <code>NOSTR_AUTHORS_FOLLOW_LIST_PUBKEY</code> in <code>.env</code>
+          to an npub or hex pubkey. RSS2Nostr reads that account's kind-3 contact list once per hour
+          and marks each feed as on-list or not.
+        </p>
+      <% end %>
     </div>
 
     <div class="settings-section">
@@ -179,5 +211,14 @@ defmodule Rss2NostrWeb.SettingsLive do
         _ -> hex
       end
     end)
+  end
+
+  defp follow_list_display(nil), do: "—"
+
+  defp follow_list_display(hex) do
+    case NIP19.encode_npub(hex) do
+      {:ok, encoded} -> encoded
+      _ -> hex
+    end
   end
 end

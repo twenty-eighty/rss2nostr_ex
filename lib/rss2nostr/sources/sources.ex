@@ -10,9 +10,13 @@ defmodule Rss2Nostr.Sources do
 
   @doc """
   Returns all sources.
+
+  Article and video sources missing a stored author pubkey are backfilled from
+  siblings that share the same notify pubkey when that pubkey is unambiguous.
   """
   @spec list_sources() :: [Source.t()]
   def list_sources do
+    maybe_backfill_author_pubkeys()
     Repo.all(Source)
   end
 
@@ -219,6 +223,97 @@ defmodule Rss2Nostr.Sources do
   @spec count_sources() :: non_neg_integer()
   def count_sources do
     Repo.aggregate(Source, :count, :id)
+  end
+
+  @article_publish_as ~w(article video)
+
+  @doc """
+  Fills missing author pubkeys on article and video sources.
+
+  First tries to derive the pubkey from each source nsec. When that fails, copies
+  the pubkey from another source with the same notify pubkey when only one pubkey
+  exists in that group.
+  """
+  @spec backfill_author_pubkeys() :: non_neg_integer()
+  def backfill_author_pubkeys do
+    case :persistent_term.get({__MODULE__, :author_pubkey_backfill}, false) do
+      true ->
+        0
+
+      false ->
+        count = do_backfill_author_pubkeys()
+        :persistent_term.put({__MODULE__, :author_pubkey_backfill}, true)
+        count
+    end
+  end
+
+  @spec maybe_backfill_author_pubkeys() :: :ok
+  defp maybe_backfill_author_pubkeys do
+    case :persistent_term.get({__MODULE__, :author_pubkey_backfill}, false) do
+      true -> :ok
+      false -> _ = backfill_author_pubkeys(); :ok
+    end
+  end
+
+  @spec do_backfill_author_pubkeys() :: non_neg_integer()
+  defp do_backfill_author_pubkeys do
+    query =
+      Source
+      |> where([s], s.publish_as in ^@article_publish_as)
+
+    sources = Repo.all(query)
+
+    derived =
+      sources
+      |> Enum.filter(&is_nil(&1.pubkey))
+      |> Enum.reduce(0, fn source, count ->
+        case update_source(source, %{}) do
+          {:ok, %{pubkey: pubkey}} when is_binary(pubkey) -> count + 1
+          _ -> count
+        end
+      end)
+
+    copied =
+      query
+      |> Repo.all()
+      |> Enum.group_by(&backfill_group_key/1)
+      |> Enum.reduce(0, fn {_key, group}, count ->
+        count + copy_group_pubkey(group)
+      end)
+
+    derived + copied
+  end
+
+  @spec backfill_group_key(Source.t()) :: term()
+  defp backfill_group_key(%Source{notify_pubkey: notify})
+       when is_binary(notify) and notify != "" do
+    {:notify, notify}
+  end
+
+  defp backfill_group_key(%Source{id: id}), do: {:solo, id}
+
+  @spec copy_group_pubkey([Source.t()]) :: non_neg_integer()
+  defp copy_group_pubkey(group) do
+    pubkeys =
+      group
+      |> Enum.map(& &1.pubkey)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case pubkeys do
+      [pubkey] ->
+        group
+        |> Enum.filter(&is_nil(&1.pubkey))
+        |> Enum.reduce(0, fn source, count ->
+          case update_source(source, %{pubkey: pubkey}) do
+            {:ok, _} -> count + 1
+            _ -> count
+          end
+        end)
+
+      _ ->
+        0
+    end
   end
 
   @doc """

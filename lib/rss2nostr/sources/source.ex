@@ -82,6 +82,7 @@ defmodule Rss2Nostr.Sources.Source do
     |> normalize_notify_pubkey()
     |> validate_number(:staging_hold_minutes, greater_than_or_equal_to: 0)
     |> encrypt_signing_nsec()
+    |> sync_article_author_pubkey()
     |> sync_post_kind()
     |> validate_publish_identity()
     |> validate_automated_signer()
@@ -184,8 +185,10 @@ defmodule Rss2Nostr.Sources.Source do
     case get_change(changeset, :signing_nsec) do
       value when is_binary(value) and value != "" ->
         case Keys.parse_private_key(value) do
-          {:ok, _} ->
-            put_change(changeset, :signing_nsec_ciphertext, Secret.encrypt(value))
+          {:ok, key} ->
+            changeset
+            |> put_change(:signing_nsec_ciphertext, Secret.encrypt(value))
+            |> put_signer_pubkey(key)
 
           {:error, _} ->
             add_error(changeset, :signing_nsec, "must be an nsec or hex private key")
@@ -194,6 +197,61 @@ defmodule Rss2Nostr.Sources.Source do
       _ ->
         changeset
     end
+  end
+
+  @spec sync_article_author_pubkey(Ecto.Changeset.t()) :: Ecto.Changeset.t()
+  defp sync_article_author_pubkey(changeset) do
+    case get_field(changeset, :publish_as) do
+      value when value in ["article", "video"] ->
+        case stored_signer_pubkey(changeset) do
+          hex when is_binary(hex) -> put_change(changeset, :pubkey, hex)
+          _ -> changeset
+        end
+
+      _ ->
+        changeset
+    end
+  end
+
+  @spec stored_signer_pubkey(Ecto.Changeset.t()) :: String.t() | nil
+  defp stored_signer_pubkey(changeset) do
+    cond do
+      hex = get_change(changeset, :pubkey) ->
+        hex
+
+      changed?(changeset, :signing_nsec) ->
+        nil
+
+      hex = signer_pubkey_from_changeset(changeset) ->
+        hex
+
+      true ->
+        nil
+    end
+  end
+
+  @spec signer_pubkey_from_changeset(Ecto.Changeset.t()) :: String.t() | nil
+  defp signer_pubkey_from_changeset(changeset) do
+    changeset
+    |> apply_changes()
+    |> Signer.signer_author_pubkey()
+  end
+
+  @spec put_signer_pubkey(Ecto.Changeset.t(), binary()) :: Ecto.Changeset.t()
+  defp put_signer_pubkey(changeset, private_key) do
+    if article_or_video?(changeset) do
+      case Signer.pubkey_hex_from_private_key(private_key) do
+        hex when is_binary(hex) -> put_change(changeset, :pubkey, hex)
+        _ -> changeset
+      end
+    else
+      changeset
+    end
+  end
+
+  @spec article_or_video?(Ecto.Changeset.t()) :: boolean()
+  defp article_or_video?(changeset) do
+    get_field(changeset, :publish_as) in ["article", "video"]
   end
 
   @spec sync_post_kind(Ecto.Changeset.t()) :: Ecto.Changeset.t()

@@ -3,6 +3,7 @@ defmodule Rss2NostrWeb.SourceIndexLive do
 
   use Rss2NostrWeb, :live_view
 
+  alias Rss2Nostr.Nostr.{FollowList, Signer}
   alias Rss2Nostr.Sources
   alias Rss2Nostr.Web.API.Sources, as: SourcesAPI
 
@@ -64,6 +65,7 @@ defmodule Rss2NostrWeb.SourceIndexLive do
           <th>URL</th>
           <th>Type</th>
           <th>Mode</th>
+          <th :if={@follow_list.configured}>Follow list</th>
           <th>Relays</th>
           <th>Status</th>
           <th>Actions</th>
@@ -72,7 +74,7 @@ defmodule Rss2NostrWeb.SourceIndexLive do
       <tbody>
         <%= if @sources == [] do %>
           <tr>
-            <td colspan="7" class="empty-state">
+            <td colspan={if @follow_list.configured, do: 8, else: 7} class="empty-state">
               No sources configured. <a href="/sources/new">Add one</a>.
             </td>
           </tr>
@@ -85,6 +87,9 @@ defmodule Rss2NostrWeb.SourceIndexLive do
               <span class={"badge #{if source.mode == "automated", do: "badge-processed", else: "badge-test"}"}>
                 {if source.mode == "automated", do: "Automated", else: "Setup"}
               </span>
+            </td>
+            <td :if={@follow_list.configured}>
+              <.follow_list_badge member={Map.get(@follow_list_members, source.id)} />
             </td>
             <td>
               <span class={"badge #{relay_badge_class(target_for(source))}"}>
@@ -128,6 +133,50 @@ defmodule Rss2NostrWeb.SourceIndexLive do
 
   @spec assign_sources(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   defp assign_sources(socket) do
-    assign(socket, :sources, Sources.list_sources())
+    sources = Sources.list_sources()
+    follow_list = FollowList.status()
+
+    socket
+    |> assign(:sources, sources)
+    |> assign(:follow_list, follow_list)
+    |> assign(:follow_list_members, follow_list_members(sources, follow_list))
   end
+
+  @spec follow_list_members([map()], FollowList.status()) :: %{integer() => boolean() | nil}
+  defp follow_list_members(_sources, %{configured: false}), do: %{}
+
+  defp follow_list_members(sources, %{configured: true}) do
+    Map.new(sources, fn source ->
+      case follow_list_membership(source) do
+        nil -> {source.id, nil}
+        :unknown -> {source.id, :unknown}
+        {:ok, member?} -> {source.id, member?}
+      end
+    end)
+  end
+
+  @spec follow_list_membership(map()) :: nil | :unknown | {:ok, boolean()}
+  defp follow_list_membership(source) do
+    case author_pubkey(source) do
+      pubkey when is_binary(pubkey) ->
+        {:ok, FollowList.member?(pubkey)}
+
+      _ ->
+        if article_signer_configured?(source), do: :unknown, else: nil
+    end
+  end
+
+  @spec article_signer_configured?(map()) :: boolean()
+  defp article_signer_configured?(%{publish_as: publish_as} = source)
+       when publish_as in ["article", "video"] do
+    Signer.signing_nsec_configured?(source) or present_bunker?(source)
+  end
+
+  defp article_signer_configured?(_), do: false
+
+  @spec present_bunker?(map()) :: boolean()
+  defp present_bunker?(%{bunker_connection: bunker}) when is_binary(bunker),
+    do: String.trim(bunker) != ""
+
+  defp present_bunker?(_), do: false
 end

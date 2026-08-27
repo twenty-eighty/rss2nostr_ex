@@ -40,6 +40,28 @@ defmodule Rss2NostrWeb.CoreComponents do
     """
   end
 
+  attr :member, :any, default: nil
+
+  def follow_list_badge(assigns) do
+    ~H"""
+    <%= cond do %>
+      <% @member == true -> %>
+        <span class="badge badge-active" title="Author is on the configured follow list">Yes</span>
+      <% @member == false -> %>
+        <span class="badge badge-inactive" title="Author is not on the configured follow list">No</span>
+      <% @member == :unknown -> %>
+        <span
+          class="badge badge-test"
+          title="Signing key is set but the author pubkey could not be resolved. Open Publishing and re-save the nsec."
+        >
+          ?
+        </span>
+      <% true -> %>
+        <span class="help-text" title="No author pubkey configured for this feed">—</span>
+    <% end %>
+    """
+  end
+
   attr :field, :atom, required: true
   attr :errors, :map, default: %{}
 
