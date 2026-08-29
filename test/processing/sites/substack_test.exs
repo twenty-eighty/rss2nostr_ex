@@ -205,7 +205,7 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
       refute md =~ "subscriber"
     end
 
-    test "keeps a footnote tweet URL on its own line after the definition marker" do
+    test "keeps a footnote tweet URL on the same line as the definition marker" do
       html = """
       <p><a href="#_ftnref43"><sup><span>[43]</span></sup></a></p>
       <a href="https://x.com/jlrosing/status/2002193593503764743" class="twitter-embed">
@@ -215,8 +215,8 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
 
       md = convert(html, body_selector: ".body.markup")
 
-      assert md =~ "[^43]:"
-      assert md =~ "https://x.com/jlrosing/status/2002193593503764743"
+      assert md =~ "[^43]: https://x.com/jlrosing/status/2002193593503764743"
+      refute md =~ "[^43]:\n"
       refute md =~ "European CEO"
     end
 
