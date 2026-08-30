@@ -205,6 +205,32 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
       refute md =~ "subscriber"
     end
 
+    test "keeps multi-paragraph footnote bodies without blank lines" do
+      html = """
+      <p>body <a data-component-name="FootnoteAnchorToDOM" href="#footnote-1" class="footnote-anchor">1</a></p>
+      <div data-component-name="FootnoteToDOM" class="footnote">
+        <a id="footnote-1" href="#footnote-anchor-1" class="footnote-number">1</a>
+        <div class="footnote-content">
+          <p>See also.</p>
+          <p><a href="https://example.com/a">https://example.com/a</a></p>
+        </div>
+      </div>
+      <div data-component-name="FootnoteToDOM" class="footnote">
+        <a id="footnote-2" href="#footnote-anchor-2" class="footnote-number">2</a>
+        <div class="footnote-content">
+          <p>Second note.</p>
+        </div>
+      </div>
+      """
+
+      md = convert(html, url: "https://example.substack.com/p/x")
+
+      assert md =~ "[^1]: See also.\n[https://example.com/a](https://example.com/a)"
+      refute md =~ ~r/\[\^1\]:.*\n\n/s
+      assert md =~ "[^2]: Second note."
+      assert md =~ "[^1]: See also.\n[https://example.com/a](https://example.com/a)\n[^2]: Second note."
+    end
+
     test "keeps a footnote tweet URL on the same line as the definition marker" do
       html = """
       <p><a href="#_ftnref43"><sup><span>[43]</span></sup></a></p>

@@ -328,11 +328,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     # Lines with only whitespace
     |> String.replace(~r/\n[ \t]+\n/, "\n\n")
     |> String.replace(~r/\[\^([^\]]+)\]:[ \t]+/, "[^\\1]: ")
-    # Word/Substack footnotes that are only a marker often leave the
-    # body (a tweet URL, a link) on the next paragraph. Most Markdown
-    # renderers treat that as a separate block, so the footnote looks
-    # empty. Pull the first following content line onto `[^n]:`.
+    # Footnote bodies must stay attached to `[^n]:`. A blank line ends
+    # the note in most Markdown renderers, so any following paragraph is
+    # read as article text. Pull the first line onto an empty marker,
+    # then collapse remaining blank lines inside each definition.
     |> pull_up_empty_footnote_bodies()
+    |> flatten_footnote_blank_lines()
     |> String.trim()
   end
 
@@ -342,6 +343,15 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       ~r/^(\[\^[^\]]+\]:)[ \t]*\n+(?=[^\s\n])/m,
       markdown,
       "\\1 "
+    )
+  end
+
+  @spec flatten_footnote_blank_lines(String.t()) :: String.t()
+  defp flatten_footnote_blank_lines(markdown) do
+    Regex.replace(
+      ~r/^\[\^[^\]]+\]:.*(?:\n(?!\[\^[^\]]+:).*)*/m,
+      markdown,
+      fn block -> String.replace(block, ~r/\n[ \t]*\n+/, "\n") end
     )
   end
 
