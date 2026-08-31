@@ -4,6 +4,9 @@ defmodule Rss2Nostr.Processing.Composer.FeedItem do
   alias Rss2Nostr.Import.ItemIdentity
   alias Rss2Nostr.Processing.{ImageExtractor, Labels}
 
+  @html_tag ~r/<\/?[a-zA-Z][^>]*>/
+  @soundcloud_track_re ~r{\Ahttps?://(?:www\.)?soundcloud\.com/[^/\s]+/[^/\s?#]+}i
+
   @spec field(map(), atom()) :: term()
   def field(item, key) when is_map(item) do
     blank_to_nil(item[key] || item[Atom.to_string(key)])
@@ -15,8 +18,8 @@ defmodule Rss2Nostr.Processing.Composer.FeedItem do
     summary = field(item, :summary)
 
     cond do
-      not blank?(content) -> content
-      not blank?(summary) -> summary
+      not blank?(content) -> normalize_feed_html(content)
+      not blank?(summary) -> normalize_feed_html(summary)
       true -> nil
     end
   end
@@ -28,20 +31,77 @@ defmodule Rss2Nostr.Processing.Composer.FeedItem do
         ) ::
           {:ok, String.t(), String.t()} | {:error, term()}
   def with_enclosure_html({:ok, html, source}, item, language) do
-    {:ok, enclosure_prefix(item, html, language) <> to_string(html || ""), source}
+    {:ok, media_prefix(item, html, language) <> to_string(html || ""), source}
   end
 
   def with_enclosure_html(other, _item, _language), do: other
 
-  @spec enclosure_prefix(map(), String.t() | nil, String.t() | nil) :: String.t()
-  defp enclosure_prefix(item, html, language) do
-    url = field(item, :enclosure_url)
+  @spec normalize_feed_html(String.t()) :: String.t()
+  defp normalize_feed_html(html) do
+    if looks_like_html?(html), do: html, else: plain_text_to_html(html)
+  end
+
+  @spec looks_like_html?(String.t()) :: boolean()
+  defp looks_like_html?(text), do: Regex.match?(@html_tag, text)
+
+  @spec plain_text_to_html(String.t()) :: String.t()
+  defp plain_text_to_html(text) do
+    text
+    |> String.replace("\r\n", "\n")
+    |> String.split(~r/\n{2,}/)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map_join("", fn paragraph ->
+      inner =
+        paragraph
+        |> Plug.HTML.html_escape()
+        |> String.replace("\n", "<br>\n")
+
+      "<p>#{inner}</p>"
+    end)
+  end
+
+  @spec media_prefix(map(), String.t() | nil, String.t() | nil) :: String.t()
+  defp media_prefix(item, html, language) do
     html = to_string(html || "")
 
     cond do
-      ItemIdentity.page_url(item) ->
+      prefix = soundcloud_listen_prefix(item, html, language) ->
+        prefix
+
+      page = ItemIdentity.page_url(item) ->
+        _ = page
         ""
 
+      true ->
+        enclosure_prefix(item, html, language)
+    end
+  end
+
+  @spec soundcloud_listen_prefix(map(), String.t(), String.t() | nil) :: String.t() | nil
+  defp soundcloud_listen_prefix(item, html, language) do
+    case ItemIdentity.page_url(item) do
+      url when is_binary(url) ->
+        if soundcloud_track_url?(url) and not String.contains?(html, url) do
+          label = Labels.t(:listen_on, language, platform: "SoundCloud")
+          ~s(<p><a href="#{html_attr(url)}">#{label}</a></p>\n)
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  @spec soundcloud_track_url?(String.t()) :: boolean()
+  defp soundcloud_track_url?(url) do
+    Regex.match?(@soundcloud_track_re, String.trim(url))
+  end
+
+  @spec enclosure_prefix(map(), String.t(), String.t() | nil) :: String.t()
+  defp enclosure_prefix(item, html, language) do
+    url = field(item, :enclosure_url)
+
+    cond do
       blank?(url) ->
         ""
 

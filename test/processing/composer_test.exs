@@ -562,6 +562,43 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert {:ok, html, "feed"} = Composer.html_for_item(item, source)
       assert html =~ ">Аудио</a>"
     end
+
+    test "wraps plain-text SoundCloud descriptions as paragraphs" do
+      item = %{
+        content: nil,
+        summary: "First paragraph.\n\nSecond paragraph.\nhttps://www.manova.news/artikel/x",
+        link: "https://soundcloud.com/radiomuenchen/warum-diese-wasser",
+        enclosure_url: "https://feeds.soundcloud.com/stream/2371684928.mp3",
+        enclosure_type: "audio/mpeg"
+      }
+
+      assert {:ok, html, "feed"} =
+               Composer.html_for_item(item, %{fetch_source_from: "content", language: "de"})
+
+      assert html =~
+               ~s(<a href="https://soundcloud.com/radiomuenchen/warum-diese-wasser">Auf SoundCloud anhören</a>)
+
+      assert html =~ "<p>First paragraph.</p>"
+      assert html =~ "<p>Second paragraph.<br>\nhttps://www.manova.news/artikel/x</p>"
+      refute html =~ "feeds.soundcloud.com/stream"
+    end
+
+    test "keeps HTML feed descriptions and does not duplicate a SoundCloud listen link" do
+      item = %{
+        content: nil,
+        summary: """
+        <p>Intro</p>
+        <p><a href="https://soundcloud.com/radiomuenchen/sommerpause">Auf SoundCloud anhören</a></p>
+        """,
+        link: "https://soundcloud.com/radiomuenchen/sommerpause"
+      }
+
+      assert {:ok, html, "feed"} =
+               Composer.html_for_item(item, %{fetch_source_from: "content", language: "de"})
+
+      assert html =~ "<p>Intro</p>"
+      assert length(Regex.scan(~r/Auf SoundCloud anhören/, html)) == 1
+    end
   end
 
   describe "opts_from_source/1" do
