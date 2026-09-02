@@ -35,11 +35,18 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
   end
 
   @spec fetch_preview_item(Composer.preview_context()) :: {:ok, map()} | {:error, String.t()}
-  defp fetch_preview_item(%{url: url, guid: guid, params: params}) do
+  defp fetch_preview_item(%{url: url, guid: guid, params: params, opts: opts}) do
     with {:ok, body} <- fetch_feed(url),
          type <- FeedParser.detect_feed_type(body) || params["type"] || params[:type],
          {:ok, items} <- parse_items(body, type),
          {:ok, item} <- find_item(items, guid) do
+      item =
+        if opts.fetch_source_from == "content" do
+          FeedParser.hydrate_item(body, type, item)
+        else
+          item
+        end
+
       {:ok, item}
     end
   end
@@ -276,7 +283,7 @@ defmodule Rss2Nostr.Processing.Composer.FeedPreview do
   defp parse_items(_body, nil), do: {:error, "Not an RSS or Atom feed"}
 
   defp parse_items(body, type) do
-    case FeedParser.parse(body, type) do
+    case FeedParser.parse_listing(body, type) do
       {:ok, []} -> {:error, "Feed has no articles"}
       {:ok, items} -> {:ok, items}
       {:error, reason} -> {:error, reason}

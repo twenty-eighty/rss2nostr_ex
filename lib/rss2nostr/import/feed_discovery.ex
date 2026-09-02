@@ -201,7 +201,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
   @spec feed_result(String.t(), String.t(), String.t(), String.t() | nil) :: result()
   defp feed_result(url, body, type, title) do
     items =
-      case FeedParser.parse(body, type) do
+      case FeedParser.parse_listing(body, type) do
         {:ok, parsed} -> Enum.map(parsed, &preview_item/1)
         {:error, _} -> []
       end

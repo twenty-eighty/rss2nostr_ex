@@ -50,7 +50,7 @@ defmodule Rss2Nostr.Import.Importer do
     }
 
     with {:ok, body} <- FeedFetcher.fetch(source.url),
-         {:ok, items} <- FeedParser.parse(body, source.type) do
+         {:ok, items} <- parse_source_items(body, source) do
       start_guid = source_start_guid(source)
       guid_in_feed? = start_guid && Enum.any?(items, &(&1.guid == start_guid))
 
@@ -75,6 +75,17 @@ defmodule Rss2Nostr.Import.Importer do
         Logger.error("Failed to fetch/parse feed #{source.name}: #{inspect(reason)}")
         %{result | errors: [inspect(reason)]}
     end
+  end
+
+  # Listing parse skips multi-MB article bodies when content comes from the page URL.
+  @spec parse_source_items(String.t(), Source.t()) ::
+          {:ok, [FeedParser.feed_item()]} | {:error, String.t()}
+  defp parse_source_items(body, %Source{fetch_source_from: "content"} = source) do
+    FeedParser.parse(body, source.type)
+  end
+
+  defp parse_source_items(body, source) do
+    FeedParser.parse_listing(body, source.type)
   end
 
   @doc """

@@ -261,4 +261,89 @@ defmodule Rss2Nostr.Import.FeedParserTest do
       assert item.title == "Vier Wochen Wahnsinn im Juli '26 - von Michael Sailer und Franz Esser"
     end
   end
+
+  describe "parse_listing/2" do
+    test "strips content:encoded but keeps listing fields" do
+      {:ok, [item | _]} = FeedParser.parse_listing(@rss_feed, "rss")
+
+      assert item.title == "Test Article"
+      assert item.guid == "article-1"
+      assert item.link == "https://example.com/article/1"
+      assert item.summary == "This is a test article"
+      assert item.content in [nil, ""]
+      assert item.enclosure_url == "https://cdn.example/episode.mp3"
+    end
+
+    test "strips atom content bodies" do
+      {:ok, [item]} = FeedParser.parse_listing(@atom_feed, "atom")
+
+      assert item.title == "Atom Article"
+      assert item.guid == "urn:uuid:atom-1"
+      assert item.summary == "Atom summary"
+      assert item.content in [nil, ""]
+    end
+
+    test "keeps namespaced tags when stripping content:encoded" do
+      xml = """
+      <?xml version="1.0"?>
+      <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <channel>
+          <item>
+            <title>Namespaced</title>
+            <guid>ns-1</guid>
+            <dc:creator>Keep Me</dc:creator>
+            <description>Short</description>
+            <content:encoded><![CDATA[<p>Huge body</p>]]></content:encoded>
+          </item>
+        </channel>
+      </rss>
+      """
+
+      stripped = FeedParser.strip_embedded_content(xml)
+      assert String.contains?(stripped, "<dc:creator>Keep Me</dc:creator>")
+      refute String.contains?(stripped, "Huge body")
+
+      {:ok, [item]} = FeedParser.parse_listing(xml, "rss")
+      assert item.author == "Keep Me"
+    end
+  end
+
+  describe "hydrate_item/3" do
+    test "restores body for one rss item" do
+      {:ok, [item | _]} = FeedParser.parse_listing(@rss_feed, "rss")
+      assert item.content in [nil, ""]
+
+      hydrated = FeedParser.hydrate_item(@rss_feed, "rss", item)
+      assert hydrated.content =~ "Full content here"
+      assert hydrated.title == "Test Article"
+    end
+
+    test "restores body for one atom entry" do
+      {:ok, [item]} = FeedParser.parse_listing(@atom_feed, "atom")
+      hydrated = FeedParser.hydrate_item(@atom_feed, "atom", item)
+      assert hydrated.content =~ "Atom content"
+    end
+  end
+
+  describe "extract_rss_image via parse" do
+    test "uses a single media:content url when the feed repeats it" do
+      xml = """
+      <?xml version="1.0"?>
+      <rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+        <channel>
+          <item>
+            <title>Duplicate media</title>
+            <guid>dup-1</guid>
+            <link>https://example.com/dup</link>
+            <media:content medium="image" url="https://cdn.example/hero.jpg" />
+            <media:content medium="image" url="https://cdn.example/hero.jpg" />
+          </item>
+        </channel>
+      </rss>
+      """
+
+      {:ok, [item]} = FeedParser.parse(xml, "rss")
+      assert item.image == "https://cdn.example/hero.jpg"
+    end
+  end
 end

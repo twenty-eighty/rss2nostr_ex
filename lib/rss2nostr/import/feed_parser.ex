@@ -3,7 +3,7 @@ defmodule Rss2Nostr.Import.FeedParser do
   Parses RSS and Atom feeds into a normalized format.
   """
 
-  import SweetXml
+  import SweetXml, except: [parse: 1, parse: 2]
   require Logger
 
   @type raw_item :: %{optional(atom()) => String.t() | [String.t()] | nil}
@@ -38,6 +38,60 @@ defmodule Rss2Nostr.Import.FeedParser do
       _ -> {:error, "Unknown feed type"}
     end
   end
+
+  @doc """
+  Parses feed metadata without loading full article HTML bodies.
+
+  Huge RSS feeds (e.g. full `content:encoded` for every post) are stripped
+  before XML parsing so Compose pickers and `fetch_from_url` imports stay fast.
+  Use `hydrate_item/3` when a single item's body is needed afterward.
+  """
+  @spec parse_listing(String.t(), String.t() | nil) :: {:ok, [feed_item()]} | {:error, String.t()}
+  def parse_listing(xml_body, type \\ nil) when is_binary(xml_body) do
+    xml_body
+    |> strip_embedded_content()
+    |> parse(type)
+  end
+
+  @doc """
+  Removes full-text article bodies from RSS/Atom XML before a listing parse.
+  """
+  @spec strip_embedded_content(String.t()) :: String.t()
+  def strip_embedded_content(xml) when is_binary(xml) do
+    xml
+    |> strip_elements("content:encoded")
+    |> strip_atom_content_elements()
+  end
+
+  @doc """
+  Fills `content` / `summary` for one listing item from the original feed XML.
+  """
+  @spec hydrate_item(String.t(), String.t() | nil, feed_item()) :: feed_item()
+  def hydrate_item(xml_body, type, item) when is_binary(xml_body) and is_map(item) do
+    feed_type = type || detect_feed_type(xml_body)
+    key = item.guid || item.link
+
+    with true <- is_binary(key) and key != "",
+         chunk when is_binary(chunk) <- extract_entry_xml(xml_body, feed_type, key),
+         {:ok, [full | _]} <- parse(wrap_entry_xml(chunk, feed_type), feed_type) do
+      %{
+        item
+        | summary: full.summary || item.summary,
+          content: full.content || item.content,
+          image: full.image || item.image,
+          author: full.author || item.author,
+          categories: full.categories || item.categories,
+          enclosure_url: full.enclosure_url || item.enclosure_url,
+          enclosure_type: full.enclosure_type || item.enclosure_type,
+          enclosure_length: full.enclosure_length || item.enclosure_length,
+          duration: full.duration || item.duration
+      }
+    else
+      _ -> item
+    end
+  end
+
+  def hydrate_item(_, _, item), do: item
 
   @doc """
   Detects whether the feed is RSS or Atom.
@@ -124,9 +178,12 @@ defmodule Rss2Nostr.Import.FeedParser do
             ~x"./itunes:duration/text()"s
             |> add_namespace("itunes", "http://www.itunes.com/dtds/podcast-1.0.dtd"),
           media_thumbnail:
-            ~x"./media:thumbnail/@url"s |> add_namespace("media", "http://search.yahoo.com/mrss/"),
+            ~x"./media:thumbnail/@url"ls |> add_namespace("media", "http://search.yahoo.com/mrss/"),
+          media_image:
+            ~x"./media:content[@medium='image']/@url"ls
+            |> add_namespace("media", "http://search.yahoo.com/mrss/"),
           media_content:
-            ~x"./media:content/@url"s |> add_namespace("media", "http://search.yahoo.com/mrss/"),
+            ~x"./media:content/@url"ls |> add_namespace("media", "http://search.yahoo.com/mrss/"),
           itunes_image:
             ~x"./itunes:image/@href"s
             |> add_namespace("itunes", "http://www.itunes.com/dtds/podcast-1.0.dtd"),
@@ -168,15 +225,15 @@ defmodule Rss2Nostr.Import.FeedParser do
       item.enclosure_url != "" && String.starts_with?(item.enclosure_type || "", "image") ->
         item.enclosure_url
 
-      # Media thumbnail
-      item.media_thumbnail != "" ->
-        item.media_thumbnail
+      url = first_url(Map.get(item, :media_thumbnail)) ->
+        url
 
-      # Media content
-      item.media_content != "" ->
-        item.media_content
+      url = first_url(Map.get(item, :media_image)) ->
+        url
 
-      # iTunes image
+      url = first_url(Map.get(item, :media_content)) ->
+        url
+
       item.itunes_image != "" ->
         item.itunes_image
 
@@ -184,6 +241,27 @@ defmodule Rss2Nostr.Import.FeedParser do
         nil
     end
   end
+
+  # SweetXml's string modifier concatenates duplicate attributes; prefer the first URL.
+  @spec first_url(term()) :: String.t() | nil
+  defp first_url(urls) when is_list(urls) do
+    Enum.find_value(urls, &first_url/1)
+  end
+
+  defp first_url(url) when is_binary(url) do
+    case String.trim(url) do
+      "" ->
+        nil
+
+      trimmed ->
+        case Regex.run(~r/https?:\/\/\S+?(?=https?:\/\/|$)/u, trimmed) do
+          [first] -> first
+          _ -> trimmed
+        end
+    end
+  end
+
+  defp first_url(_), do: nil
 
   # Atom Parsing
   @spec parse_atom(String.t()) :: {:ok, [feed_item()]} | {:error, String.t()}
@@ -420,6 +498,143 @@ defmodule Rss2Nostr.Import.FeedParser do
       {:ok, dt} -> dt
       _ -> Timex.to_datetime(datetime, "Etc/UTC")
     end
+  end
+
+  # Binary strip avoids catastrophic regex backtracking on multi-megabyte feeds.
+  @spec strip_elements(String.t(), String.t()) :: String.t()
+  defp strip_elements(xml, tag) when is_binary(xml) and is_binary(tag) do
+    do_strip_elements(xml, "<" <> tag, "</" <> tag <> ">", [])
+  end
+
+  @spec do_strip_elements(String.t(), String.t(), String.t(), iodata()) :: String.t()
+  defp do_strip_elements(xml, open, close, acc) do
+    case :binary.match(xml, open) do
+      :nomatch ->
+        IO.iodata_to_binary([Enum.reverse(acc), xml])
+
+      {start, _} ->
+        before = binary_part(xml, 0, start)
+        from_open = binary_part(xml, start, byte_size(xml) - start)
+
+        case :binary.match(from_open, close) do
+          :nomatch ->
+            IO.iodata_to_binary([Enum.reverse(acc), xml])
+
+          {rel, close_len} ->
+            after_close =
+              binary_part(from_open, rel + close_len, byte_size(from_open) - rel - close_len)
+
+            do_strip_elements(after_close, open, close, [before | acc])
+        end
+    end
+  end
+
+  # Strip Atom `<content>...</content>` but not RSS namespaced tags like `<content:creator>`.
+  @spec strip_atom_content_elements(String.t()) :: String.t()
+  defp strip_atom_content_elements(xml), do: do_strip_atom_content(xml, [])
+
+  @spec do_strip_atom_content(String.t(), iodata()) :: String.t()
+  defp do_strip_atom_content(xml, acc) do
+    case :binary.match(xml, "<content") do
+      :nomatch ->
+        IO.iodata_to_binary([Enum.reverse(acc), xml])
+
+      {start, open_len} ->
+        after_prefix = start + open_len
+
+        next =
+          if after_prefix < byte_size(xml) do
+            binary_part(xml, after_prefix, 1)
+          else
+            ""
+          end
+
+        cond do
+          next == ":" ->
+            do_strip_atom_content(
+              binary_part(xml, after_prefix, byte_size(xml) - after_prefix),
+              [binary_part(xml, 0, after_prefix) | acc]
+            )
+
+          next in [" ", ">", "/", "\n", "\r", "\t"] ->
+            before = binary_part(xml, 0, start)
+            from_open = binary_part(xml, start, byte_size(xml) - start)
+
+            case :binary.match(from_open, "</content>") do
+              :nomatch ->
+                IO.iodata_to_binary([Enum.reverse(acc), xml])
+
+              {rel, close_len} ->
+                after_close =
+                  binary_part(from_open, rel + close_len, byte_size(from_open) - rel - close_len)
+
+                do_strip_atom_content(after_close, [before | acc])
+            end
+
+          true ->
+            do_strip_atom_content(
+              binary_part(xml, after_prefix, byte_size(xml) - after_prefix),
+              [binary_part(xml, 0, after_prefix) | acc]
+            )
+        end
+    end
+  end
+
+  @spec extract_entry_xml(String.t(), String.t(), String.t()) :: String.t() | nil
+  defp extract_entry_xml(xml, "rss", key), do: extract_tagged_entry(xml, "item", key)
+  defp extract_entry_xml(xml, "atom", key), do: extract_tagged_entry(xml, "entry", key)
+  defp extract_entry_xml(_, _, _), do: nil
+
+  @spec extract_tagged_entry(String.t(), String.t(), String.t()) :: String.t() | nil
+  defp extract_tagged_entry(xml, tag, key) do
+    find_entry_with_key(xml, "<" <> tag, "</" <> tag <> ">", key)
+  end
+
+  @spec find_entry_with_key(String.t(), String.t(), String.t(), String.t()) :: String.t() | nil
+  defp find_entry_with_key(xml, open, close, key) do
+    case :binary.match(xml, open) do
+      :nomatch ->
+        nil
+
+      {start, _} ->
+        from_open = binary_part(xml, start, byte_size(xml) - start)
+
+        case :binary.match(from_open, close) do
+          :nomatch ->
+            nil
+
+          {rel, close_len} ->
+            chunk = binary_part(from_open, 0, rel + close_len)
+            rest = binary_part(from_open, rel + close_len, byte_size(from_open) - rel - close_len)
+
+            if String.contains?(chunk, key) do
+              chunk
+            else
+              find_entry_with_key(rest, open, close, key)
+            end
+        end
+    end
+  end
+
+  @spec wrap_entry_xml(String.t(), String.t()) :: String.t()
+  defp wrap_entry_xml(chunk, "rss") do
+    """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:media="http://search.yahoo.com/mrss/">
+      <channel>
+        #{chunk}
+      </channel>
+    </rss>
+    """
+  end
+
+  defp wrap_entry_xml(chunk, "atom") do
+    """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      #{chunk}
+    </feed>
+    """
   end
 end
 
