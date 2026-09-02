@@ -249,6 +249,26 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       assert result.markdown =~ "hero.jpg"
     end
 
+    test "prefers page og:image over a feed media url" do
+      feed_image = "https://cdn.example/unsigned.jpg"
+      page_image = "https://cdn.example/signed.jpg?Expires=1&Signature=abc"
+
+      html = """
+      <html><head>
+        <meta property="og:image" content="#{page_image}" />
+      </head><body><article><p>Hello</p></article></body></html>
+      """
+
+      result =
+        Composer.compose(html, %{
+          image: feed_image,
+          body_selector: "article",
+          skip_classes: []
+        })
+
+      assert result.image == page_image
+    end
+
     test "drops a leading WordPress sized variant of the featured image" do
       featured = "https://corbettreport.com/wp-content/uploads/2026/05/japanese_qa-featured.jpg"
 

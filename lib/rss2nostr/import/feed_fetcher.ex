@@ -9,6 +9,9 @@ defmodule Rss2Nostr.Import.FeedFetcher do
 
   @user_agent "RSS2Nostr/0.1 (Elixir)"
   @timeout 30_000
+  @cache :feeds_cache
+  # Compose loads the feed for the article list, then again for the first preview.
+  @cache_ttl_ms :timer.minutes(2)
 
   @doc """
   Fetches a feed from the given URL.
@@ -16,15 +19,30 @@ defmodule Rss2Nostr.Import.FeedFetcher do
   """
   @spec fetch(String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def fetch(url) when is_binary(url) do
-    request(url,
-      headers: [
-        {"user-agent", @user_agent},
-        {"accept", "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"}
-      ]
-    )
+    case cache_get(url) do
+      {:ok, body} ->
+        {:ok, body}
+
+      :miss ->
+        case request(url,
+               headers: [
+                 {"user-agent", @user_agent},
+                 {"accept",
+                  "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"}
+               ]
+             ) do
+          {:ok, body} = ok ->
+            cache_put(url, body)
+            ok
+
+          error ->
+            error
+        end
+    end
   end
 
   def fetch(_), do: {:error, "Invalid URL"}
+
 
   @doc """
   Fetches content from an article URL (for full content extraction).
@@ -47,7 +65,7 @@ defmodule Rss2Nostr.Import.FeedFetcher do
 
     case HTTP.get(url, Keyword.merge(opts, receive_timeout: @timeout, retry: false)) do
       {:ok, %{status: 200, body: body}} ->
-        {:ok, ensure_utf8(body)}
+        {:ok, body |> maybe_decompress() |> ensure_utf8()}
 
       {:ok, %{status: status_code}} ->
         {:error, "HTTP #{status_code}"}
@@ -56,6 +74,16 @@ defmodule Rss2Nostr.Import.FeedFetcher do
         {:error, "Request failed: #{Exception.message(exception)}"}
     end
   end
+
+  # Req usually decompresses when compressed: true; keep a fallback for raw gzip bodies.
+  @spec maybe_decompress(binary()) :: binary()
+  defp maybe_decompress(<<0x1F, 0x8B, _::binary>> = body) do
+    :zlib.gunzip(body)
+  rescue
+    _ -> body
+  end
+
+  defp maybe_decompress(body) when is_binary(body), do: body
 
   # Ensure the body is valid UTF-8
   @spec ensure_utf8(binary()) :: binary()
@@ -75,5 +103,23 @@ defmodule Rss2Nostr.Import.FeedFetcher do
       valid_utf8 ->
         valid_utf8
     end
+  end
+
+  @spec cache_get(String.t()) :: {:ok, String.t()} | :miss
+  defp cache_get(url) do
+    case Cachex.get(@cache, url) do
+      {:ok, body} when is_binary(body) -> {:ok, body}
+      _ -> :miss
+    end
+  rescue
+    _ -> :miss
+  end
+
+  @spec cache_put(String.t(), String.t()) :: :ok
+  defp cache_put(url, body) do
+    _ = Cachex.put(@cache, url, body, expire: @cache_ttl_ms)
+    :ok
+  rescue
+    _ -> :ok
   end
 end

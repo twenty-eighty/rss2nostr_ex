@@ -17,6 +17,7 @@ defmodule Rss2Nostr.Application do
         Supervisor.child_spec({Cachex, name: :sources_cache}, id: :sources_cache),
         Supervisor.child_spec({Cachex, name: :posts_cache}, id: :posts_cache),
         Supervisor.child_spec({Cachex, name: :inbox_relays_cache}, id: :inbox_relays_cache),
+        Supervisor.child_spec({Cachex, name: :feeds_cache}, id: :feeds_cache),
 
         # Nostr Relay Registry
         {Registry, keys: :unique, name: Rss2Nostr.RelayRegistry},

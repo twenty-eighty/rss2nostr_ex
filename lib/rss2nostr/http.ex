@@ -80,6 +80,7 @@ defmodule Rss2Nostr.HTTP do
       |> Keyword.put(:receive_timeout, receive_timeout)
       |> Keyword.put_new(:retry, default_retry)
       |> Keyword.put_new(:decode_body, false)
+      |> Keyword.put_new(:compressed, true)
       |> Keyword.put_new(:redirect, true)
       |> Keyword.put_new(:max_redirects, @max_redirects)
       |> Keyword.update(:headers, [{"user-agent", @user_agent}], &ensure_user_agent/1)

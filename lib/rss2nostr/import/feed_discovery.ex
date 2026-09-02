@@ -55,7 +55,9 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
   def discover_from_body(url, body) when is_binary(url) and is_binary(body) do
     cond do
       type = FeedParser.detect_feed_type(body) ->
-        {:ok, feed_result(url, body, type, FeedParser.feed_title(body) || page_title(body))}
+        # Never run title/language XPath or Floki on the raw body — huge feeds
+        # (full content:encoded) make xmerl take minutes.
+        {:ok, feed_result(url, body, type)}
 
       looks_like_html?(body) ->
         discover_from_html(url, body)
@@ -95,7 +97,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     with {:ok, url} <- normalize_url(url),
          {:ok, body} <- FeedFetcher.fetch(url),
          type when not is_nil(type) <- FeedParser.detect_feed_type(body) do
-      {:ok, feed_result(url, body, type, FeedParser.feed_title(body))}
+      {:ok, feed_result(url, body, type)}
     else
       {:error, reason} -> {:error, reason}
       nil -> {:error, "Not an RSS or Atom feed"}
@@ -198,15 +200,19 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     end
   end
 
-  @spec feed_result(String.t(), String.t(), String.t(), String.t() | nil) :: result()
-  defp feed_result(url, body, type, title) do
+  @spec feed_result(String.t(), String.t(), String.t()) :: result()
+  defp feed_result(url, body, type) do
+    # Strip article bodies once, then derive title/language/items from that.
+    listing_body = FeedParser.strip_embedded_content(body)
+
     items =
-      case FeedParser.parse_listing(body, type) do
+      case FeedParser.parse(listing_body, type) do
         {:ok, parsed} -> Enum.map(parsed, &preview_item/1)
         {:error, _} -> []
       end
 
-    language = FeedParser.feed_language(body)
+    title = FeedParser.feed_title(listing_body)
+    language = FeedParser.feed_language(listing_body)
 
     %{
       page_title: title,

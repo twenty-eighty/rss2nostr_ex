@@ -247,7 +247,9 @@ defmodule Rss2Nostr.Processing.Composer do
     opts = normalize_opts(opts)
     selector = resolve_body_selector(opts, html)
     meta = PageMeta.extract(html)
-    image = opts.image || meta.image || PageMeta.page_featured_image(html, opts)
+    # Prefer page og:image over feed media:content — some CDNs (e.g. website-editor)
+    # only serve signed page URLs and 403 the bare feed URL in the browser.
+    image = meta.image || PageMeta.page_featured_image(html, opts) || opts.image
     {body, matched} = extract_body(html, selector)
     body = BodySchema.apply_start_at(body, opts.start_at)
     body = FeaturedImage.drop_opening_featured_html(body, image)
