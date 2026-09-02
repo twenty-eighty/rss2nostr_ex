@@ -739,6 +739,17 @@ defmodule Rss2Nostr.Web.Views.Assets do
       margin: 0 0 1rem;
     }
 
+    /* Global * { padding: 0 } strips the indent browsers use for
+       outside list markers; overflow: auto then clips them. */
+    .compose-preview-rendered ul,
+    .compose-preview-rendered ol {
+      padding-left: 1.5rem;
+    }
+
+    .compose-preview-rendered li + li {
+      margin-top: 0.35rem;
+    }
+
     .compose-preview-rendered img {
       max-width: 100%;
       height: auto;
