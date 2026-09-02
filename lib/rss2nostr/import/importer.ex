@@ -49,8 +49,10 @@ defmodule Rss2Nostr.Import.Importer do
       errors: []
     }
 
+    # Always listing-parse first. Full `content:encoded` XML (multi-MB feeds)
+    # is hydrated per imported item only when the source reads from the feed.
     with {:ok, body} <- FeedFetcher.fetch(source.url),
-         {:ok, items} <- parse_source_items(body, source) do
+         {:ok, items} <- FeedParser.parse_listing(body, source.type) do
       start_guid = source_start_guid(source)
       guid_in_feed? = start_guid && Enum.any?(items, &(&1.guid == start_guid))
 
@@ -58,7 +60,7 @@ defmodule Rss2Nostr.Import.Importer do
       items
       |> Enum.reverse()
       |> Enum.reduce({result, false}, fn item, {acc, started?} ->
-        case import_item(item, source, force, started?, guid_in_feed?, start_guid) do
+        case import_item(item, source, force, started?, guid_in_feed?, start_guid, body) do
           {:ok, :imported, started?} ->
             {%{acc | imported: acc.imported + 1}, started?}
 
@@ -77,17 +79,6 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
-  # Listing parse skips multi-MB article bodies when content comes from the page URL.
-  @spec parse_source_items(String.t(), Source.t()) ::
-          {:ok, [FeedParser.feed_item()]} | {:error, String.t()}
-  defp parse_source_items(body, %Source{fetch_source_from: "content"} = source) do
-    FeedParser.parse(body, source.type)
-  end
-
-  defp parse_source_items(body, source) do
-    FeedParser.parse_listing(body, source.type)
-  end
-
   @doc """
   Imports articles from a source by ID.
   """
@@ -101,9 +92,17 @@ defmodule Rss2Nostr.Import.Importer do
   end
 
   # Import a single feed item
-  @spec import_item(FeedParser.feed_item(), Source.t(), boolean(), boolean(), boolean(), String.t() | nil) ::
+  @spec import_item(
+          FeedParser.feed_item(),
+          Source.t(),
+          boolean(),
+          boolean(),
+          boolean(),
+          String.t() | nil,
+          String.t()
+        ) ::
           {:ok, :imported | :skipped, boolean()} | {:error, String.t(), boolean()}
-  defp import_item(item, source, force, started?, guid_in_feed?, start_guid) do
+  defp import_item(item, source, force, started?, guid_in_feed?, start_guid, feed_body) do
     reached_start? = started? or (guid_in_feed? and item.guid == start_guid)
     url_hash = Post.generate_url_hash(item.guid)
 
@@ -132,12 +131,23 @@ defmodule Rss2Nostr.Import.Importer do
         {:ok, :skipped, reached_start?}
 
       true ->
+        item = maybe_hydrate_content(item, source, feed_body)
+
         case adopt_or_create_post(item, source, url_hash, force) do
           {:ok, status} -> {:ok, status, reached_start?}
           {:error, reason} -> {:error, reason, reached_start?}
         end
     end
   end
+
+  @spec maybe_hydrate_content(FeedParser.feed_item(), Source.t(), String.t()) ::
+          FeedParser.feed_item()
+  defp maybe_hydrate_content(item, %Source{fetch_source_from: "content"} = source, feed_body)
+       when is_binary(feed_body) do
+    FeedParser.hydrate_item(feed_body, source.type, item)
+  end
+
+  defp maybe_hydrate_content(item, _source, _feed_body), do: item
 
   @spec adopt_or_create_post(FeedParser.feed_item(), Source.t(), String.t(), boolean()) ::
           {:ok, :imported} | {:error, String.t()}

@@ -64,6 +64,27 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
       assert processed.status == Post.status_processed()
     end
 
+    test "prefers composed page og:image over an imported feed image", %{source: source} do
+      feed_image = "https://cdn.example/unsigned.jpg"
+      page_image = "https://cdn.example/signed.jpg?Expires=1&Signature=abc"
+
+      post =
+        create_post(source, %{
+          image: feed_image,
+          source_html: """
+          <html><head>
+            <meta property="og:image" content="#{page_image}" />
+          </head><body>
+            <p>Article body with enough text for processing to finish normally.</p>
+          </body></html>
+          """
+        })
+
+      {:ok, processed} = Processor.process_post(post)
+
+      assert processed.image == page_image
+    end
+
     test "preserves existing summary", %{source: source} do
       post =
         create_post(source, %{

@@ -484,7 +484,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     ~H"""
     <div class="article-toolbar">
       <button type="button" class="btn btn-secondary" phx-click="import" disabled={@busy}>
-        Import now
+        {if @busy, do: "Working…", else: "Import now"}
       </button>
       <button
         type="button"

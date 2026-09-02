@@ -153,7 +153,9 @@ defmodule Rss2Nostr.Processing.Processor do
         summary:
           HtmlToMarkdown.plain_summary(post.summary) || composed.summary ||
             generate_summary(composed.markdown),
-        image: post.image || composed.image
+        # Compose already prefers page og:image over feed media:content. Keeping the
+        # imported feed URL here left unsigned CDN links (403) on Blossom upload.
+        image: composed.image || post.image
       })
 
     ensure_images(post)
