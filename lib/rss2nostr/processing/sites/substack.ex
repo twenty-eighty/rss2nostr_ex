@@ -3,6 +3,8 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
   Substack HTML normalizations used before generic Markdown conversion.
 
   * Tweet cards (`Twitter2ToDOM` / `twitter-embed`) become a lone status URL
+  * Digest post embeds (`DigestPostEmbed`) become a linked thumbnail with the
+    title as the image subtitle (`![alt](src "title")` → preview figcaption)
   * Word-style `#_ftnN` / `#_ednN` (and `*ref`) anchors become Markdown footnotes
   * Native Substack `FootnoteAnchorToDOM` / `FootnoteToDOM` become Markdown footnotes
     with the note body on the same line as `[^N]:`
@@ -74,6 +76,9 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
       footnote_definition_div?(attrs) ->
         rewrite_footnote_definition(children)
 
+      digest_post_embed?(attrs) ->
+        rewrite_digest_post_embed(children)
+
       tweet_embed_attrs?(attrs) ->
         case tweet_url(attrs, children) do
           url when is_binary(url) -> tweet_paragraph(attrs, children)
@@ -141,6 +146,169 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
       [_, id] -> id
       _ -> nil
     end
+  end
+
+  @spec digest_post_embed?(list()) :: boolean()
+  defp digest_post_embed?(attrs) do
+    component = attr(attrs, "data-component-name", "")
+    class = attrs |> attr("class", "") |> String.downcase()
+
+    component == "DigestPostEmbed" or
+      String.contains?(class, "digestpostembed") or
+      String.contains?(class, "digest-post")
+  end
+
+  # Card chrome (thumbnail + title + author + "read more") becomes a linked
+  # figure whose figcaption carries the title as a visible image subtitle.
+  @spec rewrite_digest_post_embed(list()) :: Floki.html_node()
+  defp rewrite_digest_post_embed(children) do
+    href = digest_href(children)
+    title = digest_title(children)
+    image = digest_image(children)
+    caption = digest_caption(children)
+    subtitle = present_text(caption) || present_text(title)
+
+    blocks =
+      cond do
+        is_binary(href) and is_binary(image) and image != "" and is_binary(subtitle) ->
+          [
+            {"figure", [],
+             [
+               {"a", [{"href", href}],
+                [{"img", [{"src", image}, {"alt", present_text(title) || ""}], []}]},
+               {"figcaption", [], [subtitle]}
+             ]}
+          ]
+
+        is_binary(href) and is_binary(image) and image != "" ->
+          [
+            {"p", [],
+             [{"a", [{"href", href}], [{"img", [{"src", image}, {"alt", ""}], []}]}]}
+          ]
+
+        is_binary(href) and is_binary(title) and title != "" ->
+          [{"h2", [], [{"a", [{"href", href}], [title]}]}]
+
+        true ->
+          []
+      end
+
+    caption_used_as_subtitle? =
+      is_binary(image) and image != "" and is_binary(subtitle) and subtitle == present_text(caption)
+
+    blocks =
+      if present_text(caption) && not caption_used_as_subtitle? do
+        blocks ++ [{"p", [], [caption]}]
+      else
+        blocks
+      end
+
+    case blocks do
+      [] -> {"div", [], rewrite_nodes(children)}
+      [only] -> only
+      many -> {"div", [], many}
+    end
+  end
+
+  @spec present_text(term()) :: String.t() | nil
+  defp present_text(text) when is_binary(text) do
+    case text |> String.trim() |> unwrap_quotes() do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp present_text(_), do: nil
+
+  # Digest headings often wrap the title in typographic/ASCII quotes.
+  @spec unwrap_quotes(String.t()) :: String.t()
+  defp unwrap_quotes(text) do
+    case Regex.run(~r/^["“”„«»](.+)["“”„«»]$/u, text) do
+      [_, inner] -> String.trim(inner)
+      _ -> text
+    end
+  end
+
+  @spec digest_href(term()) :: String.t() | nil
+  defp digest_href(nodes) when is_list(nodes) do
+    Enum.find_value(nodes, &digest_href/1)
+  end
+
+  defp digest_href({"a", attrs, children}) do
+    href = attr(attrs, "href")
+
+    if digest_post_url?(href) do
+      href
+    else
+      digest_href(children)
+    end
+  end
+
+  defp digest_href({_, _, children}), do: digest_href(children)
+  defp digest_href(_), do: nil
+
+  @spec digest_post_url?(term()) :: boolean()
+  defp digest_post_url?(href) when is_binary(href) do
+    uri = URI.parse(href)
+    path = uri.path || ""
+
+    http_url?(href) and String.contains?(path, "/p/") and
+      not String.ends_with?(path, "/comments")
+  rescue
+    _ -> false
+  end
+
+  defp digest_post_url?(_), do: false
+
+  @spec digest_title(term()) :: String.t() | nil
+  defp digest_title(nodes) when is_list(nodes) do
+    Enum.find_value(nodes, &digest_title/1)
+  end
+
+  defp digest_title({tag, _, children}) when tag in ~w(h1 h2 h3 h4 h5 h6) do
+    text = {"span", [], List.wrap(children)} |> Floki.text() |> String.trim()
+    if text != "", do: text
+  end
+
+  defp digest_title({_, _, children}), do: digest_title(children)
+  defp digest_title(_), do: nil
+
+  @spec digest_image(term()) :: String.t() | nil
+  defp digest_image(nodes) when is_list(nodes) do
+    Enum.find_value(nodes, &digest_image/1)
+  end
+
+  defp digest_image({"img", attrs, _}) do
+    src = attr(attrs, "src") || attr(attrs, "data-src")
+    if is_binary(src) and String.trim(src) != "", do: String.trim(src)
+  end
+
+  defp digest_image({_, _, children}), do: digest_image(children)
+  defp digest_image(_), do: nil
+
+  @spec digest_caption(term()) :: String.t() | nil
+  defp digest_caption(nodes) when is_list(nodes) do
+    Enum.find_value(nodes, &digest_caption/1)
+  end
+
+  defp digest_caption({"p", attrs, children}) do
+    if class_token?(attrs, "caption") do
+      text = {"p", [], children} |> Floki.text() |> String.trim()
+      if text != "", do: text
+    else
+      digest_caption(children)
+    end
+  end
+
+  defp digest_caption({_, _, children}), do: digest_caption(children)
+  defp digest_caption(_), do: nil
+
+  @spec http_url?(String.t()) :: boolean()
+  defp http_url?(url) do
+    uri = URI.parse(url)
+    uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != ""
+  rescue
+    _ -> false
   end
 
   @spec footnote_definition_div?(list()) :: boolean()

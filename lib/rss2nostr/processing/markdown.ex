@@ -227,24 +227,30 @@ defmodule Rss2Nostr.Processing.Markdown do
     end)
   end
 
+  # Titles are matched after HTML escape, so they may contain entities like
+  # &#39; / &amp;. Do not stop at `&` — that left the whole image as raw MD.
   @spec replace_images(String.t()) :: String.t()
   defp replace_images(text) do
-    Regex.replace(~r/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/, text, fn
-      _, alt, url, title ->
-        case safe_url(unescape(url)) do
-          nil ->
-            alt
+    Regex.replace(
+      ~r/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;((?:(?!&quot;).)*)&quot;)?\)/,
+      text,
+      fn
+        _, alt, url, title ->
+          case safe_url(unescape(url)) do
+            nil ->
+              alt
 
-          safe ->
-            img = ~s(<img src="#{escape_attr(safe)}" alt="#{alt}">)
+            safe ->
+              img = ~s(<img src="#{escape_attr(safe)}" alt="#{alt}">)
 
-            if title != "" do
-              ~s(<figure>#{img}<figcaption>#{title}</figcaption></figure>)
-            else
-              img
-            end
-        end
-    end)
+              if title != "" do
+                ~s(<figure>#{img}<figcaption>#{title}</figcaption></figure>)
+              else
+                img
+              end
+          end
+      end
+    )
   end
 
   @spec replace_links(String.t()) :: String.t()

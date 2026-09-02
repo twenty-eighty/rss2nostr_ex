@@ -259,7 +259,7 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
   end
 
   describe "post embeds" do
-    test "turns a linked h2 into a Markdown heading link" do
+    test "turns a linked h2 digest embed into a Markdown heading link" do
       html = """
       <div data-component-name="DigestPostEmbed">
         <a href="https://www.freischwebende-intelligenz.org/p/warten-auf-armaggodot">
@@ -272,13 +272,40 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
 
       md =
         convert(html,
-          url: "https://www.freischwebende-intelligenz.org/p/der-real-existierende-surrealismus"
+          url: "https://example.substack.com/p/der-real-existierende-surrealismus"
         )
 
       assert md =~ "## [Warten auf Armaggodot](https://www.freischwebende-intelligenz.org/p/warten-auf-armaggodot)"
       refute md =~ "[## Warten auf Armaggodot]"
       assert md =~ "Warten auf Godot. Zwei Männer stehen da."
-      assert md =~ "[Ganze Geschichte lesen](https://www.freischwebende-intelligenz.org/p/warten-auf-armaggodot)"
+      refute md =~ "Ganze Geschichte lesen"
+    end
+
+    test "turns a thumbnail digest card into a linked image" do
+      html = """
+      <div data-component-name="DigestPostEmbed" class="digestPostEmbed">
+        <a href="https://blingbling.substack.com/p/kapitalverkehrskontrollen-werden">
+          <div>
+            <img src="https://substackcdn.com/image/fetch/w_140/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F9b36beca-1870-45a0-b441-14c31505bf02_1500x500.jpeg" alt="">
+            <h4>"Kapitalverkehrskontrollen werden kommen"</h4>
+            <a href="https://substack.com/profile/5192694-blingbling">BlingBling</a>
+            · June 8, 2025
+            <a href="https://blingbling.substack.com/p/kapitalverkehrskontrollen-werden">Ganze Geschichte lesen</a>
+          </div>
+        </a>
+      </div>
+      """
+
+      md = convert(html, url: "https://blingbling.substack.com/p/spacex-aktien-kaufen-ja-nein-oder")
+
+      assert md =~
+               ~r/!\[Kapitalverkehrskontrollen werden kommen\]\([^)]+9b36beca-1870-45a0-b441-14c31505bf02[^)]*\s+"Kapitalverkehrskontrollen werden kommen"\)/
+
+      assert md =~
+               "](https://blingbling.substack.com/p/kapitalverkehrskontrollen-werden)"
+
+      refute md =~ "Ganze Geschichte lesen"
+      refute md =~ "BlingBling](https://substack.com/profile"
     end
   end
 

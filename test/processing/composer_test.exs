@@ -388,6 +388,44 @@ defmodule Rss2Nostr.Processing.ComposerTest do
       refute result.markdown =~ "73510e44-7195-418e-aa14-9e863d228777"
     end
 
+    test "drops a Substack cover after an empty paragraph even when a later image is linked" do
+      featured =
+        "https://substackcdn.com/image/fetch/$s_!oaTH!,w_1200,h_675,c_fill,f_jpg,q_auto:good,fl_progressive:steep,g_auto/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fe0d02193-754a-4490-8c05-62f524e83023_1536x1024.png"
+
+      cover =
+        "https://substackcdn.com/image/fetch/$s_!oaTH!,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fe0d02193-754a-4490-8c05-62f524e83023_1536x1024.png"
+
+      later =
+        "https://substack-post-media.s3.amazonaws.com/public/images/1fdd73b1-8856-40f7-b68c-ceca641e0419_1536x1024.png"
+
+      html = """
+      <div class="body markup">
+        <p></p>
+        <div class="captioned-image-container">
+          <figure>
+            <a href="#{cover}" class="image-link image2">
+              <img src="#{cover}" alt="">
+            </a>
+          </figure>
+        </div>
+        <p>Liebe Abonnenten,</p>
+        <p>Later photo <a href="#{later}"><img src="#{later}" alt=""></a> in the body.</p>
+      </div>
+      """
+
+      result =
+        Composer.compose(html, %{
+          image: featured,
+          body_selector: ".body.markup",
+          skip_classes: []
+        })
+
+      assert result.image == featured
+      assert String.starts_with?(String.trim(result.markdown), "Liebe Abonnenten")
+      refute result.markdown =~ "e0d02193-754a-4490-8c05-62f524e83023"
+      assert result.markdown =~ "1fdd73b1-8856-40f7-b68c-ceca641e0419"
+    end
+
     test "takes Substack body markup and drops chrome" do
       html = """
       <article>

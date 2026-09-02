@@ -61,7 +61,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
 
         image_md =
           if caption != "" do
-            "![#{alt}](#{clean_src} \"#{caption}\")"
+            ~s|![#{alt}](#{clean_src} "#{escape_md_title(caption)}")|
           else
             "![#{alt}](#{clean_src})"
           end
@@ -272,6 +272,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
   defp figcaption_text(figcaption) do
     figcaption |> Floki.text() |> String.trim()
   end
+
+  @spec escape_md_title(String.t()) :: String.t()
+  defp escape_md_title(title), do: String.replace(title, "\"", "'")
 
   @spec relative_path?(String.t()) :: boolean()
   defp relative_path?(href) do

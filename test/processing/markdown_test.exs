@@ -122,6 +122,30 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
     refute html =~ "<p><figure>"
   end
 
+  test "renders image titles that contain apostrophes and ampersands" do
+    html =
+      Markdown.to_html(
+        "![](https://example.com/pic.jpg \"O'Brien & Sons\")"
+      )
+
+    assert html =~ "<figure>"
+    assert html =~ "<figcaption>O&#39;Brien &amp; Sons</figcaption>"
+    refute html =~ "![]("
+  end
+
+  test "renders a linked image with a quoted title subtitle" do
+    html =
+      Markdown.to_html(
+        "[![\"Title\"](https://example.com/pic.jpg \"'Title'\")](https://example.com/post)"
+      )
+
+    assert html =~ ~s(<a href="https://example.com/post">)
+    assert html =~ "<figure>"
+    assert html =~ ~s(<img src="https://example.com/pic.jpg")
+    assert html =~ "<figcaption>"
+    refute html =~ "!["
+  end
+
   test "escapes raw HTML and drops javascript URLs" do
     html = Markdown.to_html("Click [x](javascript:alert(1)) and <script>alert(1)</script>")
 

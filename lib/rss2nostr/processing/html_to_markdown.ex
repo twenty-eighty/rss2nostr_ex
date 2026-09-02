@@ -163,10 +163,45 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp process_nodes(nodes) when is_list(nodes) do
     nodes
     |> Inline.merge_adjacent()
-    |> Enum.map_join(&process_node/1)
+    |> Enum.reduce("", fn node, acc ->
+      join_markdown_chunks(acc, process_node(node))
+    end)
   end
 
   defp process_nodes(node), do: process_node(node)
+
+  # Substack (and others) sometimes omit the space after </a> before the next
+  # word (`</a>wurde`). Markdown then glues `](url)wurde`. Insert a space when
+  # a link/image URL closes against a following word, or a word against `[label](`.
+  @spec join_markdown_chunks(String.t(), String.t()) :: String.t()
+  defp join_markdown_chunks("", chunk), do: chunk
+  defp join_markdown_chunks(acc, ""), do: acc
+
+  defp join_markdown_chunks(acc, chunk) do
+    if needs_space_between_chunks?(acc, chunk) do
+      acc <> " " <> chunk
+    else
+      acc <> chunk
+    end
+  end
+
+  @spec needs_space_between_chunks?(String.t(), String.t()) :: boolean()
+  defp needs_space_between_chunks?(left, right) do
+    (ends_with_md_url?(left) and starts_with_word?(right)) or
+      (ends_with_word?(left) and starts_with_md_link?(right))
+  end
+
+  @spec ends_with_md_url?(String.t()) :: boolean()
+  defp ends_with_md_url?(text), do: String.match?(text, ~r/\]\([^)]*\)\z/u)
+
+  @spec starts_with_md_link?(String.t()) :: boolean()
+  defp starts_with_md_link?(text), do: String.match?(text, ~r/\A\[[^\]]+\]\(/u)
+
+  @spec ends_with_word?(String.t()) :: boolean()
+  defp ends_with_word?(text), do: String.match?(text, ~r/\p{L}\z/u)
+
+  @spec starts_with_word?(String.t()) :: boolean()
+  defp starts_with_word?(text), do: String.match?(text, ~r/\A\p{L}/u)
 
   @spec process_node(Floki.html_tree() | Floki.html_node()) :: String.t()
   defp process_node(text) when is_binary(text) do

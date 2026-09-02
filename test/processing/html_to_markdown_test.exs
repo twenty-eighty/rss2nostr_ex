@@ -999,5 +999,24 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "[[43]](#_ftn43)"
       refute md =~ "[^43]"
     end
+
+    test "inserts a missing space after an inline link before the next word" do
+      html =
+        ~s(<p>Mit der <a href="https://www.welt.de/article">Schuldzuweisung um den Drohnen-Vorfall</a>wurde heute die nächste Stufe gezündet.</p>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~
+               "](https://www.welt.de/article) wurde heute die nächste Stufe gezündet."
+
+      refute md =~ ")wurde"
+    end
+
+    test "inserts a missing space before an inline link after a word" do
+      html = ~s(<p>See<a href="https://example.com">this</a> now.</p>)
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "See [this](https://example.com) now."
+    end
   end
 end

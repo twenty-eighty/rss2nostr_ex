@@ -128,6 +128,12 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
 
   @spec blank_html_node?(term()) :: boolean()
   defp blank_html_node?(text) when is_binary(text), do: String.trim(text) == ""
+
+  defp blank_html_node?({tag, _, children}) when tag in ["p", "div", "span"] do
+    image_urls_in({tag, [], children}) == [] and
+      String.trim(Floki.text({tag, [], children})) == ""
+  end
+
   defp blank_html_node?(_), do: false
 
   @spec short_credit_html?(Floki.html_node()) :: boolean()
@@ -270,11 +276,11 @@ defmodule Rss2Nostr.Processing.Composer.FeaturedImage do
     linked = image_match(markdown, @linked_image)
     bare = image_match(markdown, @bare_image)
 
-    cond do
-      linked && bare && elem(linked, 1) <= elem(bare, 1) -> linked
-      linked -> linked
-      bare -> bare
-      true -> nil
+    [linked, bare]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      matches -> Enum.min_by(matches, &elem(&1, 1))
     end
   end
 
