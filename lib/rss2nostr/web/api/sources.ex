@@ -99,7 +99,7 @@ defmodule Rss2Nostr.Web.API.Sources do
       |> maybe_put_active(params)
       |> maybe_put_bunker(params)
       |> maybe_put(:signing_nsec, blank_to_nil(params["signing_nsec"]))
-      |> maybe_put(:publish_after_date, parse_datetime(params["start_published_at"]))
+      |> put_publish_after_date(params)
       |> maybe_put_hold_minutes(params)
       |> maybe_put_notify_pubkey(params)
       |> maybe_put_fixed_hashtags(params)
@@ -249,10 +249,37 @@ defmodule Rss2Nostr.Web.API.Sources do
     existing = existing || %{}
 
     existing
-    |> maybe_put("start_guid", blank_to_nil(params["start_guid"]))
+    |> put_start_guid(params)
     |> maybe_put_mirror_media(params)
     |> maybe_merge_compose(params)
     |> maybe_infer_body_selector(params)
+  end
+
+  @future_only_guid "__future_only__"
+
+  @spec put_start_guid(source_options(), map()) :: source_options()
+  defp put_start_guid(options, params) do
+    if Map.has_key?(params, "start_guid") do
+      case normalize_start_guid(params["start_guid"]) do
+        nil -> Map.delete(options, "start_guid")
+        guid -> Map.put(options, "start_guid", guid)
+      end
+    else
+      options
+    end
+  end
+
+  @spec normalize_start_guid(term()) :: String.t() | nil
+  defp normalize_start_guid(@future_only_guid), do: nil
+  defp normalize_start_guid(value), do: blank_to_nil(value)
+
+  @spec put_publish_after_date(map(), map()) :: map()
+  defp put_publish_after_date(attrs, params) do
+    if Map.has_key?(params, "start_published_at") do
+      Map.put(attrs, :publish_after_date, parse_datetime(params["start_published_at"]))
+    else
+      attrs
+    end
   end
 
   @spec maybe_put_mirror_media(map(), map()) :: map()

@@ -10,6 +10,8 @@ defmodule Rss2NostrWeb.LiveHelpers do
 
   alias Rss2Nostr.Sources.Source
 
+  @future_only_guid "__future_only__"
+
   @type source_option :: String.t() | [String.t()] | boolean() | integer() | nil
 
   @type import_notice_result :: %{
@@ -86,13 +88,42 @@ defmodule Rss2NostrWeb.LiveHelpers do
       (sel == "" and is_binary(BodySchema.selector_for_url(url)))
   end
 
+  @doc """
+  Sentinel `start_guid` value meaning: skip everything currently in the feed
+  and only import articles published after `start_published_at` / now.
+  """
+  @spec future_only_guid() :: String.t()
+  def future_only_guid, do: @future_only_guid
+
+  @spec future_only_guid?(term()) :: boolean()
+  def future_only_guid?(value), do: value == @future_only_guid
+
   @spec start_label(Source.t() | map(), String.t() | nil, String.t() | nil) :: String.t()
   def start_label(source, start_guid, start_at) do
+    options = Map.get(source, :options) || %{}
+    stored_guid = options["start_guid"]
+
     cond do
-      start_guid not in [nil, ""] -> start_guid
-      start_at not in [nil, ""] -> start_at
-      source.publish_after_date -> datetime_value(source.publish_after_date)
-      true -> "beginning of the feed"
+      future_only_guid?(start_guid) ->
+        case start_at not in [nil, ""] && start_at do
+          stamp when is_binary(stamp) -> "only future articles (after #{stamp})"
+          _ -> "only future articles"
+        end
+
+      start_guid not in [nil, ""] ->
+        start_guid
+
+      start_at not in [nil, ""] ->
+        "only future articles (after #{start_at})"
+
+      match?(%DateTime{}, Map.get(source, :publish_after_date)) and stored_guid in [nil, ""] ->
+        "only future articles (after #{datetime_value(source.publish_after_date)})"
+
+      source.publish_after_date ->
+        datetime_value(source.publish_after_date)
+
+      true ->
+        "beginning of the feed"
     end
   end
 

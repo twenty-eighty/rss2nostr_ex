@@ -112,7 +112,15 @@ defmodule Rss2NostrWeb.SourceComponents do
           <%= if @feed_items == :not_loaded do %>
             <option value="">Loading articles…</option>
           <% else %>
-            <option value="">Beginning of the feed</option>
+            <option value="" selected={@feed["start_guid"] in [nil, ""]}>
+              Beginning of the feed
+            </option>
+            <option
+              value={future_only_guid()}
+              selected={future_only_guid?(@feed["start_guid"])}
+            >
+              Only future articles
+            </option>
             <option
               :for={item <- @feed_items}
               value={item.guid}
@@ -125,6 +133,7 @@ defmodule Rss2NostrWeb.SourceComponents do
         <p :if={@feed_status} class="error">{@feed_status}</p>
         <p class="help-text">
           Changing this only affects future imports. Already imported articles stay.
+          “Only future articles” skips everything already in the feed and waits for newer posts.
           Current start: {start_label(@source, @feed["start_guid"], @feed["start_published_at"])}
         </p>
       </div>

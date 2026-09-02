@@ -143,6 +143,20 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
       assert source.publish_after_date
     end
 
+    test "creates source that only imports future articles" do
+      params = %{
+        "name" => "Future Only Source",
+        "url" => unique_url(),
+        "start_guid" => "__future_only__",
+        "start_published_at" => "2026-09-02T12:00:00Z"
+      }
+
+      {:ok, source} = API.create(params)
+
+      refute Map.has_key?(source.options, "start_guid")
+      assert source.publish_after_date == ~U[2026-09-02 12:00:00Z]
+    end
+
     test "stores composition settings" do
       params = %{
         "name" => "Compose Source",
@@ -233,6 +247,44 @@ defmodule Rss2Nostr.Web.API.SourcesTest do
       assert updated.options["start_guid"] == "keep-me"
       assert updated.options["body_selector"] == "article"
       assert updated.options["skip_classes"] == ["shariff"]
+    end
+
+    test "can switch to only future articles and clear start_guid" do
+      {:ok, source} =
+        Sources.create_source(
+          Map.merge(valid_attrs(), %{
+            options: %{"start_guid" => "old-article"},
+            publish_after_date: ~U[2024-01-01 00:00:00Z]
+          })
+        )
+
+      {:ok, updated} =
+        API.update(source, %{
+          "start_guid" => "__future_only__",
+          "start_published_at" => "2026-09-02T15:30:00Z"
+        })
+
+      refute Map.has_key?(updated.options, "start_guid")
+      assert updated.publish_after_date == ~U[2026-09-02 15:30:00Z]
+    end
+
+    test "can reset import start to the beginning of the feed" do
+      {:ok, source} =
+        Sources.create_source(
+          Map.merge(valid_attrs(), %{
+            options: %{"start_guid" => "old-article"},
+            publish_after_date: ~U[2024-01-01 00:00:00Z]
+          })
+        )
+
+      {:ok, updated} =
+        API.update(source, %{
+          "start_guid" => "",
+          "start_published_at" => ""
+        })
+
+      refute Map.has_key?(updated.options, "start_guid")
+      assert is_nil(updated.publish_after_date)
     end
 
     test "fills a missing Corbett body selector when feed settings are saved" do

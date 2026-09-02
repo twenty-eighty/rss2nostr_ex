@@ -121,7 +121,7 @@ defmodule Rss2Nostr.MCP.Server do
     param(:start_at, :string, description: "XPath marker: skip content before this block")
     param(:skip_classes, :string, description: "Comma-separated CSS class fragments to drop")
     param(:conversion_rules, :string, description: "Custom HTML conversion rules JSON")
-    param(:start_guid, :string, description: "Item guid to start importing from")
+    param(:start_guid, :string, description: "Item guid to start importing from, or __future_only__")
     param(:start_published_at, :string, description: "ISO-8601; skip articles older than this")
 
     param(:staging_hold_minutes, :integer,

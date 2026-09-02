@@ -184,10 +184,23 @@ defmodule Rss2Nostr.Import.Importer do
 
   @spec should_skip_by_date?(FeedParser.feed_item(), Source.t()) :: boolean()
   defp should_skip_by_date?(item, source) do
-    case {source.publish_after_date, item.published_at} do
-      {nil, _} -> false
-      {_, nil} -> false
-      {after_date, pub_date} -> DateTime.compare(pub_date, after_date) == :lt
+    case {source.publish_after_date, item.published_at, source_start_guid(source)} do
+      {nil, _, _} ->
+        false
+
+      # Date-only / "future articles" mode: require a strictly newer publish time.
+      {_after_date, nil, nil} ->
+        true
+
+      {after_date, pub_date, nil} ->
+        DateTime.compare(pub_date, after_date) != :gt
+
+      # Start-from-article mode: the chosen item itself is allowed through (==).
+      {_after_date, nil, _guid} ->
+        false
+
+      {after_date, pub_date, _guid} ->
+        DateTime.compare(pub_date, after_date) == :lt
     end
   end
 

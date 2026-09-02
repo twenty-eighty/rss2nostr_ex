@@ -38,14 +38,27 @@ defmodule Rss2NostrWeb.SourceNewLive do
       if params["_target"] == ["start_guid"] do
         guid = form["start_guid"]
 
-        published_at =
-          case Enum.find(socket.assigns.items, &(item_guid(&1) == guid)) do
-            %{published_at: published} -> published
-            %{"published_at" => published} -> published
-            _ -> ""
-          end
+        cond do
+          future_only_guid?(guid) ->
+            form
+            |> Map.put("start_guid", future_only_guid())
+            |> Map.put("start_published_at", now_iso8601())
 
-        Map.put(form, "start_published_at", published_at || "")
+          guid in [nil, ""] ->
+            form
+            |> Map.put("start_guid", "")
+            |> Map.put("start_published_at", "")
+
+          true ->
+            published_at =
+              case Enum.find(socket.assigns.items, &(item_guid(&1) == guid)) do
+                %{published_at: published} -> published
+                %{"published_at" => published} -> published
+                _ -> ""
+              end
+
+            Map.put(form, "start_published_at", published_at || "")
+        end
       else
         form
       end
@@ -257,6 +270,20 @@ defmodule Rss2NostrWeb.SourceNewLive do
             <% else %>
               <option :if={@items == []} value="">No articles found in this feed</option>
               <option
+                :if={@items != []}
+                value=""
+                selected={@form["start_guid"] in [nil, ""]}
+              >
+                Beginning of the feed
+              </option>
+              <option
+                :if={@items != []}
+                value={future_only_guid()}
+                selected={future_only_guid?(@form["start_guid"])}
+              >
+                Only future articles
+              </option>
+              <option
                 :for={item <- @items}
                 value={item_guid(item)}
                 selected={item_guid(item) == @form["start_guid"]}
@@ -266,7 +293,8 @@ defmodule Rss2NostrWeb.SourceNewLive do
             <% end %>
           </select>
           <p class="help-text">
-            Articles older than this one are skipped. Newer items in later fetches are still imported.
+            Articles older than the chosen one are skipped. “Only future articles” skips
+            everything already in the feed and waits for newer posts.
           </p>
         </div>
 
@@ -590,6 +618,8 @@ defmodule Rss2NostrWeb.SourceNewLive do
   defp start_ok?(form, items) do
     cond do
       items == [] and present?(form["url"]) -> true
+      future_only_guid?(form["start_guid"]) -> true
+      form["start_guid"] in [nil, ""] -> true
       present?(form["start_guid"]) -> true
       true -> false
     end
@@ -701,5 +731,12 @@ defmodule Rss2NostrWeb.SourceNewLive do
       "" -> "Untitled"
       guid -> guid
     end
+  end
+
+  @spec now_iso8601() :: String.t()
+  defp now_iso8601 do
+    DateTime.utc_now()
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
   end
 end

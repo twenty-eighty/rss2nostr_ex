@@ -95,16 +95,29 @@ defmodule Rss2NostrWeb.SourceLive do
   end
 
   def handle_event("save_feed_start", %{"start_guid" => guid} = params, socket) do
-    published_at =
-      case Enum.find(feed_item_list(socket.assigns.feed_items), &(&1.guid == guid)) do
-        %{published_at: published} -> published
-        _ -> ""
-      end
-
     feed =
-      socket.assigns.feed
-      |> Map.put("start_guid", guid)
-      |> Map.put("start_published_at", published_at || "")
+      cond do
+        future_only_guid?(guid) ->
+          socket.assigns.feed
+          |> Map.put("start_guid", future_only_guid())
+          |> Map.put("start_published_at", now_iso8601())
+
+        guid in [nil, ""] ->
+          socket.assigns.feed
+          |> Map.put("start_guid", "")
+          |> Map.put("start_published_at", "")
+
+        true ->
+          published_at =
+            case Enum.find(feed_item_list(socket.assigns.feed_items), &(&1.guid == guid)) do
+              %{published_at: published} -> published
+              _ -> ""
+            end
+
+          socket.assigns.feed
+          |> Map.put("start_guid", guid)
+          |> Map.put("start_published_at", published_at || "")
+      end
 
     {:noreply, assign(socket, :feed, merge_form(feed, params))}
   end
@@ -578,13 +591,30 @@ defmodule Rss2NostrWeb.SourceLive do
 
   @spec feed_form(map()) :: map()
   defp feed_form(source) do
+    start_guid = option(source, "start_guid") || ""
+    start_published_at = datetime_value(source.publish_after_date)
+
+    start_guid =
+      if start_guid == "" and start_published_at != "" do
+        future_only_guid()
+      else
+        start_guid
+      end
+
     %{
       "name" => source.name,
       "url" => source.url,
       "language" => source.language || "de",
-      "start_guid" => option(source, "start_guid") || "",
-      "start_published_at" => datetime_value(source.publish_after_date)
+      "start_guid" => start_guid,
+      "start_published_at" => start_published_at
     }
+  end
+
+  @spec now_iso8601() :: String.t()
+  defp now_iso8601 do
+    DateTime.utc_now()
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
   end
 
   @spec publishing_form(map()) :: map()
