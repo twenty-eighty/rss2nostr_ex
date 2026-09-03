@@ -51,7 +51,7 @@ defmodule Rss2Nostr.Import.Importer do
 
     # Always listing-parse first. Full `content:encoded` XML (multi-MB feeds)
     # is hydrated per imported item only when the source reads from the feed.
-    with {:ok, body} <- FeedFetcher.fetch(source.url),
+    with {:ok, body} <- FeedFetcher.fetch(source.url, force: true),
          {:ok, items} <- FeedParser.parse_listing(body, source.type) do
       start_guid = source_start_guid(source)
       guid_in_feed? = start_guid && Enum.any?(items, &(&1.guid == start_guid))
@@ -72,11 +72,31 @@ defmodule Rss2Nostr.Import.Importer do
         end
       end)
       |> elem(0)
+      |> tap(&log_import_summary/1)
     else
       {:error, reason} ->
         Logger.error("Failed to fetch/parse feed #{source.name}: #{inspect(reason)}")
         %{result | errors: [inspect(reason)]}
     end
+  end
+
+  @spec log_import_summary(import_result()) :: import_result()
+  defp log_import_summary(%{source: source, imported: imported, skipped: skipped, errors: errors} = result) do
+    cond do
+      errors != [] ->
+        Logger.warning(
+          "[Import] #{source.name}: #{imported} imported, #{skipped} skipped, #{length(errors)} error(s): #{Enum.join(errors, "; ")}"
+        )
+
+      imported > 0 ->
+        Logger.info("[Import] #{source.name}: #{imported} imported, #{skipped} skipped")
+
+      true ->
+        Logger.debug("[Import] #{source.name}: nothing new (#{skipped} skipped)")
+
+    end
+
+    result
   end
 
   @doc """

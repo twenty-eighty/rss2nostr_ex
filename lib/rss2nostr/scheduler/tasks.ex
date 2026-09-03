@@ -42,8 +42,6 @@ defmodule Rss2Nostr.Scheduler.Tasks do
     else
       results =
         Enum.map(sources, fn source ->
-          Logger.debug("[Scheduler] Importing from #{source.name}")
-          # Importer.import_from_source returns a map with :imported, :skipped, :errors keys
           Importer.import_from_source(source)
         end)
 
@@ -51,7 +49,7 @@ defmodule Rss2Nostr.Scheduler.Tasks do
       errors = Enum.sum(for %{errors: errs} <- results, do: length(errs))
 
       Logger.info(
-        "[Scheduler] Import complete: #{imported} articles from #{length(sources)} sources"
+        "[Scheduler] Import complete: #{imported} articles from #{length(sources)} sources#{if errors > 0, do: ", #{errors} error(s)", else: ""}"
       )
 
       {:ok, %{imported: imported, errors: errors, sources: length(sources)}}

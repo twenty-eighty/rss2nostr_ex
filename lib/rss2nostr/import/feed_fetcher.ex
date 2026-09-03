@@ -16,10 +16,16 @@ defmodule Rss2Nostr.Import.FeedFetcher do
   @doc """
   Fetches a feed from the given URL.
   Returns {:ok, body} or {:error, reason}.
+
+  Pass `force: true` to bypass the short in-memory cache (Feed/Compose refresh).
   """
-  @spec fetch(String.t()) :: {:ok, String.t()} | {:error, String.t()}
-  def fetch(url) when is_binary(url) do
-    case cache_get(url) do
+  @spec fetch(String.t(), keyword()) :: {:ok, String.t()} | {:error, String.t()}
+  def fetch(url, opts \\ [])
+
+  def fetch(url, opts) when is_binary(url) and is_list(opts) do
+    force? = Keyword.get(opts, :force, false)
+
+    case (if force?, do: :miss, else: cache_get(url)) do
       {:ok, body} ->
         {:ok, body}
 
@@ -41,7 +47,18 @@ defmodule Rss2Nostr.Import.FeedFetcher do
     end
   end
 
-  def fetch(_), do: {:error, "Invalid URL"}
+  def fetch(_, _), do: {:error, "Invalid URL"}
+
+  @doc """
+  Drops a cached feed body so the next fetch hits the origin.
+  """
+  @spec invalidate(String.t()) :: :ok
+  def invalidate(url) when is_binary(url) do
+    _ = Cachex.del(@cache, url)
+    :ok
+  rescue
+    _ -> :ok
+  end
 
 
   @doc """

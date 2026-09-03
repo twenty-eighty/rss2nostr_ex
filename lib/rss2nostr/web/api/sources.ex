@@ -30,8 +30,9 @@ defmodule Rss2Nostr.Web.API.Sources do
   @spec preview(map()) :: {:ok, map()} | {:error, String.t()}
   def preview(params) do
     url = params["url"] || params[:url]
+    force? = truthy?(params["force"] || params[:force])
 
-    case FeedDiscovery.preview(url) do
+    case FeedDiscovery.preview(url, force: force?) do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, reason}
     end

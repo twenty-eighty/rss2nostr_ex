@@ -92,10 +92,12 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
 
   def looks_like_feed_url?(_), do: false
 
-  @spec preview(String.t()) :: {:ok, result()} | {:error, String.t()}
-  def preview(url) when is_binary(url) do
+  @spec preview(String.t(), keyword()) :: {:ok, result()} | {:error, String.t()}
+  def preview(url, opts \\ [])
+
+  def preview(url, opts) when is_binary(url) and is_list(opts) do
     with {:ok, url} <- normalize_url(url),
-         {:ok, body} <- FeedFetcher.fetch(url),
+         {:ok, body} <- FeedFetcher.fetch(url, force: Keyword.get(opts, :force, false)),
          type when not is_nil(type) <- FeedParser.detect_feed_type(body) do
       {:ok, feed_result(url, body, type)}
     else
@@ -104,7 +106,7 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     end
   end
 
-  def preview(_), do: {:error, "Invalid URL"}
+  def preview(_, _), do: {:error, "Invalid URL"}
 
   @spec page_title(String.t()) :: String.t() | nil
   def page_title(html) when is_binary(html) do

@@ -28,6 +28,7 @@ defmodule Rss2NostrWeb.SourceLive do
          |> assign(:selected_ids, MapSet.new())
          |> assign(:posts, [])
          |> assign(:feed_items, :not_loaded)
+         |> assign(:feed_items_loaded_at, nil)
          |> assign(:feed_status, nil)
          |> assign(:preview, nil)
          |> assign(:preview_status, nil)
@@ -67,8 +68,8 @@ defmodule Rss2NostrWeb.SourceLive do
     socket =
       case tab do
         "articles" -> assign_posts(socket)
-        "feed" -> maybe_load_feed_items(socket)
-        "compose" -> maybe_load_feed_items(socket)
+        "feed" -> reload_feed_items(socket)
+        "compose" -> reload_feed_items(socket)
         _ -> socket
       end
 
@@ -278,7 +279,13 @@ defmodule Rss2NostrWeb.SourceLive do
   @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:feed_items, {:ok, {:ok, result}}, socket) do
     items = result[:items] || result["items"] || []
-    socket = assign(socket, feed_items: items, feed_status: nil)
+
+    socket =
+      assign(socket,
+        feed_items: items,
+        feed_status: nil,
+        feed_items_loaded_at: System.system_time(:second)
+      )
 
     socket =
       if socket.assigns.tab == "compose" and socket.assigns.compose["guid"] in [nil, ""] do
@@ -528,16 +535,40 @@ defmodule Rss2NostrWeb.SourceLive do
     assign(socket, :posts, posts)
   end
 
-  @spec maybe_load_feed_items(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
-  defp maybe_load_feed_items(socket) do
-    if socket.assigns.feed_items == :not_loaded and connected?(socket) do
+  @spec reload_feed_items(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  defp reload_feed_items(socket) do
+    if connected?(socket) and feed_items_stale?(socket) do
       url = socket.assigns.source.url
 
       socket
       |> assign(:feed_status, "Loading articles…")
-      |> start_async(:feed_items, fn -> SourcesAPI.preview(%{"url" => url}) end)
+      |> cancel_async(:feed_items)
+      |> start_async(:feed_items, fn ->
+        SourcesAPI.preview(%{"url" => url, "force" => true})
+      end)
     else
       socket
+    end
+  end
+
+  # Re-fetch when opening Feed/Compose after articles/publishing, or after 30s,
+  # so a long-lived LiveView does not keep yesterday's RSS list forever.
+  @feed_items_ttl_seconds 30
+
+  @spec feed_items_stale?(Phoenix.LiveView.Socket.t()) :: boolean()
+  defp feed_items_stale?(socket) do
+    case socket.assigns.feed_items do
+      :not_loaded ->
+        true
+
+      _ ->
+        case socket.assigns.feed_items_loaded_at do
+          loaded_at when is_integer(loaded_at) ->
+            System.system_time(:second) - loaded_at >= @feed_items_ttl_seconds
+
+          _ ->
+            true
+        end
     end
   end
 
