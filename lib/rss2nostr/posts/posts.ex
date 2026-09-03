@@ -682,6 +682,15 @@ defmodule Rss2Nostr.Posts do
   end
 
   @doc """
+  Clears permanent fetch failures so a manual reprocess can retry downloads.
+  """
+  @spec clear_image_fetch_errors(integer()) :: {non_neg_integer(), nil}
+  def clear_image_fetch_errors(post_id) when is_integer(post_id) do
+    from(i in ArticleImage, where: i.post_id == ^post_id and i.fetch_error == true)
+    |> Repo.update_all(set: [fetch_error: false, updated_at: NaiveDateTime.utc_now(:second)])
+  end
+
+  @doc """
   Preloads images for a post.
   """
   @spec preload_images(Post.t()) :: Post.t()

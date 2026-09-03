@@ -286,6 +286,7 @@ defmodule Rss2Nostr.Processing.Processor do
       if post.status == Post.status_published(), do: Map.put(attrs, :staged_at, nil), else: attrs
 
     {:ok, post} = Posts.update_post(post, attrs)
+    _ = Posts.clear_image_fetch_errors(post.id)
     process_post(post)
   end
 

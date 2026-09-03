@@ -14,7 +14,8 @@ defmodule Rss2Nostr.Web.Router do
            )
 
   plug(:reload_code)
-  plug(Plug.Logger)
+  # Request logging comes from Phoenix.Endpoint Plug.Telemetry / Phoenix.Logger.
+  # A second Plug.Logger here duplicated every /health, /mcp, and API line.
   plug(:match)
   plug(:maybe_parse)
   plug(:setup_session)

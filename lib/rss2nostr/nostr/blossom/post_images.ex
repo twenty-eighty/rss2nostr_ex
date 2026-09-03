@@ -116,9 +116,37 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
           {Posts.preload_images(post), Map.put(mapping, updated.original_url, result.url), errors}
 
         {:error, reason} ->
-          {post, mapping, [reason | errors]}
+          if permanent_download_failure?(reason) do
+            {:ok, _} = Posts.mark_image_error(image)
+
+            Logger.warning(
+              "[Blossom] Giving up on missing media #{image.original_url}: #{Client.format_error(reason)}"
+            )
+
+            post = maybe_clear_featured(post, image)
+            {Posts.preload_images(post), mapping, errors}
+          else
+            {post, mapping, [reason | errors]}
+          end
       end
     end)
+  end
+
+  # 404/410 will not appear later; keep retrying transient failures (403, 5xx, network).
+  @spec permanent_download_failure?(term()) :: boolean()
+  defp permanent_download_failure?({:download_failed, code}) when code in [404, 410], do: true
+  defp permanent_download_failure?(_), do: false
+
+  @spec maybe_clear_featured(Rss2Nostr.Posts.Post.t(), map()) :: Rss2Nostr.Posts.Post.t()
+  defp maybe_clear_featured(post, image) do
+    if present?(post.image) and post.image == image.original_url do
+      case Posts.update_post(post, %{image: nil}) do
+        {:ok, updated} -> updated
+        {:error, _} -> post
+      end
+    else
+      post
+    end
   end
 
   @spec apply_image_mapping(Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}) :: {:ok, Rss2Nostr.Posts.Post.t()}
@@ -182,7 +210,8 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
 
   @spec image_ready?(map(), MapSet.t()) :: boolean()
   defp image_ready?(image, uploaded_urls) do
-    present?(image.uploaded_url) or Blossom.already_hosted?(image.original_url) or
+    image.fetch_error == true or present?(image.uploaded_url) or
+      Blossom.already_hosted?(image.original_url) or
       MapSet.member?(uploaded_urls, image.original_url)
   end
 
@@ -204,6 +233,10 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
 
       match = Enum.find(images, &(present?(&1.uploaded_url) and &1.uploaded_url == url)) ->
         match.uploaded_url
+
+      # Permanently failed fetch — do not treat as still pending.
+      Enum.any?(images, &(&1.original_url == url and &1.fetch_error == true)) ->
+        url
 
       true ->
         nil

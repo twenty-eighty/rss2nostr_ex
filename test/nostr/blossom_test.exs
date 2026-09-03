@@ -140,6 +140,19 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
     defp requests(agent), do: Agent.get(agent, & &1.requests)
   end
 
+  defmodule NotFoundStub do
+    @moduledoc false
+    @behaviour Plug
+
+    def init(opts), do: opts
+
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.put_resp_content_type("text/plain")
+      |> Plug.Conn.send_resp(404, "not found")
+    end
+  end
+
   defmodule MirrorStub do
     @moduledoc false
     @behaviour Plug
@@ -339,6 +352,50 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       refute reloaded.status == Post.status_processed()
       assert is_binary(reloaded.last_error)
       assert reloaded.last_error =~ "Blossom upload failed"
+    end
+
+    test "gives up on HTTP 404 media and does not leave it pending" do
+      put_upload_endpoint("https://route96.example")
+
+      bandit =
+        start_supervised!(
+          {Bandit, plug: __MODULE__.NotFoundStub, port: 0, ip: {127, 0, 0, 1}}
+        )
+
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+      missing = "http://127.0.0.1:#{port}/mp3/flnwo14-hq.mp3"
+
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Missing Audio Source",
+          url: "https://example.com/missing-audio-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          active: true
+        })
+
+      url = "https://example.com/article-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Citizen Kane",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          source_html: "<p>Content</p>",
+          content: "Listen: [audio](#{missing})\n\nBody",
+          status: Post.status_pending_images(),
+          source_id: source.id
+        })
+
+      {:ok, _image} = Posts.create_image(%{post_id: post.id, original_url: missing})
+
+      private_key = :crypto.strong_rand_bytes(32)
+      assert {:ok, updated} = Blossom.ensure_post_images(post, private_key)
+
+      refute Blossom.pending_images?(updated)
+      [reloaded] = Posts.list_images_for_post(post.id)
+      assert reloaded.fetch_error
+      assert is_nil(reloaded.uploaded_url)
     end
 
     test "treats images already on the Blossom host as uploaded" do
