@@ -81,7 +81,9 @@ defmodule Rss2Nostr.Import.Importer do
   end
 
   @spec log_import_summary(import_result()) :: import_result()
-  defp log_import_summary(%{source: source, imported: imported, skipped: skipped, errors: errors} = result) do
+  defp log_import_summary(
+         %{source: source, imported: imported, skipped: skipped, errors: errors} = result
+       ) do
     cond do
       errors != [] ->
         Logger.warning(
@@ -93,7 +95,6 @@ defmodule Rss2Nostr.Import.Importer do
 
       true ->
         Logger.debug("[Import] #{source.name}: nothing new (#{skipped} skipped)")
-
     end
 
     result
@@ -189,11 +190,19 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
-  @spec resolve_source_html(FeedParser.feed_item(), Source.t()) :: {:ok, String.t()} | {:error, String.t()}
+  @spec resolve_source_html(FeedParser.feed_item(), Source.t()) ::
+          {:ok, String.t()} | {:error, String.t()}
   defp resolve_source_html(item, source) do
     case Composer.html_for_item(item, source) do
-      {:ok, html, _source} -> {:ok, html}
-      {:error, reason} -> {:error, "Could not load article HTML: #{reason}"}
+      {:ok, html, _source} ->
+        {:ok, html}
+
+      {:error, reason} ->
+        title = item.title || "Untitled article"
+        url = ItemIdentity.page_url(item) || item.link || item.guid
+        article = if url, do: "\"#{title}\" (#{url})", else: "\"#{title}\""
+
+        {:error, "Could not load article HTML for #{article}: #{reason}"}
     end
   end
 
@@ -284,7 +293,8 @@ defmodule Rss2Nostr.Import.Importer do
     end
   end
 
-  @spec do_update_post(Post.t(), map(), String.t() | nil) :: {:ok, :imported} | {:error, String.t()}
+  @spec do_update_post(Post.t(), map(), String.t() | nil) ::
+          {:ok, :imported} | {:error, String.t()}
   defp do_update_post(existing, attrs, title) do
     case Posts.update_post(existing, Map.put(attrs, :status, Post.status_new())) do
       {:ok, _} ->
