@@ -16,7 +16,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   """
   @spec extract_and_store(Post.t()) :: {:ok, Post.t(), non_neg_integer()}
   def extract_and_store(%Post{} = post) do
-    post = post |> repair_post_urls() |> Posts.preload_images()
+    post = post |> repair_post_urls() |> resolve_post_urls() |> Posts.preload_images()
     known = known_image_urls(post)
 
     images =
@@ -141,8 +141,11 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   @spec display_url(String.t() | nil) :: String.t()
   def display_url(url), do: Urls.display(url)
 
-  @spec download_urls(String.t() | nil) :: [String.t()]
-  def download_urls(url), do: Urls.download_urls(url)
+  @spec resolve_url(String.t() | nil, String.t() | nil) :: String.t()
+  def resolve_url(url, base), do: Urls.resolve(url, base)
+
+  @spec download_urls(String.t() | nil, String.t() | nil) :: [String.t()]
+  def download_urls(url, base \\ nil), do: Urls.download_urls(url, base)
 
   @spec known_image_urls(Post.t()) :: MapSet.t(String.t())
   defp known_image_urls(post) do
@@ -158,6 +161,43 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   defp known_url?(known, url) do
     MapSet.member?(known, url) or MapSet.member?(known, normalize_url(url))
   end
+
+  @spec resolve_post_urls(Post.t()) :: Post.t()
+  defp resolve_post_urls(%Post{} = post) do
+    base = post.source_url
+    content = resolve_content_urls(post.content, base)
+    image = resolve_optional_url(post.image, base)
+
+    if content == post.content and image == post.image do
+      post
+    else
+      {:ok, post} = Posts.update_post(post, %{content: content, image: image})
+      post
+    end
+  end
+
+  @spec resolve_content_urls(String.t() | nil, String.t() | nil) :: String.t() | nil
+  defp resolve_content_urls(content, base) when is_binary(content) and is_binary(base) do
+    Regex.replace(~r"(\]\()(//?[^)\s]+)"u, content, fn _full, open, path ->
+      case Urls.resolve(path, base) do
+        resolved when is_binary(resolved) and resolved != path ->
+          open <> resolved
+
+        _ ->
+          open <> path
+      end
+    end)
+  end
+
+  defp resolve_content_urls(content, _), do: content
+
+  @spec resolve_optional_url(String.t() | nil, String.t() | nil) :: String.t() | nil
+  defp resolve_optional_url(url, base) when is_binary(url) and url != "" do
+    resolved = Urls.resolve(url, base)
+    if Urls.valid?(resolved), do: resolved, else: url
+  end
+
+  defp resolve_optional_url(url, _), do: url
 
   @spec repair_post_urls(Post.t()) :: Post.t()
   defp repair_post_urls(%Post{} = post) do

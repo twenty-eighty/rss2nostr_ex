@@ -4,7 +4,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
   require Logger
 
   alias Rss2Nostr.Processing.ImageExtractor
-  alias Rss2Nostr.Processing.HtmlToMarkdown.{Dom, TrackingParams}
+  alias Rss2Nostr.Processing.HtmlToMarkdown.{Dom, Links, TrackingParams}
 
   @type process_nodes :: (list() -> String.t())
 
@@ -107,7 +107,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     ]
     |> Enum.find_value(fn
       url when is_binary(url) and url != "" ->
-        cleaned = clean_image_url(url)
+        cleaned = url |> clean_image_url() |> resolve_media_url()
         if http_url?(cleaned), do: cleaned
 
       _ ->
@@ -160,7 +160,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
 
   @spec usable_srcset_url?(String.t()) :: boolean()
   defp usable_srcset_url?(url) do
-    String.starts_with?(url, ["http://", "https://", "//"])
+    String.starts_with?(url, ["http://", "https://", "//", "/"])
   end
 
   @spec get_largest_image([{String.t(), integer()}]) :: String.t() | nil
@@ -171,6 +171,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
     |> Enum.max_by(fn {_url, width} -> width end)
     |> elem(0)
   end
+
+  @spec resolve_media_url(String.t() | nil) :: String.t() | nil
+  defp resolve_media_url(url) when is_binary(url) do
+    Links.resolve_against_base(url, Rss2Nostr.Processing.HtmlToMarkdown.base_url())
+  end
+
+  defp resolve_media_url(url), do: url
 
   @spec clean_image_url(String.t()) :: String.t()
   defp clean_image_url(url) do
@@ -205,6 +212,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
       end
 
     href = href || href_from_data_attrs(img_attrs)
+    href = href && resolve_media_url(Links.normalize_href(href) || href)
     keep_figure_href(href, image_src)
   end
 

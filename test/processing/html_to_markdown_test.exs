@@ -1034,6 +1034,18 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       refute md =~ ~r/\(https?:\/\/[^)]* \w/
     end
 
+    test "resolves a root-relative image against the article URL" do
+      html = ~s(<p><img src="/sites/default/files/2023/04/cover.jpg" alt="Cover"></p>)
+
+      md =
+        HtmlToMarkdown.convert(html,
+          url: "https://www.thefire.org/research-learn/scholars-under-fire"
+        )
+
+      assert md =~
+               "![Cover](https://www.thefire.org/sites/default/files/2023/04/cover.jpg)"
+    end
+
     test "still drops a relative PDF when there is no article URL" do
       html =
         ~s(<p><a href="/sites/default/files/2023/04/report.pdf">Report</a></p>)

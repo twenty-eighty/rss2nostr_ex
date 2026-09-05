@@ -56,7 +56,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
           {:ok, Blossom.upload_result()} | {:error, term()}
   def upload_from_url(image_url, opts \\ []) do
     image_url
-    |> ImageExtractor.download_urls()
+    |> ImageExtractor.download_urls(opts[:base_url])
     |> Enum.reduce_while({:error, {:download_failed, :no_url}}, fn url, _acc ->
       kind = download_kind(url)
       Logger.info("Downloading #{kind} from #{url}")

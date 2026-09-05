@@ -296,6 +296,29 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
   end
 
   describe "extract_and_store/1 pdf" do
+    test "resolves a root-relative PDF against the article URL", %{source: source} do
+      post = create_test_post(source, "<p>x</p>")
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          source_url: "https://www.thefire.org/research-learn/scholars-under-fire",
+          content:
+            "[PDF](/sites/default/files/2023/04/Scholars%20Under%20Fire%20-%20Attempts%20to%20Sanction%20Scholars%20from%202000%20to%202022.pdf)"
+        })
+
+      {:ok, post, count} = ImageExtractor.extract_and_store(post)
+
+      assert count == 1
+
+      resolved =
+        "https://www.thefire.org/sites/default/files/2023/04/Scholars%20Under%20Fire%20-%20Attempts%20to%20Sanction%20Scholars%20from%202000%20to%202022.pdf"
+
+      assert post.content =~ resolved
+      refute post.content =~ "](/sites/default/files/"
+      urls = Enum.map(Posts.list_images_for_post(post.id), & &1.original_url)
+      assert resolved in urls
+    end
+
     test "stores a PDF file link from markdown", %{source: source} do
       post = create_test_post(source, "<p>x</p>")
 
@@ -399,6 +422,15 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
       assert hd(urls) == origin
       assert Enum.any?(urls, &String.starts_with?(&1, "https://substackcdn.com/image/fetch/"))
       assert Enum.any?(urls, &String.contains?(&1, "https%3A%2F%2Fbucketeer"))
+    end
+
+    test "resolves a root-relative file against a base and omits the raw path" do
+      path = "/sites/default/files/2023/04/report.pdf"
+      base = "https://www.thefire.org/research-learn/scholars-under-fire"
+
+      urls = ImageExtractor.download_urls(path, base)
+
+      assert urls == ["https://www.thefire.org/sites/default/files/2023/04/report.pdf"]
     end
 
     test "does not wrap a URL that is already on the Substack CDN" do

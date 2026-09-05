@@ -104,7 +104,10 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     targets = pending_image_records(post)
 
     Enum.reduce(targets, {post, mapping, []}, fn image, {post, mapping, errors} ->
-      case Blossom.upload_from_url(image.original_url, signer: open_signer) do
+      case Blossom.upload_from_url(image.original_url,
+             signer: open_signer,
+             base_url: post.source_url
+           ) do
         {:ok, result} ->
           {:ok, updated} =
             Posts.mark_image_uploaded(
@@ -167,7 +170,10 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     featured =
       if present?(post.image) and not MapSet.member?(known, post.image) and
            is_nil(mapping_or_hosted(post.image, existing)) do
-        case Posts.create_image(%{post_id: post.id, original_url: post.image}) do
+        case Posts.create_image(%{
+               post_id: post.id,
+               original_url: ImageExtractor.resolve_url(post.image, post.source_url)
+             }) do
           {:ok, image} -> [image]
           {:error, _} -> []
         end

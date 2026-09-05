@@ -1,6 +1,8 @@
 defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
   @moduledoc false
 
+  alias Rss2Nostr.Processing.ImageExtractor
+
   @fa_brand_cdn "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands"
 
   @fa_networks [
@@ -68,20 +70,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
   def normalize_href(_), do: nil
 
   @spec resolve_against_base(String.t(), String.t() | nil) :: String.t()
-  def resolve_against_base(href, base)
-      when is_binary(href) and is_binary(base) and base != "" do
-    case URI.parse(base) do
-      %URI{scheme: scheme, host: host} when scheme in ["http", "https"] and is_binary(host) ->
-        base |> URI.merge(href) |> URI.to_string()
-
-      _ ->
-        href
-    end
-  rescue
-    _ -> href
+  def resolve_against_base(href, base) do
+    ImageExtractor.resolve_url(href, base)
   end
-
-  def resolve_against_base(href, _), do: href
 
   @spec ensure_absolute_url(String.t()) :: String.t()
   def ensure_absolute_url(url) when is_binary(url) do

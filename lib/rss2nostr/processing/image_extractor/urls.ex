@@ -17,6 +17,29 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
 
   def normalize(nil), do: ""
 
+  @spec resolve(String.t() | nil, String.t() | nil) :: String.t()
+  def resolve(url, base)
+  def resolve(url, _base) when url in [nil, ""], do: url || ""
+
+  def resolve(url, base) when is_binary(url) and is_binary(base) and base != "" do
+    url = url |> String.trim() |> String.replace(" ", "%20")
+    origin = normalize(url)
+
+    cond do
+      valid?(origin) ->
+        origin
+
+      root_relative?(url) ->
+        merge_base(base, url) || url
+
+      true ->
+        origin
+    end
+  end
+
+  def resolve(url, _base) when is_binary(url), do: normalize(url)
+  def resolve(url, _), do: url || ""
+
   @spec display(String.t() | nil) :: String.t()
   def display(url) when is_binary(url) do
     origin = normalize(url)
@@ -35,17 +58,19 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
 
   def display(nil), do: ""
 
-  @spec download_urls(String.t() | nil) :: [String.t()]
-  def download_urls(url) when is_binary(url) do
+  @spec download_urls(String.t() | nil, String.t() | nil) :: [String.t()]
+  def download_urls(url, base \\ nil)
+  def download_urls(url, base) when is_binary(url) do
     url = String.trim(url)
-    origin = normalize(url)
+    resolved = resolve(url, base)
+    origin = normalize(resolved)
 
-    [url, origin, substack_cdn_url(origin)]
-    |> Enum.reject(&(&1 in [nil, ""]))
+    [url, resolved, origin, substack_cdn_url(origin)]
+    |> Enum.filter(&valid?/1)
     |> Enum.uniq()
   end
 
-  def download_urls(_), do: []
+  def download_urls(_, _), do: []
 
   @spec valid?(String.t() | nil) :: boolean()
   def valid?(nil), do: false
@@ -89,6 +114,24 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
     |> Path.extname()
     |> String.downcase()
     |> String.trim_leading(".")
+  end
+
+  @spec root_relative?(String.t()) :: boolean()
+  defp root_relative?(url) do
+    String.starts_with?(url, "/") and not String.starts_with?(url, "//")
+  end
+
+  @spec merge_base(String.t(), String.t()) :: String.t() | nil
+  defp merge_base(base, url) do
+    case URI.parse(base) do
+      %URI{scheme: scheme, host: host} when scheme in ["http", "https"] and is_binary(host) ->
+        base |> URI.merge(url) |> URI.to_string()
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
   end
 
   @spec prefix_protocol_relative(String.t()) :: String.t()
