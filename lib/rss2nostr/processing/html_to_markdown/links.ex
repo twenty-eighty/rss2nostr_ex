@@ -63,7 +63,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
     |> case do
       "" -> nil
       "mailto:" <> rest -> "mailto:" <> normalize_mailto_target(rest)
-      url -> String.replace(url, " ", "%20")
+      url -> ImageExtractor.resolve_url(url, nil)
     end
   end
 

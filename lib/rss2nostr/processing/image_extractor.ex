@@ -144,6 +144,9 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   @spec resolve_url(String.t() | nil, String.t() | nil) :: String.t()
   def resolve_url(url, base), do: Urls.resolve(url, base)
 
+  @spec encode_http_url(String.t() | nil) :: String.t()
+  def encode_http_url(url), do: Urls.encode_http_url(url)
+
   @spec download_urls(String.t() | nil, String.t() | nil) :: [String.t()]
   def download_urls(url, base \\ nil), do: Urls.download_urls(url, base)
 

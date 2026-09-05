@@ -22,22 +22,22 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
   def resolve(url, _base) when url in [nil, ""], do: url || ""
 
   def resolve(url, base) when is_binary(url) and is_binary(base) and base != "" do
-    url = url |> String.trim() |> String.replace(" ", "%20")
+    url = encode_http_url(String.trim(url))
     origin = normalize(url)
 
     cond do
       valid?(origin) ->
-        origin
+        encode_http_url(origin)
 
       root_relative?(url) ->
-        merge_base(base, url) || url
+        encode_http_url(merge_base(base, url) || url)
 
       true ->
-        origin
+        encode_http_url(origin)
     end
   end
 
-  def resolve(url, _base) when is_binary(url), do: normalize(url)
+  def resolve(url, _base) when is_binary(url), do: encode_http_url(normalize(url))
   def resolve(url, _), do: url || ""
 
   @spec display(String.t() | nil) :: String.t()
@@ -66,11 +66,44 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
     origin = normalize(resolved)
 
     [url, resolved, origin, substack_cdn_url(origin)]
+    |> Enum.map(&encode_http_url/1)
     |> Enum.filter(&valid?/1)
     |> Enum.uniq()
   end
 
   def download_urls(_, _), do: []
+
+  @doc """
+  Percent-encodes characters that are illegal in an HTTP request target
+  (notably spaces). Leaves already-valid paths alone so CDN URLs that
+  contain commas or colons are not rewritten.
+  """
+  @spec encode_http_url(String.t() | nil) :: String.t()
+  def encode_http_url(url) when url in [nil, ""], do: url || ""
+
+  def encode_http_url(url) when is_binary(url) do
+    case URI.parse(String.trim(url)) do
+      %URI{scheme: scheme, host: host, path: path} = uri
+      when scheme in ["http", "https"] and is_binary(host) and is_binary(path) ->
+        URI.to_string(%{uri | path: encode_path(path)})
+
+      _ ->
+        # Root-relative paths used before merge still need spaces escaped.
+        String.replace(url, " ", "%20")
+    end
+  rescue
+    _ -> url
+  end
+
+  @spec encode_path(String.t()) :: String.t()
+  defp encode_path(path) do
+    # Only fix characters Mint rejects (` ` and other CTL/DEL). Do not
+    # re-encode reserved path punctuation (`,`, `:`, …) already used by CDNs.
+    String.replace(path, ~r/[\x00-\x20\x7F]/u, fn
+      " " -> "%20"
+      <<c::utf8>> -> "%" <> Base.encode16(<<c>>, case: :upper)
+    end)
+  end
 
   @spec valid?(String.t() | nil) :: boolean()
   def valid?(nil), do: false

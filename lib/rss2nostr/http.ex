@@ -2,6 +2,7 @@ defmodule Rss2Nostr.HTTP do
   @moduledoc false
 
   alias Rss2Nostr.HTTP.SafeURL
+  alias Rss2Nostr.Processing.ImageExtractor.Urls, as: MediaUrls
 
   @user_agent "RSS2Nostr/0.1 (Elixir)"
   @max_redirects 3
@@ -55,11 +56,11 @@ defmodule Rss2Nostr.HTTP do
 
   @spec request(keyword()) :: {:ok, response()} | {:error, Exception.t() | atom()}
   defp request(opts) do
-    url = Keyword.fetch!(opts, :url)
+    url = opts |> Keyword.fetch!(:url) |> MediaUrls.encode_http_url()
 
     case SafeURL.validate(url) do
       :ok ->
-        do_request(opts)
+        do_request(Keyword.put(opts, :url, url))
 
       {:error, reason} ->
         {:error, reason}
@@ -87,7 +88,10 @@ defmodule Rss2Nostr.HTTP do
 
     request =
       Req.new(req_opts)
-      |> Req.Request.prepend_request_steps(ssrf_check: &ssrf_check/1)
+      |> Req.Request.prepend_request_steps(
+        encode_url: &encode_url/1,
+        ssrf_check: &ssrf_check/1
+      )
 
     case Req.request(request) do
       {:ok, %Req.Response{} = response} ->
@@ -99,6 +103,13 @@ defmodule Rss2Nostr.HTTP do
   rescue
     exception in [ArgumentError] ->
       {:error, exception}
+  end
+
+  # Re-encode after each redirect: some servers put literal spaces in Location.
+  @spec encode_url(Req.Request.t()) :: Req.Request.t()
+  defp encode_url(%Req.Request{url: %URI{} = uri} = request) do
+    encoded = uri |> URI.to_string() |> MediaUrls.encode_http_url() |> URI.parse()
+    %{request | url: encoded}
   end
 
   @spec ssrf_check(Req.Request.t()) :: Req.Request.t()

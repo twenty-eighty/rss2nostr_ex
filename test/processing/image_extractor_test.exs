@@ -433,6 +433,18 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
       assert urls == ["https://www.thefire.org/sites/default/files/2023/04/report.pdf"]
     end
 
+    test "encodes spaces in PDF paths for HTTP downloads" do
+      spaced =
+        "http://www.mediatenor.com/images/library/reports/Freiheitsindex_2023.indd - Freiheitsindex_2023_web.pdf"
+
+      encoded =
+        "http://www.mediatenor.com/images/library/reports/Freiheitsindex_2023.indd%20-%20Freiheitsindex_2023_web.pdf"
+
+      assert ImageExtractor.encode_http_url(spaced) == encoded
+      assert ImageExtractor.encode_http_url(encoded) == encoded
+      assert ImageExtractor.download_urls(spaced) == [encoded]
+    end
+
     test "does not wrap a URL that is already on the Substack CDN" do
       cdn =
         "https://substackcdn.com/image/fetch/w_56,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fbucketeer-e05bbc84-baa3-437e-9518-adb32be77984.s3.amazonaws.com%2Fpublic%2Fimages%2Fa8e73950-03bb-4589-afaf-d9cdd55ab61b_500x500.png"
