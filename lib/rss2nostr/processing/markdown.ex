@@ -106,6 +106,29 @@ defmodule Rss2Nostr.Processing.Markdown do
 
   @spec footnote_def_html(block()) :: String.t()
   defp footnote_def_html(lines) do
+    {parts, acc} =
+      Enum.reduce(lines, {[], []}, fn line, {parts, acc} ->
+        cond do
+          hr?(line) ->
+            {parts ++ flush_footnote(acc) ++ ["<hr>"], []}
+
+          footnote_def?(line) and acc != [] ->
+            {parts ++ flush_footnote(acc), [line]}
+
+          true ->
+            {parts, acc ++ [line]}
+        end
+      end)
+
+    Enum.join(parts ++ flush_footnote(acc), "\n")
+  end
+
+  @spec flush_footnote(block()) :: [String.t()]
+  defp flush_footnote([]), do: []
+  defp flush_footnote(lines), do: [one_footnote_html(lines)]
+
+  @spec one_footnote_html(block()) :: String.t()
+  defp one_footnote_html(lines) do
     text = lines |> Enum.join("\n") |> String.trim()
 
     case Regex.run(~r/^\[\^(\d+)\]:\s*(.*)/s, text) do

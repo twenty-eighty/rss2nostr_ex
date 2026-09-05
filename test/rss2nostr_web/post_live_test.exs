@@ -181,6 +181,24 @@ defmodule Rss2NostrWeb.PostLiveTest do
       assert html =~ "btn-active"
     end
 
+    test "shows skipped filter and skip controls", %{conn: conn} do
+      {_source, post} = create_test_post()
+
+      {:ok, post} = Posts.update_post(post, %{title: "Skip From Index"})
+
+      html = page(conn, "/posts")
+      assert html =~ "Skipped"
+      assert html =~ "Skip selected"
+      assert html =~ "Unskip selected"
+      assert html =~ "Skip"
+
+      {:ok, _} = Posts.skip_post(post)
+      skipped = page(conn, "/posts?status=7")
+      assert skipped =~ post.title
+      assert skipped =~ "Unskip"
+      refute skipped =~ "Publish to"
+    end
+
     test "lets pending-image posts be selected for reprocess", %{conn: conn} do
       {_source, post} = create_test_post()
 
@@ -296,6 +314,19 @@ defmodule Rss2NostrWeb.PostLiveTest do
       html = page(conn, "/posts/#{post.id}")
 
       assert html =~ "process" or html =~ "Process" or html =~ "publish" or html =~ "Publish"
+    end
+
+    test "offers skip and unskip on the article page", %{conn: conn} do
+      {_source, post} = create_test_post()
+
+      html = page(conn, "/posts/#{post.id}")
+      assert html =~ "Skip publishing"
+
+      {:ok, _} = Posts.skip_post(post)
+      skipped = page(conn, "/posts/#{post.id}")
+      assert skipped =~ "Unskip"
+      refute skipped =~ "Publish to"
+      refute skipped =~ ">Process<"
     end
 
     test "shows published hashtags without source exclusions", %{conn: conn} do

@@ -3,15 +3,16 @@ defmodule Rss2Nostr.Processing.Sites do
   Site-specific HTML rewrites applied before generic Markdown conversion.
 
   Adapters run only when the article URL or body selector matches that
-  site, so Word footnotes, WATCH ON rows, or embed cards on one
-  publisher do not change conversion for others.
+  site (except Word / WordPress footnotes, which match `#_ftn` / `#_edn`
+  and Footnotes Made Easy markup wherever they appear).
   """
 
-  alias Rss2Nostr.Processing.Sites.{Corbett, Substack}
+  alias Rss2Nostr.Processing.Sites.{Corbett, Substack, WordFootnotes, WpFootnotes}
 
-  @adapters [Corbett, Substack]
+  @adapters [WordFootnotes, WpFootnotes, Corbett, Substack]
 
-  @spec preprocess(String.t() | nil, keyword() | %{optional(atom()) => term()}) :: String.t() | nil
+  @spec preprocess(String.t() | nil, keyword() | %{optional(atom()) => term()}) ::
+          String.t() | nil
   def preprocess(html, opts \\ [])
   def preprocess(html, _opts) when html in [nil, ""], do: html
 

@@ -57,7 +57,7 @@ defmodule Rss2Nostr.Posts.Post do
     @status_signed => "signed",
     @status_publishing => "publishing",
     @status_published => "published",
-    @status_blocked => "blocked",
+    @status_blocked => "skipped",
     @status_error => "error",
     @status_pending_images => "pending_images"
   }
@@ -66,11 +66,19 @@ defmodule Rss2Nostr.Posts.Post do
     @status_pending_images => "pending images"
   }
 
+  @skippable_statuses [@status_new, @status_processed, @status_pending_images, @status_error]
+
   @spec status_name(integer()) :: String.t()
   def status_name(status), do: Map.get(@status_names, status, "unknown")
 
   @spec status_label(integer()) :: String.t()
   def status_label(status), do: Map.get(@status_labels, status, status_name(status))
+
+  @spec skippable?(t()) :: boolean()
+  def skippable?(%__MODULE__{status: status}), do: status in @skippable_statuses
+
+  @spec skipped?(t()) :: boolean()
+  def skipped?(%__MODULE__{status: status}), do: status == @status_blocked
 
   schema "posts" do
     field(:article_identifier, :string)

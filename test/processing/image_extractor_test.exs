@@ -235,6 +235,30 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
     end
   end
 
+  describe "extract_pdf/1" do
+    test "extracts markdown PDF links and ignores pages and images" do
+      markdown = """
+      ![Cover](https://example.com/cover.jpg)
+
+      [Meckel_hetzt](https://einfachkompliziert.de/wp-content/uploads/2025/10/Meckel_hetzt_Wolfgang_Stoelzle_05.10.25-1.pdf)
+
+      [Herunterladen](https://einfachkompliziert.de/wp-content/uploads/2025/10/Meckel_hetzt_Wolfgang_Stoelzle_05.10.25-1.pdf)
+
+      [Audio](https://www.corbettreport.com/mp3/episode506_reading.mp3)
+      """
+
+      urls = Enum.map(ImageExtractor.extract_pdf(markdown), & &1.url)
+
+      assert urls == [
+               "https://einfachkompliziert.de/wp-content/uploads/2025/10/Meckel_hetzt_Wolfgang_Stoelzle_05.10.25-1.pdf"
+             ]
+    end
+
+    test "returns empty list when there is no PDF" do
+      assert ImageExtractor.extract_pdf("[Read](https://einfachkompliziert.de/article/)") == []
+    end
+  end
+
   describe "extract_and_store/1 audio" do
     test "stores an audio file link from markdown", %{source: source} do
       post = create_test_post(source, "<p>x</p>")
@@ -268,6 +292,26 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
 
       assert created == 0
       assert length(Posts.list_images_for_post(post.id)) == 1
+    end
+  end
+
+  describe "extract_and_store/1 pdf" do
+    test "stores a PDF file link from markdown", %{source: source} do
+      post = create_test_post(source, "<p>x</p>")
+
+      pdf =
+        "https://einfachkompliziert.de/wp-content/uploads/2025/10/Meckel_hetzt_Wolfgang_Stoelzle_05.10.25-1.pdf"
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          content: "[Meckel_hetzt](#{pdf}) [Herunterladen](#{pdf})"
+        })
+
+      {:ok, _post, count} = ImageExtractor.extract_and_store(post)
+
+      assert count == 1
+      urls = Enum.map(Posts.list_images_for_post(post.id), & &1.original_url)
+      assert pdf in urls
     end
   end
 

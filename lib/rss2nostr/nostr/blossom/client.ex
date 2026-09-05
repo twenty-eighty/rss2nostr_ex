@@ -73,6 +73,9 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
               ImageExtractor.video_url?(url) and not video_content?(content_type) ->
                 "video/mp4"
 
+              ImageExtractor.pdf_url?(url) and not pdf_content?(content_type) ->
+                "application/pdf"
+
               true ->
                 content_type
             end
@@ -153,6 +156,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
       ".ogg" -> "audio/ogg"
       ".opus" -> "audio/opus"
       ".wav" -> "audio/wav"
+      ".pdf" -> "application/pdf"
       _ -> "application/octet-stream"
     end
   end
@@ -370,13 +374,15 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     cond do
       ImageExtractor.video_url?(url) -> "video"
       ImageExtractor.audio_url?(url) -> "audio"
+      ImageExtractor.pdf_url?(url) -> "pdf"
       true -> "image"
     end
   end
 
   @spec download_timeout(String.t()) :: non_neg_integer()
   defp download_timeout(url) do
-    if ImageExtractor.audio_url?(url) or ImageExtractor.video_url?(url) do
+    if ImageExtractor.audio_url?(url) or ImageExtractor.video_url?(url) or
+         ImageExtractor.pdf_url?(url) do
       @audio_download_ms
     else
       @image_download_ms
@@ -386,7 +392,8 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
   @spec upload_timeout(String.t(), non_neg_integer()) :: non_neg_integer()
   defp upload_timeout(content_type, byte_size) when is_integer(byte_size) and byte_size > 0 do
     base =
-      if audio_content?(content_type) or video_content?(content_type) do
+      if audio_content?(content_type) or video_content?(content_type) or
+           pdf_content?(content_type) do
         @audio_upload_ms
       else
         @image_upload_ms
@@ -411,6 +418,13 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
   end
 
   defp video_content?(_), do: false
+
+  @spec pdf_content?(term()) :: boolean()
+  defp pdf_content?(type) when is_binary(type) do
+    normalize_content_type(type) == "application/pdf"
+  end
+
+  defp pdf_content?(_), do: false
 
   @spec familiar_blob_url(String.t()) :: String.t()
   defp familiar_blob_url(url) when is_binary(url) do
@@ -487,10 +501,16 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
           "audio/ogg" -> ".ogg"
           "audio/opus" -> ".opus"
           "audio/wav" -> ".wav"
+          "application/pdf" -> ".pdf"
           _ -> ".bin"
         end
 
-      prefix = if String.starts_with?(content_type, "audio/"), do: "audio", else: "image"
+      prefix =
+        cond do
+          String.starts_with?(content_type, "audio/") -> "audio"
+          content_type == "application/pdf" -> "file"
+          true -> "image"
+        end
       "#{prefix}_#{System.system_time(:second)}#{ext}"
     end
   end

@@ -113,6 +113,70 @@ defmodule Rss2Nostr.Web.API.Posts do
      }}
   end
 
+  @spec skip(String.t()) :: {:ok, Post.t()} | {:error, atom() | String.t()}
+  def skip(id) do
+    with {:ok, post_id} <- parse_id(id),
+         %Post{} = post <- Posts.get_post(post_id) do
+      case Posts.skip_post(post) do
+        {:ok, post} -> {:ok, post}
+        {:error, :not_skippable} -> {:error, "Post cannot be skipped in this status"}
+        {:error, changeset} -> {:error, changeset}
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, :invalid_id} -> {:error, :invalid_id}
+    end
+  end
+
+  @spec unskip(String.t()) :: {:ok, Post.t()} | {:error, atom() | String.t()}
+  def unskip(id) do
+    with {:ok, post_id} <- parse_id(id),
+         %Post{} = post <- Posts.get_post(post_id) do
+      case Posts.unskip_post(post) do
+        {:ok, post} -> {:ok, post}
+        {:error, :not_skipped} -> {:error, "Post is not skipped"}
+        {:error, changeset} -> {:error, changeset}
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, :invalid_id} -> {:error, :invalid_id}
+    end
+  end
+
+  @spec skip_selected(map()) :: {:ok, map()}
+  def skip_selected(params) do
+    ids = List.wrap(params["post_ids"] || params["post_ids[]"] || [])
+
+    results =
+      ids
+      |> Posts.get_posts()
+      |> Enum.filter(&Post.skippable?/1)
+      |> Enum.map(&Posts.skip_post/1)
+
+    {:ok,
+     %{
+       skipped: Enum.count(results, &match?({:ok, _}, &1)),
+       errors: Enum.count(results, &match?({:error, _}, &1))
+     }}
+  end
+
+  @spec unskip_selected(map()) :: {:ok, map()}
+  def unskip_selected(params) do
+    ids = List.wrap(params["post_ids"] || params["post_ids[]"] || [])
+
+    results =
+      ids
+      |> Posts.get_posts()
+      |> Enum.filter(&Post.skipped?/1)
+      |> Enum.map(&Posts.unskip_post/1)
+
+    {:ok,
+     %{
+       unskipped: Enum.count(results, &match?({:ok, _}, &1)),
+       errors: Enum.count(results, &match?({:error, _}, &1))
+     }}
+  end
+
   @spec publish_posts([Post.t()]) :: {:ok, map()} | {:error, atom() | String.t()}
   def publish_posts([]), do: {:error, "No posts selected"}
 
@@ -223,6 +287,9 @@ defmodule Rss2Nostr.Web.API.Posts do
   @spec require_ready(Post.t()) :: {:ok, Post.t()} | {:error, String.t()}
   defp require_ready(post) do
     cond do
+      Post.skipped?(post) ->
+        {:error, "Post is skipped"}
+
       post.status == Post.status_published() and not Blossom.pending_images?(post) ->
         {:ok, post}
 
@@ -325,6 +392,7 @@ defmodule Rss2Nostr.Web.API.Posts do
       processed: Posts.count_posts_by_status(Post.status_processed()),
       pending_images: Posts.count_posts_by_status(Post.status_pending_images()),
       published: Posts.count_posts_by_status(Post.status_published()),
+      skipped: Posts.count_posts_by_status(Post.status_blocked()),
       error: Posts.count_posts_by_status(Post.status_error())
     }
   end
@@ -365,6 +433,12 @@ defmodule Rss2Nostr.Web.API.Posts do
 
       "published" ->
         Post.status_published()
+
+      "skipped" ->
+        Post.status_blocked()
+
+      "blocked" ->
+        Post.status_blocked()
 
       "error" ->
         Post.status_error()

@@ -11,7 +11,8 @@ defmodule Rss2NostrWeb.PostShowLive do
   alias Rss2Nostr.Web.API.Posts, as: PostsAPI
 
   @impl true
-  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
   def mount(%{"id" => id}, _session, socket) do
     case fetch_post(id) do
       {:ok, post} ->
@@ -34,7 +35,8 @@ defmodule Rss2NostrWeb.PostShowLive do
   end
 
   @impl true
-  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(_params, _uri, %{assigns: %{post: nil}} = socket) do
     {:noreply, socket}
   end
@@ -50,7 +52,8 @@ defmodule Rss2NostrWeb.PostShowLive do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("set_tab", %{"tab" => tab}, socket)
       when tab in ["article", "preview", "event"] do
     {:noreply, assign(socket, :tab, tab)}
@@ -99,8 +102,27 @@ defmodule Rss2NostrWeb.PostShowLive do
      |> start_async(:publish, fn -> PostsAPI.publish(id) end)}
   end
 
+  def handle_event("skip", _params, socket) do
+    run_action(
+      socket,
+      :skip,
+      fn -> PostsAPI.skip(to_string(socket.assigns.post.id)) end,
+      "Skipped"
+    )
+  end
+
+  def handle_event("unskip", _params, socket) do
+    run_action(
+      socket,
+      :unskip,
+      fn -> PostsAPI.unskip(to_string(socket.assigns.post.id)) end,
+      "Restored from skipped"
+    )
+  end
+
   @impl true
-  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:action, {:ok, {:ok, _post}}, socket) do
     {:ok, post} = fetch_post(socket.assigns.post.id)
     message = socket.assigns[:action_notice] || "Done"
@@ -334,6 +356,8 @@ defmodule Rss2NostrWeb.PostShowLive do
       |> assign(:staging?, status == Post.status_processed())
       |> assign(:published?, status == Post.status_published())
       |> assign(:error?, status == Post.status_error())
+      |> assign(:skippable?, Post.skippable?(assigns.post))
+      |> assign(:skipped?, Post.skipped?(assigns.post))
 
     ~H"""
     <button
@@ -408,6 +432,24 @@ defmodule Rss2NostrWeb.PostShowLive do
     >
       Retry processing
     </button>
+    <button
+      :if={@skippable?}
+      type="button"
+      class="btn btn-secondary"
+      phx-click="skip"
+      disabled={@busy}
+    >
+      Skip publishing
+    </button>
+    <button
+      :if={@skipped?}
+      type="button"
+      class="btn btn-primary"
+      phx-click="unskip"
+      disabled={@busy}
+    >
+      Unskip
+    </button>
     """
   end
 
@@ -435,9 +477,9 @@ defmodule Rss2NostrWeb.PostShowLive do
 
     ~H"""
     <div :if={@show?} class="post-content" style="margin-top: 1.5rem">
-      <h3>Images and audio</h3>
+      <h3>Images and files</h3>
       <p class="help-text">
-        Staging articles must have the featured image and every referenced image or audio file uploaded.
+        Staging articles must have the featured image and every referenced image, audio, or PDF file uploaded.
       </p>
       <table class="table">
         <thead>
@@ -471,7 +513,8 @@ defmodule Rss2NostrWeb.PostShowLive do
     """
   end
 
-  @spec assign_post(Phoenix.LiveView.Socket.t(), Rss2Nostr.Posts.Post.t()) :: Phoenix.LiveView.Socket.t()
+  @spec assign_post(Phoenix.LiveView.Socket.t(), Rss2Nostr.Posts.Post.t()) ::
+          Phoenix.LiveView.Socket.t()
   defp assign_post(socket, post) do
     socket
     |> assign(:post, post)
@@ -492,7 +535,8 @@ defmodule Rss2NostrWeb.PostShowLive do
     }
   end
 
-  @spec run_action(Phoenix.LiveView.Socket.t(), atom(), (-> term()), String.t() | nil) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec run_action(Phoenix.LiveView.Socket.t(), atom(), (-> term()), String.t() | nil) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   defp run_action(socket, _name, fun, notice \\ nil) do
     {:noreply,
      socket

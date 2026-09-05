@@ -247,13 +247,14 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
       |> Floki.find("meta[property='og:site_name']")
       |> Floki.attribute("content")
       |> List.first()
+      |> decode_entities()
       |> blank_to_nil()
 
     title =
       doc
       |> Floki.find("title")
       |> Floki.text()
-      |> String.trim()
+      |> decode_entities()
       |> blank_to_nil()
 
     og || title
@@ -264,7 +265,13 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     rel = link |> Floki.attribute("rel") |> List.first() || ""
     type = link |> Floki.attribute("type") |> List.first() || ""
     href = link |> Floki.attribute("href") |> List.first()
-    title = link |> Floki.attribute("title") |> List.first() |> blank_to_nil()
+
+    title =
+      link
+      |> Floki.attribute("title")
+      |> List.first()
+      |> decode_entities()
+      |> blank_to_nil()
 
     rels = rel |> String.downcase() |> String.split(~r/\s+/, trim: true)
     type_lower = String.downcase(type)
@@ -275,8 +282,11 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
 
       "alternate" in rels and feed_mime?(type_lower) ->
         case resolve_url(base_url, href) do
-          {:ok, url} -> [%{url: url, title: title, type: type_from_mime(type_lower), language: nil}]
-          _ -> []
+          {:ok, url} ->
+            [%{url: url, title: title, type: type_from_mime(type_lower), language: nil}]
+
+          _ ->
+            []
         end
 
       true ->
@@ -329,6 +339,15 @@ defmodule Rss2Nostr.Import.FeedDiscovery do
     end
   rescue
     _ -> {:error, "Invalid feed URL"}
+  end
+
+  @spec decode_entities(String.t() | nil) :: String.t() | nil
+  defp decode_entities(nil), do: nil
+
+  defp decode_entities(text) when is_binary(text) do
+    text
+    |> HtmlEntities.decode()
+    |> String.trim()
   end
 
   @spec blank_to_nil(String.t() | nil) :: String.t() | nil

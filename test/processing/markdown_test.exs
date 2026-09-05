@@ -184,6 +184,34 @@ defmodule Rss2Nostr.Processing.MarkdownTest do
     refute html =~ "[^43]"
   end
 
+  test "renders a rule after a footnote as a horizontal line" do
+    html =
+      Markdown.to_html("""
+      See.[^4]
+
+      [^4]: Note text.)
+      ---
+      """)
+
+    assert html =~ ~s|<p class="footnote" id="fn-4"><a href="#fnref-4">4</a>. Note text.)</p>|
+    assert html =~ "<hr>"
+    refute html =~ "---"
+  end
+
+  test "renders adjacent footnote definitions as separate notes" do
+    html =
+      Markdown.to_html("""
+      See.[^1] Also.[^2]
+
+      [^1]: First note.
+      [^2]: Second note.
+      """)
+
+    assert html =~ ~s(<p class="footnote" id="fn-1"><a href="#fnref-1">1</a>. First note.</p>)
+    assert html =~ ~s(<p class="footnote" id="fn-2"><a href="#fnref-2">2</a>. Second note.</p>)
+    refute html =~ "[^2]: Second note."
+  end
+
   test "renders blank lines inside a blockquote as separate paragraphs" do
     html =
       Markdown.to_html("""

@@ -422,8 +422,42 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
 
       md = HtmlToMarkdown.convert(html)
 
-      # Tables should be converted or at least preserve content
-      assert md =~ "Header 1" or md =~ "Cell 1"
+      assert md =~ "| Header 1 | Header 2 |"
+      assert md =~ "| Cell 1 | Cell 2 |"
+    end
+
+    test "converts WordPress tables wrapped in tbody and figure" do
+      html = """
+      <figure class="wp-block-table">
+        <table class="has-fixed-layout">
+          <tbody>
+            <tr><td>Autoritäre Aggression</td><td>1. First item.<br>2. Second item.</td></tr>
+            <tr><td>Gewaltneigung</td><td>4. Ready to use force.</td></tr>
+          </tbody>
+        </table>
+      </figure>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "| Autoritäre Aggression | 1. First item. 2. Second item. |"
+      assert md =~ "| Gewaltneigung | 4. Ready to use force. |"
+      assert md =~ "| --- | --- |"
+    end
+
+    test "emits a full-width colspan row as a note under the table" do
+      html = """
+      <table>
+        <tr><td>Label</td><td>Item</td></tr>
+        <tr><td colspan="2">Answer on a scale from 1 to 7.</td></tr>
+      </table>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "| Label | Item |"
+      refute md =~ "| Answer on a scale from 1 to 7. |"
+      assert md =~ "Answer on a scale from 1 to 7."
     end
 
     test "handles nested lists" do
@@ -1017,6 +1051,22 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       md = HtmlToMarkdown.convert(html)
 
       assert md =~ "See [this](https://example.com) now."
+    end
+
+    test "inserts a space between a file name link and its download button" do
+      html = """
+      <div class="wp-block-file">
+        <a href="https://example.com/a.pdf">Meckel_hetzt_Wolfgang_Stoelzle_05.10.25</a><a
+          href="https://example.com/a.pdf" class="wp-block-file__button">Herunterladen</a>
+      </div>
+      """
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~
+               "[Meckel_hetzt_Wolfgang_Stoelzle_05.10.25](https://example.com/a.pdf) [Herunterladen](https://example.com/a.pdf)"
+
+      refute md =~ ")[Herunterladen]"
     end
   end
 end

@@ -382,6 +382,30 @@ defmodule Rss2Nostr.MCP.Actions do
     end
   end
 
+  @spec skip_post(args()) :: action_result()
+  def skip_post(args) do
+    with {:ok, id} <- require_id(args, :post_id) do
+      case Posts.skip(id) do
+        {:ok, post} -> {:ok, post_summary(post)}
+        {:error, :not_found} -> {:error, "Post not found"}
+        {:error, :invalid_id} -> {:error, "Invalid post_id"}
+        {:error, reason} -> {:error, format_error(reason)}
+      end
+    end
+  end
+
+  @spec unskip_post(args()) :: action_result()
+  def unskip_post(args) do
+    with {:ok, id} <- require_id(args, :post_id) do
+      case Posts.unskip(id) do
+        {:ok, post} -> {:ok, post_summary(post)}
+        {:error, :not_found} -> {:error, "Post not found"}
+        {:error, :invalid_id} -> {:error, "Invalid post_id"}
+        {:error, reason} -> {:error, format_error(reason)}
+      end
+    end
+  end
+
   @spec scheduler_status() :: action_result()
   def scheduler_status do
     status = Scheduler.status()
@@ -513,7 +537,9 @@ defmodule Rss2Nostr.MCP.Actions do
       event_id: post.event_id,
       last_error: post.last_error,
       reprocessable: reprocessable?(post),
-      publishable: publishable?(post)
+      publishable: publishable?(post),
+      skippable: Post.skippable?(post),
+      skipped: Post.skipped?(post)
     }
   end
 
@@ -640,6 +666,8 @@ defmodule Rss2Nostr.MCP.Actions do
       "staging" -> Post.status_processed()
       "pending_images" -> Post.status_pending_images()
       "published" -> Post.status_published()
+      "skipped" -> Post.status_blocked()
+      "blocked" -> Post.status_blocked()
       "error" -> Post.status_error()
       _ -> name
     end

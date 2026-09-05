@@ -52,6 +52,7 @@ defmodule Rss2NostrWeb.LiveHelpers do
       1 -> "badge-processing"
       2 -> "badge-processed"
       6 -> "badge-published"
+      7 -> "badge-skipped"
       9 -> "badge-pending-images"
       _ -> "badge-error"
     end
@@ -271,6 +272,16 @@ defmodule Rss2NostrWeb.LiveHelpers do
     "Reprocessed #{result.processed}. Failed #{result.errors}."
   end
 
+  @spec skip_notice(%{skipped: non_neg_integer(), errors: non_neg_integer()}) :: String.t()
+  def skip_notice(result) do
+    "Skipped #{result.skipped}. Failed #{result.errors}."
+  end
+
+  @spec unskip_notice(%{unskipped: non_neg_integer(), errors: non_neg_integer()}) :: String.t()
+  def unskip_notice(result) do
+    "Restored #{result.unskipped}. Failed #{result.errors}."
+  end
+
   @spec reprocessable?(Rss2Nostr.Posts.Post.t()) :: boolean()
   def reprocessable?(%Post{} = post) do
     post.status in [Post.status_processed(), Post.status_pending_images(), Post.status_error()]
@@ -278,6 +289,15 @@ defmodule Rss2NostrWeb.LiveHelpers do
 
   @spec publishable?(Rss2Nostr.Posts.Post.t()) :: boolean()
   def publishable?(%Post{} = post), do: post.status == Post.status_processed()
+
+  @spec skippable?(Rss2Nostr.Posts.Post.t()) :: boolean()
+  def skippable?(%Post{} = post), do: Post.skippable?(post)
+
+  @spec skipped?(Rss2Nostr.Posts.Post.t()) :: boolean()
+  def skipped?(%Post{} = post), do: Post.skipped?(post)
+
+  @spec selectable_article?(Rss2Nostr.Posts.Post.t()) :: boolean()
+  def selectable_article?(%Post{} = post), do: skippable?(post) or skipped?(post)
 
   @spec join_tags(nil | [String.t()] | String.t()) :: String.t()
   def join_tags(nil), do: ""

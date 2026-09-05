@@ -14,7 +14,8 @@ defmodule Rss2NostrWeb.SourceLive do
   @tabs ~w(feed compose articles publishing)
 
   @impl true
-  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
   def mount(%{"id" => id}, _session, socket) do
     case SourcesAPI.get(id) do
       {:ok, source} ->
@@ -49,7 +50,8 @@ defmodule Rss2NostrWeb.SourceLive do
   end
 
   @impl true
-  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(_params, _uri, %{assigns: %{source: nil}} = socket) do
     {:noreply, socket}
   end
@@ -77,7 +79,8 @@ defmodule Rss2NostrWeb.SourceLive do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("save_feed", params, socket) do
     save_source(socket, Map.put(params, "tab", "feed"), :feed)
   end
@@ -226,7 +229,7 @@ defmodule Rss2NostrWeb.SourceLive do
   def handle_event("toggle_all", %{"checked" => "true"}, socket) do
     ids =
       socket.assigns.posts
-      |> Enum.filter(&reprocessable?/1)
+      |> Enum.filter(&selectable_article?/1)
       |> Enum.map(& &1.id)
       |> MapSet.new()
 
@@ -261,6 +264,30 @@ defmodule Rss2NostrWeb.SourceLive do
      end)}
   end
 
+  def handle_event("skip_selected", _params, socket) do
+    ids = selected_list(socket)
+    source = socket.assigns.source
+
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:skip, fn ->
+       SourcesAPI.skip_selected(source, %{"post_ids" => ids})
+     end)}
+  end
+
+  def handle_event("unskip_selected", _params, socket) do
+    ids = selected_list(socket)
+    source = socket.assigns.source
+
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:unskip, fn ->
+       SourcesAPI.unskip_selected(source, %{"post_ids" => ids})
+     end)}
+  end
+
   def handle_event("upload_images", %{"id" => id}, socket) do
     {:noreply,
      socket
@@ -276,7 +303,8 @@ defmodule Rss2NostrWeb.SourceLive do
   end
 
   @impl true
-  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:feed_items, {:ok, {:ok, result}}, socket) do
     items = result[:items] || result["items"] || []
 
@@ -407,6 +435,52 @@ defmodule Rss2NostrWeb.SourceLive do
      |> put_flash(:error, Exception.format_exit(reason))}
   end
 
+  def handle_async(:skip, {:ok, {:ok, result}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> assign(:selected_ids, MapSet.new())
+     |> put_flash(:info, skip_notice(result))
+     |> assign_posts()}
+  end
+
+  def handle_async(:skip, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:error, format_update_error(reason))}
+  end
+
+  def handle_async(:skip, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:error, Exception.format_exit(reason))}
+  end
+
+  def handle_async(:unskip, {:ok, {:ok, result}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> assign(:selected_ids, MapSet.new())
+     |> put_flash(:info, unskip_notice(result))
+     |> assign_posts()}
+  end
+
+  def handle_async(:unskip, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:error, format_update_error(reason))}
+  end
+
+  def handle_async(:unskip, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:error, Exception.format_exit(reason))}
+  end
+
   def handle_async(:upload, {:ok, {:ok, _post}}, socket) do
     {:noreply, socket |> assign(:busy, false) |> assign_posts()}
   end
@@ -485,7 +559,8 @@ defmodule Rss2NostrWeb.SourceLive do
     """
   end
 
-  @spec save_source(Phoenix.LiveView.Socket.t(), map(), atom() | nil) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec save_source(Phoenix.LiveView.Socket.t(), map(), atom() | nil) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   defp save_source(socket, params, form_key) do
     source = socket.assigns.source
 
@@ -517,7 +592,8 @@ defmodule Rss2NostrWeb.SourceLive do
     end
   end
 
-  @spec maybe_assign_form(Phoenix.LiveView.Socket.t(), atom(), map()) :: Phoenix.LiveView.Socket.t()
+  @spec maybe_assign_form(Phoenix.LiveView.Socket.t(), atom(), map()) ::
+          Phoenix.LiveView.Socket.t()
   defp maybe_assign_form(socket, :feed, params),
     do: assign(socket, :feed, merge_form(socket.assigns.feed, params))
 

@@ -23,7 +23,11 @@ defmodule Rss2Nostr.MCP.Server do
        "Follow list cache status (configured pubkey, count, last fetch). Optionally refresh and wait, or include member pubkeys." do
     annotations(readOnlyHint: true)
     param(:refresh, :boolean, description: "Refresh from relays and wait before returning status")
-    param(:include_members, :boolean, description: "Include sorted list of followed pubkey hex values")
+
+    param(:include_members, :boolean,
+      description: "Include sorted list of followed pubkey hex values"
+    )
+
     run(fn args, state -> reply(Actions.follow_list_status(args), state) end)
   end
 
@@ -121,7 +125,11 @@ defmodule Rss2Nostr.MCP.Server do
     param(:start_at, :string, description: "XPath marker: skip content before this block")
     param(:skip_classes, :string, description: "Comma-separated CSS class fragments to drop")
     param(:conversion_rules, :string, description: "Custom HTML conversion rules JSON")
-    param(:start_guid, :string, description: "Item guid to start importing from, or __future_only__")
+
+    param(:start_guid, :string,
+      description: "Item guid to start importing from, or __future_only__"
+    )
+
     param(:start_published_at, :string, description: "ISO-8601; skip articles older than this")
 
     param(:staging_hold_minutes, :integer,
@@ -230,7 +238,8 @@ defmodule Rss2Nostr.MCP.Server do
     annotations(readOnlyHint: true)
 
     param(:status, :string,
-      description: "new, processing, staging, processed, pending_images, published, error"
+      description:
+        "new, processing, staging, processed, pending_images, published, skipped, error"
     )
 
     param(:source_id, :integer)
@@ -288,6 +297,17 @@ defmodule Rss2Nostr.MCP.Server do
   tool "delete_post", "Delete one article" do
     param(:post_id, :integer, required: true)
     run(fn args, state -> reply(Actions.delete_post(args), state) end)
+  end
+
+  tool "skip_post",
+       "Skip publishing an article (excluded from process, export, and manual publish)" do
+    param(:post_id, :integer, required: true)
+    run(fn args, state -> reply(Actions.skip_post(args), state) end)
+  end
+
+  tool "unskip_post", "Restore a skipped article to new, pending images, or staging" do
+    param(:post_id, :integer, required: true)
+    run(fn args, state -> reply(Actions.unskip_post(args), state) end)
   end
 
   tool "scheduler_status", "Scheduler running state and last task runs" do

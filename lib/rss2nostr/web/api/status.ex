@@ -14,6 +14,7 @@ defmodule Rss2Nostr.Web.API.Status do
           processed: non_neg_integer(),
           pending_images: non_neg_integer(),
           published: non_neg_integer(),
+          skipped: non_neg_integer(),
           error: non_neg_integer()
         }
 
@@ -39,6 +40,7 @@ defmodule Rss2Nostr.Web.API.Status do
         processed: Posts.count_posts_by_status("processed"),
         pending_images: Posts.count_posts_by_status("pending_images"),
         published: Posts.count_posts_by_status("published"),
+        skipped: Posts.count_posts_by_status("skipped"),
         error: Posts.count_posts_by_status("error")
       },
       scheduler: get_scheduler_status(),

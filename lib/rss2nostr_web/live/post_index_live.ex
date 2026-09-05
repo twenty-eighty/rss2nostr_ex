@@ -11,18 +11,22 @@ defmodule Rss2NostrWeb.PostIndexLive do
   @per_page 20
 
   @impl true
-  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:ok, Phoenix.LiveView.Socket.t()} | {:ok, Phoenix.LiveView.Socket.t(), keyword()}
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(:page_title, "Posts")
      |> assign(:active_nav, "posts")
      |> assign(:busy, false)
-     |> assign(:selected_ids, MapSet.new())}
+     |> assign(:selected_ids, MapSet.new())
+     |> assign(:skippable_ids, MapSet.new())
+     |> assign(:skipped_ids, MapSet.new())}
   end
 
   @impl true
-  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(params, _uri, socket) do
     status = blank_to_nil(params["status"])
     source_id = parse_source_id(params["source_id"])
@@ -41,7 +45,8 @@ defmodule Rss2NostrWeb.PostIndexLive do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("filter", params, socket) do
     {:noreply,
      push_patch(socket,
@@ -104,6 +109,24 @@ defmodule Rss2NostrWeb.PostIndexLive do
      |> start_async(:reprocess, fn -> PostsAPI.reprocess_selected(%{"post_ids" => ids}) end)}
   end
 
+  def handle_event("skip_selected", _params, socket) do
+    ids = MapSet.to_list(socket.assigns.selected_ids)
+
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:skip, fn -> PostsAPI.skip_selected(%{"post_ids" => ids}) end)}
+  end
+
+  def handle_event("unskip_selected", _params, socket) do
+    ids = MapSet.to_list(socket.assigns.selected_ids)
+
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:unskip, fn -> PostsAPI.unskip_selected(%{"post_ids" => ids}) end)}
+  end
+
   def handle_event("process_post", %{"id" => id}, socket) do
     {:noreply,
      socket
@@ -125,8 +148,23 @@ defmodule Rss2NostrWeb.PostIndexLive do
      |> start_async(:one_publish, fn -> PostsAPI.publish(id) end)}
   end
 
+  def handle_event("skip_post", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:one, fn -> PostsAPI.skip(id) end)}
+  end
+
+  def handle_event("unskip_post", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:one, fn -> PostsAPI.unskip(id) end)}
+  end
+
   @impl true
-  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:publish, {:ok, {:ok, result}}, socket) do
     {kind, message} = publish_notice(result)
 
@@ -160,6 +198,40 @@ defmodule Rss2NostrWeb.PostIndexLive do
   end
 
   def handle_async(:reprocess, {:exit, reason}, socket) do
+    {:noreply, socket |> assign(:busy, false) |> put_flash(:error, Exception.format_exit(reason))}
+  end
+
+  def handle_async(:skip, {:ok, {:ok, result}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> assign(:selected_ids, MapSet.new())
+     |> put_flash(:info, skip_notice(result))
+     |> assign_posts()}
+  end
+
+  def handle_async(:skip, {:ok, {:error, reason}}, socket) do
+    {:noreply, socket |> assign(:busy, false) |> put_flash(:error, format_update_error(reason))}
+  end
+
+  def handle_async(:skip, {:exit, reason}, socket) do
+    {:noreply, socket |> assign(:busy, false) |> put_flash(:error, Exception.format_exit(reason))}
+  end
+
+  def handle_async(:unskip, {:ok, {:ok, result}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> assign(:selected_ids, MapSet.new())
+     |> put_flash(:info, unskip_notice(result))
+     |> assign_posts()}
+  end
+
+  def handle_async(:unskip, {:ok, {:error, reason}}, socket) do
+    {:noreply, socket |> assign(:busy, false) |> put_flash(:error, format_update_error(reason))}
+  end
+
+  def handle_async(:unskip, {:exit, reason}, socket) do
     {:noreply, socket |> assign(:busy, false) |> put_flash(:error, Exception.format_exit(reason))}
   end
 
@@ -233,6 +305,12 @@ defmodule Rss2NostrWeb.PostIndexLive do
         Published
       </.link>
       <.link
+        patch={posts_path(status: "7", source_id: @source_id, q: @q)}
+        class={["btn btn-small", @status == "7" && "btn-active"]}
+      >
+        Skipped
+      </.link>
+      <.link
         patch={posts_path(status: "8", source_id: @source_id, q: @q)}
         class={["btn btn-small", @status == "8" && "btn-active"]}
       >
@@ -276,13 +354,30 @@ defmodule Rss2NostrWeb.PostIndexLive do
       >
         Reprocess selected
       </button>
+      <button
+        type="button"
+        class="btn btn-secondary"
+        phx-click="skip_selected"
+        disabled={@busy or not @skippable?}
+      >
+        Skip selected
+      </button>
+      <button
+        type="button"
+        class="btn btn-secondary"
+        phx-click="unskip_selected"
+        disabled={@busy or not @unskippable?}
+      >
+        Unskip selected
+      </button>
       <span class="article-selection-count">
         {MapSet.size(@selected_ids)} selected
       </span>
     </div>
     <p class="help-text">
       Select all includes matching articles, not only this page. Staging articles can be published;
-      pending-images and error articles can be reprocessed. Relays come from each source: drafts use the draft list,
+      pending-images and error articles can be reprocessed. Skip keeps imported articles out of
+      process, export, and publish. Relays come from each source: drafts use the draft list,
       articles use public or test from the source flag.
     </p>
 
@@ -316,7 +411,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
           <tr :for={post <- @posts} id={"post-#{post.id}"}>
             <td class="article-select">
               <input
-                :if={reprocessable?(post)}
+                :if={selectable_article?(post)}
                 type="checkbox"
                 name="post_ids[]"
                 value={post.id}
@@ -375,6 +470,26 @@ defmodule Rss2NostrWeb.PostIndexLive do
               >
                 Retry
               </button>
+              <button
+                :if={skippable?(post)}
+                type="button"
+                class="btn btn-small"
+                phx-click="skip_post"
+                phx-value-id={post.id}
+                disabled={@busy}
+              >
+                Skip
+              </button>
+              <button
+                :if={skipped?(post)}
+                type="button"
+                class="btn btn-small"
+                phx-click="unskip_post"
+                phx-value-id={post.id}
+                disabled={@busy}
+              >
+                Unskip
+              </button>
             </td>
           </tr>
         <% end %>
@@ -423,6 +538,8 @@ defmodule Rss2NostrWeb.PostIndexLive do
 
     selectable_ids = selectable_post_ids(status, source_id, q)
     publishable_ids = MapSet.new(publishable_post_ids(status, source_id, q))
+    skippable_ids = MapSet.new(skippable_post_ids(status, source_id, q))
+    skipped_ids = MapSet.new(skipped_post_ids(status, source_id, q))
 
     socket
     |> assign(:posts, posts)
@@ -433,6 +550,8 @@ defmodule Rss2NostrWeb.PostIndexLive do
     |> assign(:per_page, @per_page)
     |> assign(:selectable_ids, selectable_ids)
     |> assign(:publishable_ids, publishable_ids)
+    |> assign(:skippable_ids, skippable_ids)
+    |> assign(:skipped_ids, skipped_ids)
     |> assign(:return_to, posts_path(status: status, source_id: source_id, q: q, page: page))
     |> assign_selection_flags()
   end
@@ -446,12 +565,22 @@ defmodule Rss2NostrWeb.PostIndexLive do
     selected = socket.assigns.selected_ids
     selectable_ids = socket.assigns.selectable_ids
     publishable_ids = socket.assigns.publishable_ids
+    skippable_ids = socket.assigns.skippable_ids
+    skipped_ids = socket.assigns.skipped_ids
 
     socket
     |> assign(:selectable?, selectable_ids != [] and MapSet.size(selected) > 0)
     |> assign(
       :publishable?,
       Enum.any?(selected, &MapSet.member?(publishable_ids, &1))
+    )
+    |> assign(
+      :skippable?,
+      Enum.any?(selected, &MapSet.member?(skippable_ids, &1))
+    )
+    |> assign(
+      :unskippable?,
+      Enum.any?(selected, &MapSet.member?(skipped_ids, &1))
     )
     |> assign(
       :all_selected?,
@@ -461,11 +590,21 @@ defmodule Rss2NostrWeb.PostIndexLive do
 
   @spec selectable_post_ids(String.t() | nil, integer() | nil, String.t() | nil) :: [integer()]
   defp selectable_post_ids(status_filter, source_id, q) do
+    skippable_post_ids(status_filter, source_id, q) ++
+      skipped_post_ids(status_filter, source_id, q)
+  end
+
+  @spec skippable_post_ids(String.t() | nil, integer() | nil, String.t() | nil) :: [integer()]
+  defp skippable_post_ids(status_filter, source_id, q) do
     cond do
       status_filter in [nil, ""] ->
-        post_ids_for(Post.status_processed(), source_id, q) ++
+        post_ids_for(Post.status_new(), source_id, q) ++
+          post_ids_for(Post.status_processed(), source_id, q) ++
           post_ids_for(Post.status_pending_images(), source_id, q) ++
           post_ids_for(Post.status_error(), source_id, q)
+
+      status_filter == "0" ->
+        post_ids_for(Post.status_new(), source_id, q)
 
       status_filter == "2" ->
         post_ids_for(Post.status_processed(), source_id, q)
@@ -478,6 +617,15 @@ defmodule Rss2NostrWeb.PostIndexLive do
 
       true ->
         []
+    end
+  end
+
+  @spec skipped_post_ids(String.t() | nil, integer() | nil, String.t() | nil) :: [integer()]
+  defp skipped_post_ids(status_filter, source_id, q) do
+    if status_filter in [nil, "", "7"] do
+      post_ids_for(Post.status_blocked(), source_id, q)
+    else
+      []
     end
   end
 

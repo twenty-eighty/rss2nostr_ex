@@ -29,7 +29,7 @@ defmodule Rss2Nostr.CLI.Commands.Status do
     Output.info("  Signed:     #{Map.get(counts, Post.status_signed(), 0)}")
     Output.info("  Publishing: #{Map.get(counts, Post.status_publishing(), 0)}")
     Output.info("  Published:  #{Map.get(counts, Post.status_published(), 0)}")
-    Output.info("  Blocked:    #{Map.get(counts, Post.status_blocked(), 0)}")
+    Output.info("  Skipped:    #{Map.get(counts, Post.status_blocked(), 0)}")
     Output.info("  Error:      #{Map.get(counts, Post.status_error(), 0)}")
 
     total = counts |> Map.values() |> Enum.sum()

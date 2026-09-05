@@ -226,9 +226,11 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
       md = convert(html, url: "https://example.substack.com/p/x")
 
       assert md =~ "[^1]: See also.\n[https://example.com/a](https://example.com/a)"
-      refute md =~ ~r/\[\^1\]:.*\n\n/s
+      refute md =~ ~r/\[\^1\]: See also\.\n\n/
       assert md =~ "[^2]: Second note."
-      assert md =~ "[^1]: See also.\n[https://example.com/a](https://example.com/a)\n[^2]: Second note."
+
+      assert md =~
+               "[^1]: See also.\n[https://example.com/a](https://example.com/a)\n\n[^2]: Second note."
     end
 
     test "keeps a footnote tweet URL on the same line as the definition marker" do
@@ -246,15 +248,17 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
       refute md =~ "European CEO"
     end
 
-    test "does not convert Word footnotes on other sites" do
+    test "converts Word footnotes on non-Substack sites" do
       html = """
       <p>investor.<a href="#_ftn43"><sup><span>[43]</span></sup></a></p>
+      <p><a href="#_ftnref43"><sup><span>[43]</span></sup></a>Merz made similar arrangements.</p>
       """
 
       md = convert(html, url: "https://www.heise.de/news/foo")
 
-      assert md =~ "[[43]](#_ftn43)"
-      refute md =~ "[^43]"
+      assert md =~ "investor.[^43]"
+      assert md =~ "[^43]: Merz made similar arrangements."
+      refute md =~ "#_ftn43"
     end
   end
 
@@ -275,7 +279,9 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
           url: "https://example.substack.com/p/der-real-existierende-surrealismus"
         )
 
-      assert md =~ "## [Warten auf Armaggodot](https://www.freischwebende-intelligenz.org/p/warten-auf-armaggodot)"
+      assert md =~
+               "## [Warten auf Armaggodot](https://www.freischwebende-intelligenz.org/p/warten-auf-armaggodot)"
+
       refute md =~ "[## Warten auf Armaggodot]"
       assert md =~ "Warten auf Godot. Zwei Männer stehen da."
       refute md =~ "Ganze Geschichte lesen"
@@ -296,7 +302,8 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
       </div>
       """
 
-      md = convert(html, url: "https://blingbling.substack.com/p/spacex-aktien-kaufen-ja-nein-oder")
+      md =
+        convert(html, url: "https://blingbling.substack.com/p/spacex-aktien-kaufen-ja-nein-oder")
 
       assert md =~
                ~r/!\[Kapitalverkehrskontrollen werden kommen\]\([^)]+9b36beca-1870-45a0-b441-14c31505bf02[^)]*\s+"Kapitalverkehrskontrollen werden kommen"\)/

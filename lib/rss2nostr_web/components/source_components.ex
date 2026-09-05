@@ -462,22 +462,27 @@ defmodule Rss2NostrWeb.SourceComponents do
 
   @spec articles_tab(map()) :: Phoenix.LiveView.Rendered.t()
   def articles_tab(assigns) do
-    selectable? = Enum.any?(assigns.posts, &reprocessable?/1)
+    selectable? = Enum.any?(assigns.posts, &selectable_article?/1)
     selected = assigns.selected_ids
     publishable_selected? = Enum.any?(assigns.posts, &(&1.id in selected and publishable?(&1)))
 
     reprocess_selected? =
-      Enum.any?(selected, fn id -> Enum.any?(assigns.posts, &(&1.id == id)) end)
+      Enum.any?(assigns.posts, &(&1.id in selected and reprocessable?(&1)))
+
+    skippable_selected? = Enum.any?(assigns.posts, &(&1.id in selected and skippable?(&1)))
+    unskippable_selected? = Enum.any?(assigns.posts, &(&1.id in selected and skipped?(&1)))
 
     all_selected? =
       selectable? and
-        Enum.all?(Enum.filter(assigns.posts, &reprocessable?/1), &(&1.id in selected))
+        Enum.all?(Enum.filter(assigns.posts, &selectable_article?/1), &(&1.id in selected))
 
     assigns =
       assigns
       |> assign(:selectable?, selectable?)
       |> assign(:publishable_selected?, publishable_selected?)
       |> assign(:reprocess_selected?, reprocess_selected?)
+      |> assign(:skippable_selected?, skippable_selected?)
+      |> assign(:unskippable_selected?, unskippable_selected?)
       |> assign(:all_selected?, all_selected?)
       |> assign(:relay_label, relay_target_name(target_for(assigns.source)))
 
@@ -502,6 +507,22 @@ defmodule Rss2NostrWeb.SourceComponents do
       >
         Reprocess selected
       </button>
+      <button
+        type="button"
+        class="btn btn-secondary"
+        phx-click="skip_selected"
+        disabled={@busy or not @skippable_selected?}
+      >
+        Skip selected
+      </button>
+      <button
+        type="button"
+        class="btn btn-secondary"
+        phx-click="unskip_selected"
+        disabled={@busy or not @unskippable_selected?}
+      >
+        Unskip selected
+      </button>
       <span class="article-selection-count">
         {MapSet.size(@selected_ids)} selected
       </span>
@@ -509,7 +530,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     <p class="help-text">
       Selected staging articles publish to the {@relay_label}. Setup never uses the public list.
       Pending-images and error articles can be reprocessed; pending articles stay pending until featured and inline images are uploaded.
-      Manual publish ignores the staging hold.
+      Skip keeps imported articles out of process, export, and publish. Manual publish ignores the staging hold.
     </p>
     <table class="table">
       <thead>
@@ -540,7 +561,7 @@ defmodule Rss2NostrWeb.SourceComponents do
           <tr :for={post <- @posts} id={"article-#{post.id}"}>
             <td class="article-select">
               <input
-                :if={reprocessable?(post)}
+                :if={selectable_article?(post)}
                 type="checkbox"
                 name="post_ids[]"
                 value={post.id}

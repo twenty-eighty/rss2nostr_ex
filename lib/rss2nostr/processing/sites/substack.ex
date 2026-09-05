@@ -5,9 +5,9 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
   * Tweet cards (`Twitter2ToDOM` / `twitter-embed`) become a lone status URL
   * Digest post embeds (`DigestPostEmbed`) become a linked thumbnail with the
     title as the image subtitle (`![alt](src "title")` → preview figcaption)
-  * Word-style `#_ftnN` / `#_ednN` (and `*ref`) anchors become Markdown footnotes
   * Native Substack `FootnoteAnchorToDOM` / `FootnoteToDOM` become Markdown footnotes
     with the note body on the same line as `[^N]:`
+  * Word-style `#_ftnN` / `#_ednN` anchors are handled by `Sites.WordFootnotes`
   """
 
   alias Rss2Nostr.Processing.HtmlToMarkdown
@@ -119,16 +119,10 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
   @spec footnote_fragment(term()) :: {:reference | :definition, String.t()} | nil
   defp footnote_fragment(frag) when is_binary(frag) do
     cond do
-      match = Regex.run(~r/^_?(?:ftnref|fnref|footnoteref|ednref|endnoteref)(\d+)$/i, frag) ->
-        {:definition, Enum.at(match, 1)}
-
       match = Regex.run(~r/^footnote-anchor-(\d+)$/i, frag) ->
         {:definition, Enum.at(match, 1)}
 
       match = Regex.run(~r/^footnote-(\d+)$/i, frag) ->
-        {:reference, Enum.at(match, 1)}
-
-      match = Regex.run(~r/^_?(?:ftn|fn|footnote|edn|endnote)(\d+)$/i, frag) ->
         {:reference, Enum.at(match, 1)}
 
       true ->
@@ -182,8 +176,7 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
 
         is_binary(href) and is_binary(image) and image != "" ->
           [
-            {"p", [],
-             [{"a", [{"href", href}], [{"img", [{"src", image}, {"alt", ""}], []}]}]}
+            {"p", [], [{"a", [{"href", href}], [{"img", [{"src", image}, {"alt", ""}], []}]}]}
           ]
 
         is_binary(href) and is_binary(title) and title != "" ->
@@ -194,7 +187,8 @@ defmodule Rss2Nostr.Processing.Sites.Substack do
       end
 
     caption_used_as_subtitle? =
-      is_binary(image) and image != "" and is_binary(subtitle) and subtitle == present_text(caption)
+      is_binary(image) and image != "" and is_binary(subtitle) and
+        subtitle == present_text(caption)
 
     blocks =
       if present_text(caption) && not caption_used_as_subtitle? do

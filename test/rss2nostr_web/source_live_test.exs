@@ -189,6 +189,8 @@ defmodule Rss2NostrWeb.SourceLiveTest do
       assert articles =~ "Publish selected"
       assert articles =~ "Import now"
       assert articles =~ "Reprocess selected"
+      assert articles =~ "Skip selected"
+      assert articles =~ "Unskip selected"
       assert articles =~ "select-all-articles"
       assert articles =~ "article-toolbar"
     end

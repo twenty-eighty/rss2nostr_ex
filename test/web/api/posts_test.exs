@@ -300,7 +300,44 @@ defmodule Rss2Nostr.Web.API.PostsTest do
       assert Map.has_key?(stats, :processing)
       assert Map.has_key?(stats, :processed)
       assert Map.has_key?(stats, :published)
+      assert Map.has_key?(stats, :skipped)
       assert Map.has_key?(stats, :error)
+    end
+  end
+
+  describe "skip/1 and unskip/1" do
+    test "skips and restores a new post", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+
+      assert {:ok, skipped} = API.skip(to_string(post.id))
+      assert skipped.status == Post.status_blocked()
+
+      listed = API.list(%{"status" => "skipped"})
+      assert Enum.any?(listed.posts, &(&1.id == post.id and &1.status == "skipped"))
+
+      assert {:ok, restored} = API.unskip(to_string(post.id))
+      assert restored.status == Post.status_new()
+    end
+
+    test "rejects publish of a skipped post", %{source: source} do
+      {:ok, post} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:status, Post.status_processed())
+          |> Map.put(:content, "Ready")
+        )
+
+      {:ok, _} = API.skip(to_string(post.id))
+      assert {:error, "Post is skipped"} = API.publish(to_string(post.id))
+    end
+
+    test "skip_selected skips matching posts", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+
+      assert {:ok, %{skipped: 1, errors: 0}} =
+               API.skip_selected(%{"post_ids" => [post.id]})
+
+      assert Posts.get_post(post.id).status == Post.status_blocked()
     end
   end
 end

@@ -2,8 +2,8 @@ defmodule Rss2Nostr.Processing.Processor do
   @moduledoc """
   Orchestrates the processing of imported posts:
   1. Converts HTML content to Markdown
-  2. Extracts images and audio file links
-  3. Uploads featured and referenced images and audio to Blossom
+  2. Extracts images, audio, and PDF file links
+  3. Uploads featured and referenced images, audio, and PDFs to Blossom
   4. Marks processed only when media is done
   """
 
@@ -60,12 +60,20 @@ defmodule Rss2Nostr.Processing.Processor do
   @doc """
   Processes a single post:
   1. Convert HTML to Markdown (unless only images remain)
-  2. Extract images and audio file links
-  3. Upload featured and referenced images and audio
+  2. Extract images, audio, and PDF file links
+  3. Upload featured and referenced images, audio, and PDFs
   4. Mark as processed only when media is done; otherwise pending images
   """
   @spec process_post(Post.t()) :: {:ok, Post.t()} | {:error, any()}
   def process_post(%Post{} = post) do
+    if Post.skipped?(post) do
+      {:error, :skipped}
+    else
+      do_process_post(post)
+    end
+  end
+
+  defp do_process_post(%Post{} = post) do
     Logger.info("Processing post: #{post.title}")
 
     try do
@@ -280,6 +288,14 @@ defmodule Rss2Nostr.Processing.Processor do
   """
   @spec reprocess_post(Post.t()) :: {:ok, Post.t()} | {:error, any()}
   def reprocess_post(%Post{} = post) do
+    if Post.skipped?(post) do
+      {:error, :skipped}
+    else
+      do_reprocess_post(post)
+    end
+  end
+
+  defp do_reprocess_post(%Post{} = post) do
     attrs = %{status: Post.status_new(), last_error: nil}
 
     attrs =

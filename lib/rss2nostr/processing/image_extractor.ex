@@ -1,6 +1,6 @@
 defmodule Rss2Nostr.Processing.ImageExtractor do
   @moduledoc """
-  Extracts images, audio, and video file links from Markdown and stores
+  Extracts images, audio, video, and PDF file links from Markdown and stores
   them for later Blossom upload.
   """
 
@@ -21,7 +21,9 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
     images =
       extract_images(post.content, post.image) ++
-        extract_audio(post.content) ++ extract_video(post.content)
+        extract_audio(post.content) ++
+        extract_video(post.content) ++
+        extract_pdf(post.content)
 
     created =
       Enum.reduce(images, 0, fn image, count ->
@@ -108,6 +110,12 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   @spec video_url?(String.t() | nil) :: boolean()
   def video_url?(url), do: Media.video_url?(url)
+
+  @spec extract_pdf(String.t() | nil) :: [image_info()]
+  def extract_pdf(content), do: Media.extract_pdf(content)
+
+  @spec pdf_url?(String.t() | nil) :: boolean()
+  def pdf_url?(url), do: Media.pdf_url?(url)
 
   @spec parse_media_caption(String.t() | nil) :: %{
           duration: integer() | nil,

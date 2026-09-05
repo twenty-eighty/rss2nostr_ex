@@ -6,7 +6,7 @@ defmodule Rss2Nostr.Posts do
   import Ecto.Query
   alias Rss2Nostr.Repo
   alias Rss2Nostr.Import.ItemIdentity
-  alias Rss2Nostr.Nostr.StagingNotify
+  alias Rss2Nostr.Nostr.{Blossom, StagingNotify}
   alias Rss2Nostr.Posts.{Post, ArticleImage}
   alias Rss2Nostr.Sources.Source
 
@@ -455,6 +455,41 @@ defmodule Rss2Nostr.Posts do
   end
 
   @doc """
+  Excludes an article from process, export, and manual publish.
+  """
+  @spec skip_post(Post.t()) :: {:ok, Post.t()} | {:error, :not_skippable | Ecto.Changeset.t()}
+  def skip_post(%Post{} = post) do
+    if Post.skippable?(post) do
+      update_post(post, %{status: Post.status_blocked(), last_error: nil})
+    else
+      {:error, :not_skippable}
+    end
+  end
+
+  @doc """
+  Restores a skipped article to new, pending images, or staging.
+  """
+  @spec unskip_post(Post.t()) :: {:ok, Post.t()} | {:error, :not_skipped | Ecto.Changeset.t()}
+  def unskip_post(%Post{} = post) do
+    cond do
+      not Post.skipped?(post) ->
+        {:error, :not_skipped}
+
+      blank_content?(post) ->
+        update_post(post, %{status: Post.status_new()})
+
+      Blossom.pending_images?(post) ->
+        mark_pending_images(post)
+
+      true ->
+        enter_staging(post)
+    end
+  end
+
+  @spec blank_content?(Post.t()) :: boolean()
+  defp blank_content?(%Post{content: content}), do: content in [nil, ""]
+
+  @doc """
   Returns post counts grouped by status.
   """
   @spec count_by_status() :: %{integer() => non_neg_integer()}
@@ -592,6 +627,9 @@ defmodule Rss2Nostr.Posts do
 
       "published" ->
         Post.status_published()
+
+      "skipped" ->
+        Post.status_blocked()
 
       "blocked" ->
         Post.status_blocked()

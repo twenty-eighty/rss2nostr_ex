@@ -28,6 +28,24 @@ defmodule Rss2Nostr.Import.FeedDiscoveryTest do
       html = "<html><head><title> Only Title </title></head></html>"
       assert FeedDiscovery.page_title(html) == "Only Title"
     end
+
+    test "decodes HTML entities in title" do
+      html =
+        "<html><head><title>einfachkompliziert &#8211; Gedanken zu Politik</title></head></html>"
+
+      assert FeedDiscovery.page_title(html) == "einfachkompliziert – Gedanken zu Politik"
+    end
+
+    test "decodes HTML entities in og:site_name" do
+      html = """
+      <html><head>
+        <title>Fallback</title>
+        <meta property="og:site_name" content="Foo &#8211; Bar">
+      </head></html>
+      """
+
+      assert FeedDiscovery.page_title(html) == "Foo – Bar"
+    end
   end
 
   describe "feeds_from_html/2" do
@@ -44,6 +62,18 @@ defmodule Rss2Nostr.Import.FeedDiscoveryTest do
              end)
 
       refute Enum.any?(feeds, &String.ends_with?(&1.url, "app.css"))
+    end
+
+    test "decodes HTML entities in feed link titles" do
+      html = """
+      <html><head>
+        <link rel="alternate" type="application/rss+xml"
+              title="News &#8211; RSS" href="/feed">
+      </head></html>
+      """
+
+      assert [%{title: "News – RSS"}] =
+               FeedDiscovery.feeds_from_html(html, "https://example.com/")
     end
   end
 

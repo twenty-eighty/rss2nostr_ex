@@ -184,6 +184,54 @@ defmodule Rss2Nostr.Web.API.Sources do
     end
   end
 
+  @spec skip_selected(Source.t() | String.t(), map()) :: {:ok, map()} | {:error, atom()}
+  def skip_selected(%Source{} = source, params) do
+    ids = selected_ids(params)
+
+    results =
+      ids
+      |> Posts.get_posts()
+      |> Enum.filter(&(&1.source_id == source.id and Post.skippable?(&1)))
+      |> Enum.map(&Posts.skip_post/1)
+
+    {:ok,
+     %{
+       skipped: Enum.count(results, &match?({:ok, _}, &1)),
+       errors: Enum.count(results, &match?({:error, _}, &1))
+     }}
+  end
+
+  def skip_selected(id, params) when is_binary(id) do
+    case get(id) do
+      {:ok, source} -> skip_selected(source, params)
+      error -> error
+    end
+  end
+
+  @spec unskip_selected(Source.t() | String.t(), map()) :: {:ok, map()} | {:error, atom()}
+  def unskip_selected(%Source{} = source, params) do
+    ids = selected_ids(params)
+
+    results =
+      ids
+      |> Posts.get_posts()
+      |> Enum.filter(&(&1.source_id == source.id and Post.skipped?(&1)))
+      |> Enum.map(&Posts.unskip_post/1)
+
+    {:ok,
+     %{
+       unskipped: Enum.count(results, &match?({:ok, _}, &1)),
+       errors: Enum.count(results, &match?({:error, _}, &1))
+     }}
+  end
+
+  def unskip_selected(id, params) when is_binary(id) do
+    case get(id) do
+      {:ok, source} -> unskip_selected(source, params)
+      error -> error
+    end
+  end
+
   @spec toggle(String.t()) ::
           {:ok, Source.t()} | {:error, :not_found | :invalid_id | Ecto.Changeset.t()}
   def toggle(id) do

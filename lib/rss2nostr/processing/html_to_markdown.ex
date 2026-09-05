@@ -172,7 +172,8 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   # Substack (and others) sometimes omit the space after </a> before the next
   # word (`</a>wurde`). Markdown then glues `](url)wurde`. Insert a space when
-  # a link/image URL closes against a following word, or a word against `[label](`.
+  # a link/image URL closes against a following word, a word against `[label](`,
+  # or two links sit next to each other (WP file name + download button).
   @spec join_markdown_chunks(String.t(), String.t()) :: String.t()
   defp join_markdown_chunks("", chunk), do: chunk
   defp join_markdown_chunks(acc, ""), do: acc
@@ -188,7 +189,8 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   @spec needs_space_between_chunks?(String.t(), String.t()) :: boolean()
   defp needs_space_between_chunks?(left, right) do
     (ends_with_md_url?(left) and starts_with_word?(right)) or
-      (ends_with_word?(left) and starts_with_md_link?(right))
+      (ends_with_word?(left) and starts_with_md_link?(right)) or
+      (ends_with_md_url?(left) and starts_with_md_link?(right))
   end
 
   @spec ends_with_md_url?(String.t()) :: boolean()
@@ -367,6 +369,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     # the note in most Markdown renderers, so any following paragraph is
     # read as article text. Pull the first line onto an empty marker,
     # then collapse remaining blank lines inside each definition.
+    # Keep a blank line *between* definitions so each stays its own note.
     |> pull_up_empty_footnote_bodies()
     |> flatten_footnote_blank_lines()
     |> String.trim()
@@ -383,11 +386,52 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
 
   @spec flatten_footnote_blank_lines(String.t()) :: String.t()
   defp flatten_footnote_blank_lines(markdown) do
+    markdown
+    |> flatten_each_footnote_body()
+    |> peel_trailing_footnote_rules()
+    |> separate_adjacent_footnote_defs()
+    |> separate_thematic_breaks()
+  end
+
+  @hr_line "(?:-{3,}|\\*{3,}|_{3,})[ \\t]*"
+
+  @spec flatten_each_footnote_body(String.t()) :: String.t()
+  defp flatten_each_footnote_body(markdown) do
+    # Stop before the next note or a thematic break so `---` stays a
+    # horizontal rule instead of joining the footnote body.
     Regex.replace(
-      ~r/^\[\^[^\]]+\]:.*(?:\n(?!\[\^[^\]]+:).*)*/m,
+      ~r/^(\[\^[^\]]+\]:)(.*?)(?=\n#{@hr_line}$|\n\[\^[^\]]+\]:|\z)/ms,
       markdown,
-      fn block -> String.replace(block, ~r/\n[ \t]*\n+/, "\n") end
+      fn _, marker, body ->
+        flat =
+          body
+          |> String.replace(~r/\n[ \t]*\n+/, "\n")
+          |> String.trim_trailing()
+
+        marker <> flat
+      end
     )
+  end
+
+  @spec peel_trailing_footnote_rules(String.t()) :: String.t()
+  defp peel_trailing_footnote_rules(markdown) do
+    Regex.replace(
+      ~r/^(\[\^[^\]]+\]:.*?)[ \t]+(#{@hr_line})$/m,
+      markdown,
+      "\\1\n\n\\2"
+    )
+  end
+
+  @spec separate_adjacent_footnote_defs(String.t()) :: String.t()
+  defp separate_adjacent_footnote_defs(markdown) do
+    String.replace(markdown, ~r/(?<!\n)\n(?=\[\^[^\]]+\]:)/, "\n\n")
+  end
+
+  @spec separate_thematic_breaks(String.t()) :: String.t()
+  defp separate_thematic_breaks(markdown) do
+    markdown
+    |> String.replace(~r/(?<!\n)\n(?=#{@hr_line}$)/m, "\n\n")
+    |> String.replace(~r/^(#{@hr_line})\n(?!\n)/m, "\\1\n\n")
   end
 
   @spec skip_element?([{String.t(), String.t()}]) :: boolean()

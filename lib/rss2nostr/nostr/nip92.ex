@@ -283,6 +283,7 @@ defmodule Rss2Nostr.Nostr.NIP92 do
       ".ogg" -> "audio/ogg"
       ".opus" -> "audio/opus"
       ".wav" -> "audio/wav"
+      ".pdf" -> "application/pdf"
       _ -> nil
     end
   end

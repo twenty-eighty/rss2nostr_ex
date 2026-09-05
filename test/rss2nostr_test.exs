@@ -35,6 +35,7 @@ defmodule Rss2NostrTest do
       assert Post.status_name(2) == "staging"
       assert Post.status_label(2) == "staging"
       assert Post.status_name(6) == "published"
+      assert Post.status_name(7) == "skipped"
       assert Post.status_name(9) == "pending_images"
       assert Post.status_label(9) == "pending images"
       assert Post.status_name(999) == "unknown"

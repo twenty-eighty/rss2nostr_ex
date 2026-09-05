@@ -622,4 +622,65 @@ defmodule Rss2Nostr.PostsTest do
       refute setup_post.id in ids
     end
   end
+
+  describe "skip_post/1 and unskip_post/1" do
+    test "skips a new post and restores it to new", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+
+      assert {:ok, skipped} = Posts.skip_post(post)
+      assert Post.skipped?(skipped)
+      assert Post.status_name(skipped.status) == "skipped"
+      refute Enum.any?(Posts.list_processable_posts(), &(&1.id == skipped.id))
+
+      assert {:ok, restored} = Posts.unskip_post(skipped)
+      assert restored.status == Post.status_new()
+    end
+
+    test "restores a skipped staging post without resetting the hold", %{source: source} do
+      earlier = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
+
+      {:ok, post} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:content, "Ready markdown")
+          |> Map.put(:status, Post.status_processed())
+          |> Map.put(:staged_at, earlier)
+        )
+
+      {:ok, skipped} = Posts.skip_post(post)
+      refute Enum.any?(Posts.list_exportable_posts(limit: 50), &(&1.id == skipped.id))
+
+      {:ok, restored} = Posts.unskip_post(skipped)
+      assert restored.status == Post.status_processed()
+      assert DateTime.compare(restored.staged_at, earlier) == :eq
+    end
+
+    test "restores a skipped pending-images post", %{source: source} do
+      {:ok, post} =
+        Posts.create_post(
+          valid_post_attrs(source.id)
+          |> Map.put(:content, "![Hero](https://cdn.example/hero.jpg)")
+          |> Map.put(:image, "https://cdn.example/hero.jpg")
+          |> Map.put(:status, Post.status_pending_images())
+        )
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: "https://cdn.example/hero.jpg"
+        })
+
+      {:ok, skipped} = Posts.skip_post(post)
+      {:ok, restored} = Posts.unskip_post(skipped)
+      assert restored.status == Post.status_pending_images()
+    end
+
+    test "rejects skip on published posts and unskip on non-skipped posts", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+      {:ok, published} = Posts.update_post(post, %{status: Post.status_published()})
+
+      assert {:error, :not_skippable} = Posts.skip_post(published)
+      assert {:error, :not_skipped} = Posts.unskip_post(post)
+    end
+  end
 end

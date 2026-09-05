@@ -66,6 +66,7 @@ defmodule Rss2Nostr.Web.Views.Assets do
       .badge-processing, .badge-pending-images, .badge-test { background: #5b4510; color: #fde68a; }
       .badge-processed { background: #14532d; color: #86efac; }
       .badge-published { background: #312e81; color: #c7d2fe; }
+      .badge-skipped { background: #3f3f46; color: #d4d4d8; }
       .badge-error { background: #7f1d1d; color: #fecaca; }
       .status-running { background: #14532d; color: #86efac; }
       .status-stopped { background: #7f1d1d; color: #fecaca; }
@@ -383,6 +384,7 @@ defmodule Rss2Nostr.Web.Views.Assets do
     .badge-processing, .badge-pending-images { background: #fef3c7; color: #92400e; }
     .badge-processed { background: #d1fae5; color: #065f46; }
     .badge-published { background: #e0e7ff; color: #3730a3; }
+    .badge-skipped { background: #e4e4e7; color: #3f3f46; }
     .badge-error { background: #fee2e2; color: #991b1b; }
     .badge-active { background: var(--success); color: var(--on-accent); }
     .badge-inactive { background: var(--gray-300); color: var(--gray-700); }

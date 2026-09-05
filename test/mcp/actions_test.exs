@@ -315,5 +315,37 @@ defmodule Rss2Nostr.MCP.ActionsTest do
     assert {:ok, staging} = Actions.get_post(%{post_id: staging_post.id})
     assert staging.reprocessable
     assert staging.publishable
+    assert staging.skippable
+    refute staging.skipped
+  end
+
+  test "skip_post and list_posts status skipped" do
+    {:ok, source} =
+      Sources.create_source(%{
+        name: "Skip MCP",
+        url: unique_url(),
+        type: "rss",
+        language: "en"
+      })
+
+    {:ok, post} =
+      Rss2Nostr.Posts.create_post(%{
+        source_id: source.id,
+        title: "Skip me",
+        source_url: "https://example.com/skip",
+        source_url_hash: Post.generate_url_hash("https://example.com/skip"),
+        status: Post.status_new()
+      })
+
+    assert {:ok, skipped} = Actions.skip_post(%{post_id: post.id})
+    assert skipped.status == "skipped"
+    assert skipped.skipped
+
+    assert {:ok, %{posts: posts}} = Actions.list_posts(%{status: "skipped"})
+    assert Enum.any?(posts, &(&1.id == post.id))
+
+    assert {:ok, restored} = Actions.unskip_post(%{post_id: post.id})
+    assert restored.status == "new"
+    refute restored.skipped
   end
 end

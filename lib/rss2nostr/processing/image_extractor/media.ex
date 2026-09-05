@@ -6,6 +6,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Media do
 
   @audio_ext ~w(mp3 m4a aac ogg opus wav)
   @video_ext ~w(mp4 m4v webm mov mkv)
+  @pdf_ext ~w(pdf)
 
   @spec audio_url?(String.t() | nil) :: boolean()
   def audio_url?(url) when is_binary(url) do
@@ -20,6 +21,13 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Media do
   end
 
   def video_url?(_), do: false
+
+  @spec pdf_url?(String.t() | nil) :: boolean()
+  def pdf_url?(url) when is_binary(url) do
+    Urls.path_ext(url) in @pdf_ext
+  end
+
+  def pdf_url?(_), do: false
 
   @spec extract_audio(String.t() | nil) :: [ImageExtractor.image_info()]
   def extract_audio(content) when is_binary(content) do
@@ -52,6 +60,18 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Media do
   end
 
   def extract_video(_), do: []
+
+  @spec extract_pdf(String.t() | nil) :: [ImageExtractor.image_info()]
+  def extract_pdf(content) when is_binary(content) do
+    content
+    |> extract_markdown_links()
+    |> Enum.map(fn item -> %{item | url: Urls.normalize(item.url)} end)
+    |> Enum.uniq_by(& &1.url)
+    |> Enum.filter(&pdf_url?(&1.url))
+    |> Enum.filter(&Urls.valid?(&1.url))
+  end
+
+  def extract_pdf(_), do: []
 
   @spec parse_media_caption(String.t() | nil) :: %{
           duration: integer() | nil,
