@@ -32,7 +32,11 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
 
   @spec process_link(list(), list(), process_nodes()) :: String.t()
   def process_link(attrs, children, process_nodes) do
-    href = attrs |> Dom.get_attr("href") |> Links.normalize_href()
+    href =
+      attrs
+      |> Dom.get_attr("href")
+      |> Links.normalize_href()
+      |> resolve_relative_media()
 
     cond do
       is_nil(href) or href == "" ->
@@ -227,8 +231,20 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
 
   @spec media_file_url?(String.t()) :: boolean()
   defp media_file_url?(href) do
-    ImageExtractor.audio_url?(href) or ImageExtractor.video_url?(href)
+    ImageExtractor.audio_url?(href) or ImageExtractor.video_url?(href) or
+      ImageExtractor.pdf_url?(href)
   end
+
+  @spec resolve_relative_media(String.t() | nil) :: String.t() | nil
+  defp resolve_relative_media(href) when is_binary(href) do
+    if relative_path?(href) and media_file_url?(href) do
+      Links.resolve_against_base(href, @parent.base_url())
+    else
+      href
+    end
+  end
+
+  defp resolve_relative_media(href), do: href
 
   @spec present_title?(term()) :: boolean()
   defp present_title?(title) when is_binary(title), do: String.trim(title) != ""

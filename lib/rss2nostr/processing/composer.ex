@@ -267,7 +267,8 @@ defmodule Rss2Nostr.Processing.Composer do
       |> HtmlToMarkdown.convert(
         skip_classes: opts.skip_classes,
         conversion_rules: rules,
-        language: opts.language
+        language: opts.language,
+        url: opts.url
       )
       |> Youtube.enrich_markdown()
 

@@ -43,6 +43,10 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   @spec default_skip_classes() :: [String.t()]
   def default_skip_classes, do: @default_skip_classes
 
+  @doc false
+  @spec base_url() :: String.t() | nil
+  def base_url, do: Process.get({__MODULE__, :base_url})
+
   @doc """
   Converts HTML to Markdown.
 
@@ -53,6 +57,8 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       are rewritten (for example, one Markdown line per link).
     * `:language` — ISO 639-1 feed language for generated labels
       (`Listen on SoundCloud`, `Watch on YouTube`, …). Defaults to English.
+    * `:url` — article page URL. Root-relative media files (`/files/a.pdf`)
+      are resolved against this origin so they can be downloaded.
   """
   @spec convert(String.t() | nil, keyword()) :: String.t() | nil
   def convert(html, opts \\ [])
@@ -71,6 +77,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     Process.put({__MODULE__, :language}, language)
     Process.put({__MODULE__, :soundcloud_permalink}, permalink)
     Process.put({__MODULE__, :soundcloud_color}, color)
+    Process.put({__MODULE__, :base_url}, Keyword.get(opts, :url))
 
     try do
       html
@@ -85,6 +92,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
       Process.delete({__MODULE__, :language})
       Process.delete({__MODULE__, :soundcloud_permalink})
       Process.delete({__MODULE__, :soundcloud_color})
+      Process.delete({__MODULE__, :base_url})
     end
   rescue
     e ->

@@ -1019,6 +1019,30 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       assert md =~ "[that](https://example.com)"
     end
 
+    test "resolves a root-relative PDF against the article URL" do
+      html =
+        ~s(<p><a href="/sites/default/files/2023/04/Scholars Under Fire - Attempts to Sanction Scholars from 2000 to 2022.pdf">Scholars Under Fire</a></p>)
+
+      md =
+        HtmlToMarkdown.convert(html,
+          url: "https://www.thefire.org/research-learn/scholars-under-fire"
+        )
+
+      assert md =~
+               "[Scholars Under Fire](https://www.thefire.org/sites/default/files/2023/04/Scholars%20Under%20Fire%20-%20Attempts%20to%20Sanction%20Scholars%20from%202000%20to%202022.pdf)"
+
+      refute md =~ ~r/\(https?:\/\/[^)]* \w/
+    end
+
+    test "still drops a relative PDF when there is no article URL" do
+      html =
+        ~s(<p><a href="/sites/default/files/2023/04/report.pdf">Report</a></p>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      refute md =~ "report.pdf"
+    end
+
     test "turns a centered asterisk paragraph into a rule" do
       html = "<p>*</p>"
       md = HtmlToMarkdown.convert(html)

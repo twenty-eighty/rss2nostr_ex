@@ -55,14 +55,33 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
 
   @spec normalize_href(String.t() | nil) :: String.t() | nil
   def normalize_href(href) when is_binary(href) do
-    case String.replace(href, ~r/\s+/, "") do
+    href
+    |> String.replace(~r/[\r\n\t]+/, "")
+    |> String.trim()
+    |> case do
       "" -> nil
       "mailto:" <> rest -> "mailto:" <> normalize_mailto_target(rest)
-      url -> url
+      url -> String.replace(url, " ", "%20")
     end
   end
 
   def normalize_href(_), do: nil
+
+  @spec resolve_against_base(String.t(), String.t() | nil) :: String.t()
+  def resolve_against_base(href, base)
+      when is_binary(href) and is_binary(base) and base != "" do
+    case URI.parse(base) do
+      %URI{scheme: scheme, host: host} when scheme in ["http", "https"] and is_binary(host) ->
+        base |> URI.merge(href) |> URI.to_string()
+
+      _ ->
+        href
+    end
+  rescue
+    _ -> href
+  end
+
+  def resolve_against_base(href, _), do: href
 
   @spec ensure_absolute_url(String.t()) :: String.t()
   def ensure_absolute_url(url) when is_binary(url) do
