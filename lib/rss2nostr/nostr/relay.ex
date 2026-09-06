@@ -50,7 +50,7 @@ defmodule Rss2Nostr.Nostr.Relay do
   def query(relay_url, filter, timeout \\ 8_000) when is_map(filter) do
     case get_or_start_relay(relay_url) do
       {:ok, pid} ->
-        GenServer.call(pid, {:query, filter}, timeout)
+        call_relay(pid, {:query, filter}, timeout)
 
       {:error, reason} ->
         {:error, reason}
@@ -65,7 +65,7 @@ defmodule Rss2Nostr.Nostr.Relay do
   def publish(relay_url, event, timeout \\ 15_000) do
     case get_or_start_relay(relay_url) do
       {:ok, pid} ->
-        GenServer.call(pid, {:publish, event}, timeout)
+        call_relay(pid, {:publish, event}, timeout)
 
       {:error, reason} ->
         {:error, reason}
@@ -522,7 +522,15 @@ defmodule Rss2Nostr.Nostr.Relay do
   defp fatal_connect_error?(:nxdomain), do: true
   defp fatal_connect_error?(_), do: false
 
+  @spec call_relay(pid(), term(), timeout()) :: term()
+  defp call_relay(pid, request, timeout) do
+    GenServer.call(pid, request, timeout)
+  catch
+    :exit, reason -> {:error, exit_reason(reason)}
+  end
+
   @spec exit_reason(term()) :: term()
+  defp exit_reason({:timeout, _}), do: :timeout
   defp exit_reason({:error, reason}), do: exit_reason(reason)
   defp exit_reason(reason), do: reason
 

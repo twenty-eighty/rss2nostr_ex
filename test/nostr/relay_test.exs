@@ -49,4 +49,27 @@ defmodule Rss2Nostr.Nostr.RelayTest do
   after
     Relay.disconnect("wss://no-such-query-relay.invalid")
   end
+
+  test "query/3 returns {:error, :timeout} instead of exiting when the relay never replies" do
+    url = "wss://hang-query-relay.test"
+    name = {:via, Registry, {Rss2Nostr.RelayRegistry, url}}
+
+    {:ok, _pid} = Rss2Nostr.Nostr.RelayTest.HangRelay.start_link(name: name)
+
+    assert {:error, :timeout} = Relay.query(url, %{"kinds" => [0], "limit" => 1}, 200)
+  after
+    case Registry.lookup(Rss2Nostr.RelayRegistry, "wss://hang-query-relay.test") do
+      [{pid, _}] -> GenServer.stop(pid, :normal, 1_000)
+      [] -> :ok
+    end
+  end
+end
+
+defmodule Rss2Nostr.Nostr.RelayTest.HangRelay do
+  @moduledoc false
+  use GenServer
+
+  def start_link(opts), do: GenServer.start_link(__MODULE__, nil, opts)
+  def init(_), do: {:ok, %{}}
+  def handle_call(_msg, _from, state), do: {:noreply, state}
 end
