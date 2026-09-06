@@ -12,7 +12,12 @@ defmodule Rss2Nostr.HTTP do
 
   @type headers :: %{String.t() => String.t() | [String.t()]} | [{String.t(), String.t()}]
 
-  @type response :: %{status: integer(), body: binary(), headers: headers()}
+  @type response :: %{
+          status: integer(),
+          body: binary(),
+          headers: headers(),
+          url: String.t()
+        }
 
   @spec get(String.t(), keyword()) :: {:ok, response()} | {:error, Exception.t() | atom()}
   def get(url, opts \\ []), do: request(Keyword.merge(opts, method: :get, url: url))
@@ -74,7 +79,7 @@ defmodule Rss2Nostr.HTTP do
          {:ok, response} <- do_request(Keyword.put(opts, :redirect, false)) do
       case redirect_location(response) do
         nil ->
-          {:ok, response}
+          {:ok, Map.put(response, :url, url)}
 
         location when remaining > 0 ->
           next =

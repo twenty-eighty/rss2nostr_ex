@@ -67,7 +67,7 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
     @small_blob :crypto.strong_rand_bytes(1024)
 
     setup do
-      agent = start_supervised!({Agent, fn -> %{mode: :mirror_ok, requests: []} end})
+      agent = start_supervised!({Agent, fn -> %{mode: :mirror_ok, requests: [], mirror_urls: []} end})
 
       bandit =
         start_supervised!(
@@ -106,7 +106,7 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       assert requests(agent) == [{"PUT", "/upload"}]
     end
 
-    test "falls back to PUT /upload only when /mirror is missing", %{agent: agent, server: server} do
+    test "falls back to PUT /upload when /mirror is missing", %{agent: agent, server: server} do
       Agent.update(agent, &Map.put(&1, :mode, :mirror_missing))
 
       assert {:ok, _} =
@@ -120,7 +120,25 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       assert requests(agent) == [{"PUT", "/mirror"}, {"PUT", "/upload"}]
     end
 
-    test "does not retry a 75MB PUT when /mirror fails for another reason", %{
+    test "falls back to PUT /upload when /mirror returns 500", %{agent: agent, server: server} do
+      Agent.update(agent, &Map.put(&1, :mode, :mirror_server_error))
+
+      assert {:ok, _} =
+               Blossom.upload_data(@large_blob, "episode.mp3",
+                 private_key: :crypto.strong_rand_bytes(32),
+                 server: server,
+                 content_type: "audio/mpeg",
+                 source_url: "https://www.thefire.org/sites/default/files/Scholars Under Fire.pdf"
+               )
+
+      assert requests(agent) == [{"PUT", "/mirror"}, {"PUT", "/upload"}]
+
+      assert mirror_urls(agent) == [
+               "https://www.thefire.org/sites/default/files/Scholars%20Under%20Fire.pdf"
+             ]
+    end
+
+    test "does not fall back when /mirror rejects the URL", %{
       agent: agent,
       server: server
     } do
@@ -138,6 +156,7 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
     end
 
     defp requests(agent), do: Agent.get(agent, & &1.requests)
+    defp mirror_urls(agent), do: Agent.get(agent, & &1.mirror_urls)
   end
 
   defmodule NotFoundStub do
@@ -160,11 +179,13 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
     def init(agent), do: agent
 
     def call(conn, agent) do
-      {:ok, _body, conn} = Plug.Conn.read_body(conn)
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
       mode = Agent.get(agent, & &1.mode)
 
       Agent.update(agent, fn state ->
-        %{state | requests: state.requests ++ [{conn.method, conn.request_path}]}
+        state
+        |> Map.update(:requests, [], &(&1 ++ [{conn.method, conn.request_path}]))
+        |> maybe_record_mirror_url(conn.request_path, body)
       end)
 
       {status, body} =
@@ -178,6 +199,9 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
           {"PUT", "/mirror", :mirror_rejected} ->
             {403, "ssrf denied"}
 
+          {"PUT", "/mirror", :mirror_server_error} ->
+            {500, ""}
+
           {"PUT", "/upload", _} ->
             {201, descriptor(conn)}
 
@@ -189,6 +213,18 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       |> Plug.Conn.put_resp_content_type("application/json")
       |> Plug.Conn.send_resp(status, body)
     end
+
+    defp maybe_record_mirror_url(state, "/mirror", body) do
+      url =
+        case Jason.decode(body) do
+          {:ok, %{"url" => url}} -> url
+          _ -> body
+        end
+
+      Map.update(state, :mirror_urls, [url], &(&1 ++ [url]))
+    end
+
+    defp maybe_record_mirror_url(state, _, _), do: state
 
     defp descriptor(_conn) do
       Jason.encode!(%{

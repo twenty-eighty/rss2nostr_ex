@@ -62,7 +62,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
       Logger.info("Downloading #{kind} from #{url}")
 
       case HTTP.get(url, receive_timeout: download_timeout(url), retry: false) do
-        {:ok, %{status: 200, body: data, headers: headers}} ->
+        {:ok, %{status: 200, body: data, headers: headers} = response} ->
           content_type = content_type_for(url, headers)
 
           content_type =
@@ -80,14 +80,18 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
                 content_type
             end
 
-          filename = extract_filename(url, content_type)
+          # Prefer the last hop after redirects (percent-encoded) so BUD-04
+          # /mirror does not re-hit broken Location headers with raw spaces.
+          final_url = Map.get(response, :url) || url
+          filename = extract_filename(final_url, content_type)
 
           opts =
             opts
             |> Keyword.put_new(:content_type, content_type)
-            |> Keyword.put_new(:source_url, public_http_url(url))
+            |> Keyword.put(:source_url, public_http_url(final_url))
 
-          {:halt, enrich_media_upload(upload_data(data, filename, opts), data, url, content_type)}
+          {:halt,
+           enrich_media_upload(upload_data(data, filename, opts), data, final_url, content_type)}
 
         {:ok, %{status: code}} ->
           {:cont, {:error, {:download_failed, code}}}
@@ -181,21 +185,36 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
         {:ok, _} = ok ->
           ok
 
-        {:error, {:upload_failed, code, _}} when code in [404, 405] ->
-          Logger.warning(
-            "Blossom /mirror is unavailable (HTTP #{code}); falling back to PUT /upload"
-          )
-
-          put_blob(server, data, sha256, content_type, signer)
-
         {:error, reason} ->
-          Logger.error("Blossom mirror failed: #{format_error(reason)}")
-          {:error, reason}
+          if mirror_fallback?(reason) do
+            Logger.warning(
+              "Blossom /mirror failed (#{format_error(reason)}); falling back to PUT /upload"
+            )
+
+            put_blob(server, data, sha256, content_type, signer)
+          else
+            Logger.error("Blossom mirror failed: #{format_error(reason)}")
+            {:error, reason}
+          end
       end
     else
       put_blob(server, data, sha256, content_type, signer)
     end
   end
+
+  @spec mirror_fallback?(term()) :: boolean()
+  defp mirror_fallback?({:upload_failed, code, _}) when code in [404, 405], do: true
+
+  defp mirror_fallback?({:upload_failed, code, _})
+       when is_integer(code) and code >= 500 and code <= 599,
+       do: true
+
+  # Transport / client failure while talking to /mirror — we already have bytes.
+  defp mirror_fallback?({:upload_failed, reason})
+       when not is_integer(reason),
+       do: true
+
+  defp mirror_fallback?(_), do: false
 
   @spec mirrorable?(String.t(), binary()) :: boolean()
   defp mirrorable?(url, data) when is_binary(url) and url != "" do
@@ -206,7 +225,10 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
 
   @spec public_http_url(String.t()) :: String.t()
   defp public_http_url(url) when is_binary(url) do
-    String.replace_prefix(String.trim(url), "http://", "https://")
+    url
+    |> String.trim()
+    |> String.replace_prefix("http://", "https://")
+    |> ImageExtractor.encode_http_url()
   end
 
   @spec mirror_blob(String.t(), String.t(), String.t(), non_neg_integer(), Signer.signer()) :: {:ok, Blossom.upload_result()} | {:error, term()}
@@ -214,11 +236,12 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     with {:ok, auth_header} <- create_auth(signer, sha256, server) do
       url = Blossom.mirror_url(server)
       timeout = upload_timeout("audio/mpeg", byte_size)
-      body = Jason.encode!(%{url: source_url})
+      mirror_source = public_http_url(source_url)
+      body = Jason.encode!(%{url: mirror_source})
 
       Logger.info(
         "Mirroring blob #{String.slice(sha256, 0, 12)}… #{format_bytes(byte_size)} " <>
-          "from #{source_url} timeout=#{timeout}ms to #{url}"
+          "from #{mirror_source} timeout=#{timeout}ms to #{url}"
       )
 
       case HTTP.put(url,
