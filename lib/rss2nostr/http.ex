@@ -1,11 +1,14 @@
 defmodule Rss2Nostr.HTTP do
   @moduledoc false
 
+  require Logger
+
   alias Rss2Nostr.HTTP.SafeURL
   alias Rss2Nostr.Processing.ImageExtractor.Urls, as: MediaUrls
 
   @user_agent "RSS2Nostr/0.1 (Elixir)"
   @max_redirects 3
+  @redirect_statuses [301, 302, 303, 307, 308]
 
   @type headers :: %{String.t() => String.t() | [String.t()]} | [{String.t(), String.t()}]
 
@@ -57,15 +60,48 @@ defmodule Rss2Nostr.HTTP do
   @spec request(keyword()) :: {:ok, response()} | {:error, Exception.t() | atom()}
   defp request(opts) do
     url = opts |> Keyword.fetch!(:url) |> MediaUrls.encode_http_url()
+    max_redirects = Keyword.get(opts, :max_redirects, @max_redirects)
 
-    case SafeURL.validate(url) do
-      :ok ->
-        do_request(Keyword.put(opts, :url, url))
+    follow_redirects(Keyword.put(opts, :url, url), max_redirects)
+  end
 
-      {:error, reason} ->
-        {:error, reason}
+  @spec follow_redirects(keyword(), non_neg_integer()) ::
+          {:ok, response()} | {:error, Exception.t() | atom()}
+  defp follow_redirects(opts, remaining) do
+    url = Keyword.fetch!(opts, :url)
+
+    with :ok <- SafeURL.validate(url),
+         {:ok, response} <- do_request(Keyword.put(opts, :redirect, false)) do
+      case redirect_location(response) do
+        nil ->
+          {:ok, response}
+
+        location when remaining > 0 ->
+          next =
+            opts
+            |> Keyword.fetch!(:url)
+            |> URI.parse()
+            |> URI.merge(location)
+            |> URI.to_string()
+            |> MediaUrls.encode_http_url()
+
+          Logger.debug("redirecting to #{next}")
+
+          follow_redirects(Keyword.put(opts, :url, next), remaining - 1)
+
+        _location ->
+          {:error, %Req.TooManyRedirectsError{max_redirects: @max_redirects}}
+      end
     end
   end
+
+  @spec redirect_location(response()) :: String.t() | nil
+  defp redirect_location(%{status: status, headers: headers})
+       when status in @redirect_statuses do
+    header(headers, "location")
+  end
+
+  defp redirect_location(_), do: nil
 
   @spec do_request(keyword()) :: {:ok, response()} | {:error, Exception.t() | atom()}
   defp do_request(opts) do
@@ -82,16 +118,14 @@ defmodule Rss2Nostr.HTTP do
       |> Keyword.put_new(:retry, default_retry)
       |> Keyword.put_new(:decode_body, false)
       |> Keyword.put_new(:compressed, true)
-      |> Keyword.put_new(:redirect, true)
-      |> Keyword.put_new(:max_redirects, @max_redirects)
+      # Redirects are followed in `follow_redirects/2` so spaces in Location
+      # can be percent-encoded before Mint builds the next request target.
+      |> Keyword.put(:redirect, false)
       |> Keyword.update(:headers, [{"user-agent", @user_agent}], &ensure_user_agent/1)
 
     request =
       Req.new(req_opts)
-      |> Req.Request.prepend_request_steps(
-        encode_url: &encode_url/1,
-        ssrf_check: &ssrf_check/1
-      )
+      |> Req.Request.prepend_request_steps(ssrf_check: &ssrf_check/1)
 
     case Req.request(request) do
       {:ok, %Req.Response{} = response} ->
@@ -103,13 +137,6 @@ defmodule Rss2Nostr.HTTP do
   rescue
     exception in [ArgumentError] ->
       {:error, exception}
-  end
-
-  # Re-encode after each redirect: some servers put literal spaces in Location.
-  @spec encode_url(Req.Request.t()) :: Req.Request.t()
-  defp encode_url(%Req.Request{url: %URI{} = uri} = request) do
-    encoded = uri |> URI.to_string() |> MediaUrls.encode_http_url() |> URI.parse()
-    %{request | url: encoded}
   end
 
   @spec ssrf_check(Req.Request.t()) :: Req.Request.t()
