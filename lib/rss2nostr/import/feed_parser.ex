@@ -486,18 +486,31 @@ defmodule Rss2Nostr.Import.FeedParser do
 
     Enum.find_value(parsers, nil, fn parser ->
       case parser.(date_string) do
-        {:ok, datetime} -> naive_to_utc(datetime)
+        {:ok, datetime} -> to_utc(datetime)
         _ -> nil
       end
     end)
   end
 
-  @spec naive_to_utc(DateTime.t() | NaiveDateTime.t()) :: DateTime.t()
-  defp naive_to_utc(datetime) do
-    case DateTime.from_naive(datetime, "Etc/UTC") do
-      {:ok, dt} -> dt
-      _ -> Timex.to_datetime(datetime, "Etc/UTC")
+  @spec to_utc(DateTime.t() | NaiveDateTime.t() | term()) :: DateTime.t()
+  defp to_utc(%DateTime{} = datetime) do
+    case DateTime.shift_zone(datetime, "Etc/UTC") do
+      {:ok, utc} -> DateTime.truncate(utc, :second)
+      {:error, _} -> datetime |> Timex.to_datetime("Etc/UTC") |> DateTime.truncate(:second)
     end
+  end
+
+  defp to_utc(%NaiveDateTime{} = datetime) do
+    case DateTime.from_naive(datetime, "Etc/UTC") do
+      {:ok, utc} -> DateTime.truncate(utc, :second)
+      _ -> datetime |> Timex.to_datetime("Etc/UTC") |> DateTime.truncate(:second)
+    end
+  end
+
+  defp to_utc(datetime) do
+    datetime
+    |> Timex.to_datetime("Etc/UTC")
+    |> DateTime.truncate(:second)
   end
 
   # Binary strip avoids catastrophic regex backtracking on multi-megabyte feeds.

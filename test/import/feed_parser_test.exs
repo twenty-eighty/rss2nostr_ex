@@ -165,6 +165,32 @@ defmodule Rss2Nostr.Import.FeedParserTest do
       assert second.link == "https://example.com/article/2"
     end
 
+    test "converts numeric timezone offsets in pubDate to UTC" do
+      xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <rss version="2.0">
+        <channel>
+          <item>
+            <title>Corbett-style pubDate</title>
+            <link>https://example.com/article/tz</link>
+            <guid>tz-1</guid>
+            <pubDate>Sun, 06 Sep 2026 09:31:00 +0900</pubDate>
+          </item>
+        </channel>
+      </rss>
+      """
+
+      {:ok, [item]} = FeedParser.parse(xml, "rss")
+
+      # 09:31 +0900 == 00:31 UTC — do not treat the wall clock as UTC
+      assert item.published_at == ~U[2026-09-06 00:31:00Z]
+    end
+
+    test "keeps GMT pubDate as UTC" do
+      {:ok, [first | _]} = FeedParser.parse(@rss_feed, "rss")
+      assert first.published_at == ~U[2024-01-01 12:00:00Z]
+    end
+
     test "auto-detects RSS format" do
       {:ok, items} = FeedParser.parse(@rss_feed)
       assert length(items) == 2
