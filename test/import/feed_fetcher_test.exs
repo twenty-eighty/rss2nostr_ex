@@ -16,6 +16,20 @@ defmodule Rss2Nostr.Import.FeedFetcherTest do
 
       assert is_binary(reason)
       assert reason =~ "Request failed" or reason =~ "HTTP"
+      refute reason =~ "FunctionClauseError"
+    end
+
+    test "formats atom HTTP errors without crashing" do
+      previous = Application.get_env(:rss2nostr, :http_ssrf_protection)
+
+      try do
+        Application.put_env(:rss2nostr, :http_ssrf_protection, true)
+
+        assert {:error, reason} = FeedFetcher.fetch("http://127.0.0.1/feed.xml")
+        assert reason == "Request failed: blocked_address"
+      after
+        Application.put_env(:rss2nostr, :http_ssrf_protection, previous)
+      end
     end
 
     test "returns error for invalid URL format" do

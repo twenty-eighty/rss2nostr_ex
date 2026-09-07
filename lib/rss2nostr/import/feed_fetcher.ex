@@ -87,10 +87,16 @@ defmodule Rss2Nostr.Import.FeedFetcher do
       {:ok, %{status: status_code}} ->
         {:error, "HTTP #{status_code}"}
 
-      {:error, exception} ->
-        {:error, "Request failed: #{Exception.message(exception)}"}
+      {:error, reason} ->
+        {:error, "Request failed: #{format_request_error(reason)}"}
     end
   end
+
+  @spec format_request_error(term()) :: String.t()
+  defp format_request_error(%{__exception__: true} = exception), do: Exception.message(exception)
+  defp format_request_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_request_error(reason) when is_binary(reason), do: reason
+  defp format_request_error(reason), do: inspect(reason)
 
   # Req usually decompresses when compressed: true; keep a fallback for raw gzip bodies.
   @spec maybe_decompress(binary()) :: binary()
