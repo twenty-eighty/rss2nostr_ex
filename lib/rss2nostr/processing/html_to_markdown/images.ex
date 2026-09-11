@@ -16,7 +16,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
       src = get_best_image_src(attrs)
       alt = image_alt(attrs)
 
-      if src && src != "" do
+      if is_binary(src) and src != "" and not ImageExtractor.Urls.placeholder?(src) do
         "![#{alt}](#{src})"
       else
         ""
@@ -100,15 +100,20 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Images do
   defp get_best_image_src(attrs) do
     srcset = Dom.get_attr(attrs, "srcset") || Dom.get_attr(attrs, "data-srcset")
 
-    [
+      [
       srcset && srcset != "" && get_largest_image(parse_srcset(srcset)),
       Dom.get_attr(attrs, "data-src"),
+      Dom.get_attr(attrs, "data-lazy-src"),
+      Dom.get_attr(attrs, "data-original"),
       Dom.get_attr(attrs, "src")
     ]
     |> Enum.find_value(fn
       url when is_binary(url) and url != "" ->
         cleaned = url |> clean_image_url() |> resolve_media_url()
-        if http_url?(cleaned), do: cleaned
+
+        if http_url?(cleaned) and not ImageExtractor.Urls.placeholder?(cleaned) do
+          cleaned
+        end
 
       _ ->
         nil

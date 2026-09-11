@@ -113,12 +113,25 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
     uri = URI.parse(url)
 
     uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != "" and
-      not tracking_pixel?(url)
+      not tracking_pixel?(url) and not placeholder?(url)
   rescue
     e ->
       Logger.debug("Invalid image URL #{inspect(url)}: #{inspect(e)}")
       false
   end
+
+  @doc """
+  True for WordPress lazy-load SVG / other `data:image` placeholders.
+  """
+  @spec placeholder?(String.t() | nil) :: boolean()
+  def placeholder?(url) when is_binary(url) do
+    url
+    |> String.trim()
+    |> String.downcase()
+    |> String.starts_with?("data:image/")
+  end
+
+  def placeholder?(_), do: false
 
   @doc """
   True for VG Wort / similar 1×1 meter pixels that should never be uploaded.

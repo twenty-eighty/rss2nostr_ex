@@ -94,6 +94,28 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
       assert match?({:ok, %Post{}, _}, result)
     end
 
+    test "strips a WordPress lazy-load SVG left in Markdown", %{source: source} do
+      svg =
+        "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%201024%20576'%3E%3C/svg%3E"
+
+      hosted =
+        "https://route96.pareto.space/27ed31c18c44272257682c9928909c2d005a510d702654e887e370153d87c035.webp"
+
+      post = create_test_post(source, "<p>x</p>")
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          content:
+            "[![](#{svg})\n![](#{hosted})\n](https://corbettreport.com/wp-content/uploads/2025/12/New-Year-Open-Thread-1920x1080-1.jpg)"
+        })
+
+      {:ok, post, _count} = ImageExtractor.extract_and_store(post)
+
+      refute post.content =~ "data:image"
+      refute post.content =~ "svg+xml"
+      assert post.content =~ hosted
+    end
+
     test "repairs Cloudinary fetch fragments and stores the original URL", %{source: source} do
       fragment =
         "fl_progressive:steep/https%3A%2F%2Fpbs.substack.com%2Fprofile_images%2F1829651769380503552%2FbMTtwSuG.jpg"

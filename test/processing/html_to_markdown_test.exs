@@ -849,6 +849,34 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
       refute md =~ "vgwort"
     end
 
+    test "uses data-src and drops a WordPress lazy-load SVG placeholder" do
+      html = """
+      <p>
+        <a href="https://corbettreport.com/wp-content/uploads/2025/12/New-Year-Open-Thread-1920x1080-1.jpg">
+          <img src="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%201024%20576'%3E%3C/svg%3E"
+               data-src="https://corbettreport.com/wp-content/uploads/2025/12/New-Year-Open-Thread-1024x576.jpg"
+               alt="">
+        </a>
+      </p>
+      """
+
+      md = HtmlToMarkdown.convert(html, skip_classes: [])
+
+      refute md =~ "data:image"
+      refute md =~ "svg+xml"
+      assert md =~ "New-Year-Open-Thread-1024x576.jpg"
+    end
+
+    test "drops a lone WordPress lazy-load SVG" do
+      html =
+        ~s(<img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3C/svg%3E" alt="">)
+
+      md = HtmlToMarkdown.convert(html, skip_classes: [])
+
+      refute md =~ "data:image"
+      refute md =~ "![]("
+    end
+
     test "keeps ordinary article images" do
       html = """
       <p>Keep</p>

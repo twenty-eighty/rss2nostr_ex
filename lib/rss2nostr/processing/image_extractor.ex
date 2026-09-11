@@ -237,7 +237,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
       ~r/!?\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/,
       content,
       fn full, _alt, url ->
-        if Urls.tracking_pixel?(url), do: "", else: full
+        if Urls.tracking_pixel?(url) or Urls.placeholder?(url), do: "", else: full
       end
     )
   end
@@ -245,7 +245,7 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
   @spec normalize_optional_url(String.t() | nil) :: String.t() | nil
   defp normalize_optional_url(url) when is_binary(url) and url != "" do
     cond do
-      Urls.tracking_pixel?(url) ->
+      Urls.tracking_pixel?(url) or Urls.placeholder?(url) ->
         nil
 
       true ->
