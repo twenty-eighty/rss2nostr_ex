@@ -172,7 +172,8 @@ defmodule Rss2Nostr.Nostr.Blossom do
 
   `signer` is `{:private_key, key}`, `{:bunker, url}`, or a raw key binary.
   Does not change post status. Returns `{:error, reason}` when any image
-  is still missing so the caller can leave the post pending.
+  is still missing so the caller can leave the post pending, or
+  `{:error, {:media_give_up, message}}` when remaining assets were given up.
   """
   @spec ensure_post_images(Rss2Nostr.Posts.Post.t(), Signer.signer() | binary()) ::
           {:ok, Rss2Nostr.Posts.Post.t()} | {:error, upload_error()}

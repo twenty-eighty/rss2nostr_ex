@@ -138,7 +138,7 @@ defmodule Rss2Nostr.MCP.Server do
 
     param(:notify_pubkey, :string,
       description:
-        "npub or hex to receive a NIP-17 staging DM (NIP-05 or public, plus NOSTR_RELAYS_INBOX)"
+        "npub or hex for a NIP-17 DM when the article stops auto-advancing (staging for setup, published for automated, or media upload failed)"
     )
 
     param(:fixed_hashtags, :string,
@@ -181,7 +181,7 @@ defmodule Rss2Nostr.MCP.Server do
 
     param(:notify_pubkey, :string,
       description:
-        "npub or hex to receive a NIP-17 staging DM (NIP-05 or public, plus NOSTR_RELAYS_INBOX)"
+        "npub or hex for a NIP-17 DM when the article stops auto-advancing (staging for setup, published for automated, or media upload failed)"
     )
 
     param(:fixed_hashtags, :string,

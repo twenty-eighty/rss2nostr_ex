@@ -172,6 +172,32 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
     end
   end
 
+  defmodule ForbiddenStub do
+    @moduledoc false
+    @behaviour Plug
+
+    def init(opts), do: opts
+
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.put_resp_content_type("text/plain")
+      |> Plug.Conn.send_resp(403, "forbidden")
+    end
+  end
+
+  defmodule ServerErrorStub do
+    @moduledoc false
+    @behaviour Plug
+
+    def init(opts), do: opts
+
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.put_resp_content_type("text/plain")
+      |> Plug.Conn.send_resp(500, "unavailable")
+    end
+  end
+
   defmodule MirrorStub do
     @moduledoc false
     @behaviour Plug
@@ -426,12 +452,115 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       {:ok, _image} = Posts.create_image(%{post_id: post.id, original_url: missing})
 
       private_key = :crypto.strong_rand_bytes(32)
-      assert {:ok, updated} = Blossom.ensure_post_images(post, private_key)
 
-      refute Blossom.pending_images?(updated)
+      assert {:error, {:media_give_up, message}} =
+               Blossom.ensure_post_images(post, private_key)
+
+      assert message =~ "download HTTP 404"
+      refute Blossom.pending_images?(Posts.get_post(post.id, preload: [:images]))
       [reloaded] = Posts.list_images_for_post(post.id)
       assert reloaded.fetch_error
+      assert reloaded.fetch_attempts == 1
       assert is_nil(reloaded.uploaded_url)
+    end
+
+    test "gives up immediately on HTTP 403 media" do
+      put_upload_endpoint("https://route96.example")
+
+      bandit =
+        start_supervised!(
+          {Bandit, plug: __MODULE__.ForbiddenStub, port: 0, ip: {127, 0, 0, 1}}
+        )
+
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+      blocked = "http://127.0.0.1:#{port}/paper.pdf"
+
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Blocked PDF Source",
+          url: "https://example.com/blocked-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          active: true
+        })
+
+      url = "https://example.com/article-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Blocked PDF",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          source_html: "<p>Content</p>",
+          content: "See [pdf](#{blocked})",
+          status: Post.status_pending_images(),
+          source_id: source.id
+        })
+
+      {:ok, _image} = Posts.create_image(%{post_id: post.id, original_url: blocked})
+
+      assert {:error, {:media_give_up, message}} =
+               Blossom.ensure_post_images(post, :crypto.strong_rand_bytes(32))
+
+      assert message =~ "download HTTP 403"
+      [reloaded] = Posts.list_images_for_post(post.id)
+      assert reloaded.fetch_error
+    end
+
+    test "increments fetch_attempts on transient failures and gives up at the cap" do
+      put_upload_endpoint("https://route96.example")
+
+      bandit =
+        start_supervised!(
+          {Bandit, plug: __MODULE__.ServerErrorStub, port: 0, ip: {127, 0, 0, 1}}
+        )
+
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+      flaky = "http://127.0.0.1:#{port}/episode.mp3"
+
+      {:ok, source} =
+        Sources.create_source(%{
+          name: "Flaky Audio Source",
+          url: "https://example.com/flaky-#{System.unique_integer([:positive])}.xml",
+          type: "rss",
+          language: "en",
+          active: true
+        })
+
+      url = "https://example.com/article-#{System.unique_integer([:positive])}"
+
+      {:ok, post} =
+        Posts.create_post(%{
+          title: "Flaky audio",
+          source_url: url,
+          source_url_hash: Post.generate_url_hash(url),
+          source_html: "<p>Content</p>",
+          content: "Listen: [audio](#{flaky})",
+          status: Post.status_pending_images(),
+          source_id: source.id
+        })
+
+      {:ok, image} = Posts.create_image(%{post_id: post.id, original_url: flaky})
+
+      assert {:error, {:download_failed, 500}} =
+               Blossom.ensure_post_images(post, :crypto.strong_rand_bytes(32))
+
+      [after_one] = Posts.list_images_for_post(post.id)
+      refute after_one.fetch_error
+      assert after_one.fetch_attempts == 1
+
+      {:ok, _} =
+        Posts.update_image(after_one, %{fetch_attempts: Posts.max_image_fetch_attempts() - 1})
+
+      post = Posts.get_post(post.id, preload: [:images])
+
+      assert {:error, {:media_give_up, message}} =
+               Blossom.ensure_post_images(post, :crypto.strong_rand_bytes(32))
+
+      assert message =~ "gave up after #{Posts.max_image_fetch_attempts()} attempts"
+      [gave_up] = Posts.list_images_for_post(post.id)
+      assert gave_up.fetch_error
+      assert gave_up.fetch_attempts == Posts.max_image_fetch_attempts()
     end
 
     test "treats images already on the Blossom host as uploaded" do

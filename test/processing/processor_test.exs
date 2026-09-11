@@ -380,6 +380,31 @@ defmodule Rss2Nostr.Processing.ProcessorTest do
       assert photo in urls
     end
 
+    test "ensure_images marks error instead of staging when media was given up", %{
+      source: source
+    } do
+      post =
+        create_post(source, %{
+          content: "See [pdf](https://cdn.example/gone.pdf)",
+          status: Post.status_pending_images(),
+          last_error: "Media upload failed: download HTTP 404"
+        })
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: "https://cdn.example/gone.pdf",
+          fetch_error: true,
+          fetch_attempts: 1
+        })
+
+      {:ok, result} = Processor.ensure_images(post)
+
+      assert result.status == Post.status_error()
+      assert result.last_error =~ "Media upload failed"
+      refute result.status == Post.status_processed()
+    end
+
     test "reprocess_post resets error posts and clears last_error", %{source: source} do
       post =
         create_post(source, %{

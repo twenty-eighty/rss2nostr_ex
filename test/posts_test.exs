@@ -683,4 +683,54 @@ defmodule Rss2Nostr.PostsTest do
       assert {:error, :not_skipped} = Posts.unskip_post(post)
     end
   end
+
+  describe "image upload failures" do
+    test "mark_image_upload_failed/2 increments then gives up", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+
+      {:ok, image} =
+        Posts.create_image(%{post_id: post.id, original_url: "https://cdn.example/hero.jpg"})
+
+      {:ok, image, :retry} = Posts.mark_image_upload_failed(image)
+      assert image.fetch_attempts == 1
+      refute image.fetch_error
+
+      {:ok, image} =
+        Posts.update_image(image, %{fetch_attempts: Posts.max_image_fetch_attempts() - 1})
+
+      {:ok, image, :gave_up} = Posts.mark_image_upload_failed(image)
+      assert image.fetch_attempts == Posts.max_image_fetch_attempts()
+      assert image.fetch_error
+    end
+
+    test "mark_image_upload_failed/2 gives up immediately when permanent", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+
+      {:ok, image} =
+        Posts.create_image(%{post_id: post.id, original_url: "https://cdn.example/hero.jpg"})
+
+      {:ok, image, :gave_up} = Posts.mark_image_upload_failed(image, permanent: true)
+      assert image.fetch_error
+      assert image.fetch_attempts == 1
+    end
+
+    test "mark_image_uploaded/3 and clear_image_fetch_errors/1 reset attempts", %{
+      source: source
+    } do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+
+      {:ok, image} =
+        Posts.create_image(%{post_id: post.id, original_url: "https://cdn.example/hero.jpg"})
+
+      {:ok, image, :gave_up} = Posts.mark_image_upload_failed(image, permanent: true)
+      {1, _} = Posts.clear_image_fetch_errors(post.id)
+      [cleared] = Posts.list_images_for_post(post.id)
+      refute cleared.fetch_error
+      assert cleared.fetch_attempts == 0
+
+      {:ok, uploaded} = Posts.mark_image_uploaded(image, "https://cdn.example/ok.jpg")
+      assert uploaded.fetch_attempts == 0
+      refute uploaded.fetch_error
+    end
+  end
 end

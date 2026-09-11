@@ -815,8 +815,11 @@ defmodule Rss2NostrWeb.SourceComponents do
           />
           <.field_error field={:notify_pubkey} errors={@errors} />
           <p class="help-text">
-            Optional. Receives a NIP-17 DM when an article first enters staging or is revised.
-            Delivered to the recipient’s NIP-05 relays (or the public list if none are advertised),
+            Optional. Receives a NIP-17 DM when the article reaches a state that
+            will not advance on its own: staging (setup / manual publish),
+            published (automated sources), or when media upload is given up.
+            Revised articles notify again at that same point. Delivered to the
+            recipient’s NIP-05 relays (or the public list if none are advertised),
             plus any extra relays in <code>NOSTR_RELAYS_INBOX</code>.
           </p>
         </div>

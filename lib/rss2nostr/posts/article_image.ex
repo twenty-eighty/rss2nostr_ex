@@ -13,6 +13,7 @@ defmodule Rss2Nostr.Posts.ArticleImage do
     field(:alt_text, :string)
     field(:caption, :string)
     field(:fetch_error, :boolean, default: false)
+    field(:fetch_attempts, :integer, default: 0)
     field(:sha256, :string)
     field(:mime_type, :string)
     field(:file_size, :integer)
@@ -34,6 +35,7 @@ defmodule Rss2Nostr.Posts.ArticleImage do
       :alt_text,
       :caption,
       :fetch_error,
+      :fetch_attempts,
       :sha256,
       :mime_type,
       :file_size,

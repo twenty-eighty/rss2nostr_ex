@@ -378,8 +378,9 @@ defmodule Rss2Nostr.Posts do
   Moves a complete article into staging.
 
   The first time, or when `reset_hold: true` (Revise), `staged_at` is
-  stamped and a NIP-17 DM is sent. Reprocess of an already staged
-  article keeps the original hold and does not notify again.
+  stamped. Setup sources also get a NIP-17 DM then. Automated sources
+  notify on publish instead. Reprocess of an already staged article
+  keeps the original hold and does not notify again.
   """
   @spec enter_staging(Post.t(), keyword()) :: {:ok, Post.t()} | {:error, Ecto.Changeset.t()}
   def enter_staging(%Post{} = post, opts \\ []) do
@@ -392,7 +393,7 @@ defmodule Rss2Nostr.Posts do
 
     with {:ok, post} <- update_post(post, attrs) do
       if notify? and stamp? do
-        _ = StagingNotify.maybe_notify(post)
+        _ = StagingNotify.maybe_notify_staging(post)
       end
 
       {:ok, post}
@@ -430,17 +431,23 @@ defmodule Rss2Nostr.Posts do
 
   @doc """
   Marks a post as published with event ID, pubkey, and naddr.
+
+  Automated sources with a notify pubkey receive a NIP-17 DM.
   """
   @spec mark_published(Post.t(), String.t(), String.t() | nil, String.t() | nil) ::
           {:ok, Post.t()} | {:error, Ecto.Changeset.t()}
   def mark_published(%Post{} = post, event_id, pubkey \\ nil, nostr_address \\ nil) do
-    update_post(post, %{
-      status: Post.status_published(),
-      event_id: event_id,
-      pubkey: pubkey,
-      nostr_address: nostr_address,
-      last_error: nil
-    })
+    with {:ok, post} <-
+           update_post(post, %{
+             status: Post.status_published(),
+             event_id: event_id,
+             pubkey: pubkey,
+             nostr_address: nostr_address,
+             last_error: nil
+           }) do
+      _ = StagingNotify.maybe_notify_published(post)
+      {:ok, post}
+    end
   end
 
   @doc """
@@ -701,17 +708,28 @@ defmodule Rss2Nostr.Posts do
     |> Repo.update()
   end
 
+  @max_image_fetch_attempts 5
+
+  @doc """
+  Failed upload attempts after which an asset is given up.
+  """
+  @spec max_image_fetch_attempts() :: pos_integer()
+  def max_image_fetch_attempts, do: @max_image_fetch_attempts
+
   @doc """
   Marks an image as uploaded.
   """
   @spec mark_image_uploaded(ArticleImage.t(), String.t(), map()) ::
           {:ok, ArticleImage.t()} | {:error, Ecto.Changeset.t()}
   def mark_image_uploaded(%ArticleImage{} = image, uploaded_url, attrs \\ %{}) do
-    update_image(image, Map.merge(attrs, %{uploaded_url: uploaded_url}))
+    update_image(
+      image,
+      Map.merge(attrs, %{uploaded_url: uploaded_url, fetch_error: false, fetch_attempts: 0})
+    )
   end
 
   @doc """
-  Marks an image as failed.
+  Marks an image as permanently failed.
   """
   @spec mark_image_error(ArticleImage.t()) ::
           {:ok, ArticleImage.t()} | {:error, Ecto.Changeset.t()}
@@ -720,12 +738,43 @@ defmodule Rss2Nostr.Posts do
   end
 
   @doc """
+  Records one failed upload attempt.
+
+  Permanent failures (or reaching the attempt cap) set `fetch_error`.
+  """
+  @spec mark_image_upload_failed(ArticleImage.t(), keyword()) ::
+          {:ok, ArticleImage.t(), :gave_up | :retry} | {:error, Ecto.Changeset.t()}
+  def mark_image_upload_failed(%ArticleImage{} = image, opts \\ []) do
+    permanent? = Keyword.get(opts, :permanent, false)
+    attempts = (image.fetch_attempts || 0) + 1
+    give_up? = permanent? or attempts >= @max_image_fetch_attempts
+
+    case update_image(image, %{fetch_attempts: attempts, fetch_error: give_up?}) do
+      {:ok, updated} -> {:ok, updated, if(give_up?, do: :gave_up, else: :retry)}
+      error -> error
+    end
+  end
+
+  @doc """
+  True when any stored image for the post was permanently given up.
+  """
+  @spec image_fetch_errors?(Post.t()) :: boolean()
+  def image_fetch_errors?(%Post{} = post) do
+    post
+    |> preload_images()
+    |> Map.get(:images, [])
+    |> Enum.any?(&(&1.fetch_error == true))
+  end
+
+  @doc """
   Clears permanent fetch failures so a manual reprocess can retry downloads.
   """
   @spec clear_image_fetch_errors(integer()) :: {non_neg_integer(), nil}
   def clear_image_fetch_errors(post_id) when is_integer(post_id) do
     from(i in ArticleImage, where: i.post_id == ^post_id and i.fetch_error == true)
-    |> Repo.update_all(set: [fetch_error: false, updated_at: NaiveDateTime.utc_now(:second)])
+    |> Repo.update_all(
+      set: [fetch_error: false, fetch_attempts: 0, updated_at: NaiveDateTime.utc_now(:second)]
+    )
   end
 
   @doc """

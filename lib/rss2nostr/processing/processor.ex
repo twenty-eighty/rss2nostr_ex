@@ -9,7 +9,7 @@ defmodule Rss2Nostr.Processing.Processor do
 
   require Logger
 
-  alias Rss2Nostr.Nostr.{Blossom, Signer}
+  alias Rss2Nostr.Nostr.{Blossom, Signer, StagingNotify}
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Processing.{Composer, HtmlToMarkdown, ImageExtractor}
@@ -108,6 +108,13 @@ defmodule Rss2Nostr.Processing.Processor do
     {post, _mapping} = Blossom.stamp_hosted_images(post)
 
     cond do
+      Posts.image_fetch_errors?(post) and not Blossom.pending_images?(post) ->
+        if post.status == Post.status_error() do
+          {:ok, post}
+        else
+          fail_images(post, post.last_error || "Media upload failed")
+        end
+
       not Blossom.pending_images?(post) ->
         finish_images(post)
 
@@ -117,6 +124,9 @@ defmodule Rss2Nostr.Processing.Processor do
             case Blossom.ensure_post_images(post, signer) do
               {:ok, post} ->
                 finish_images(post)
+
+              {:error, {:media_give_up, message}} ->
+                fail_images(post, message)
 
               {:error, reason} ->
                 pend_images(post, format_image_error(reason))
@@ -183,6 +193,14 @@ defmodule Rss2Nostr.Processing.Processor do
         {:ok, post} = ensure_images(post)
         post
 
+      Posts.image_fetch_errors?(post) ->
+        if post.status == Post.status_error() do
+          post
+        else
+          {:ok, post} = fail_images(post, post.last_error || "Media upload failed")
+          post
+        end
+
       post.status == Post.status_pending_images() ->
         {:ok, post} = finish_images(post)
         post
@@ -214,7 +232,16 @@ defmodule Rss2Nostr.Processing.Processor do
     {:ok, post}
   end
 
+  @spec fail_images(Post.t(), String.t()) :: {:ok, Post.t()}
+  defp fail_images(post, message) do
+    {:ok, post} = Posts.mark_error(post, message)
+    _ = StagingNotify.maybe_notify_upload_failed(post)
+    Logger.warning("Media upload failed: #{post.title} (#{message})")
+    {:ok, post}
+  end
+
   @spec format_image_error(atom() | String.t() | term()) :: String.t()
+  defp format_image_error({:media_give_up, message}) when is_binary(message), do: message
   defp format_image_error(:no_upload_endpoint), do: "NOSTR_UPLOAD_ENDPOINT is not set"
 
   defp format_image_error(:no_app_private_key),

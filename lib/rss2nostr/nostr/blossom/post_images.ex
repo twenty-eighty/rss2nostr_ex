@@ -16,21 +16,32 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     {post, mapping} = stamp_hosted_images(post)
 
     Signer.with_open(signer, fn open_signer ->
-      {post, mapping, errors} = upload_pending_images(post, mapping, open_signer)
+      {post, mapping, errors, give_ups} = upload_pending_images(post, mapping, open_signer)
       {:ok, post} = apply_image_mapping(post, mapping)
       post = Posts.preload_images(post)
 
-      case {pending_image_urls(post), errors} do
-        {[], _} ->
-          {:ok, post}
+      case {pending_image_urls(post), errors, give_ups} do
+        {[], _, give_ups} when give_ups != [] ->
+          message = give_up_message(give_ups)
+          {:ok, post} = Posts.update_post(post, %{last_error: message})
+          {:error, {:media_give_up, message}}
 
-        {_pending, [reason | _]} ->
+        {[], _, _} ->
+          if Posts.image_fetch_errors?(post) do
+            message = post.last_error || "Media upload failed"
+            {:ok, post} = Posts.update_post(post, %{last_error: message})
+            {:error, {:media_give_up, message}}
+          else
+            {:ok, post}
+          end
+
+        {_pending, [reason | _], _} ->
           message = "Blossom upload failed: #{Client.format_error(reason)}"
           Logger.warning("[Blossom] #{message} (post #{post.id})")
           _ = Posts.update_post(post, %{last_error: message})
           {:error, reason}
 
-        {_pending, []} ->
+        {_pending, [], _} ->
           {:error, :images_pending}
       end
     end)
@@ -99,11 +110,15 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     |> Enum.any?()
   end
 
-  @spec upload_pending_images(Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}, Signer.open_signer()) :: {Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}, [term()]}
+  @spec upload_pending_images(
+          Rss2Nostr.Posts.Post.t(),
+          %{String.t() => String.t()},
+          Signer.open_signer()
+        ) :: {Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}, [term()], [String.t()]}
   defp upload_pending_images(post, mapping, open_signer) do
     targets = pending_image_records(post)
 
-    Enum.reduce(targets, {post, mapping, []}, fn image, {post, mapping, errors} ->
+    Enum.reduce(targets, {post, mapping, [], []}, fn image, {post, mapping, errors, give_ups} ->
       case Blossom.upload_from_url(image.original_url,
              signer: open_signer,
              base_url: post.source_url
@@ -116,29 +131,56 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
               NIP92.stored_attrs(result, alt: image.alt_text)
             )
 
-          {Posts.preload_images(post), Map.put(mapping, updated.original_url, result.url), errors}
+          {Posts.preload_images(post), Map.put(mapping, updated.original_url, result.url), errors,
+           give_ups}
 
         {:error, reason} ->
-          if permanent_download_failure?(reason) do
-            {:ok, _} = Posts.mark_image_error(image)
+          formatted = Client.format_error(reason)
+          permanent? = permanent_failure?(reason)
 
-            Logger.warning(
-              "[Blossom] Giving up on missing media #{image.original_url}: #{Client.format_error(reason)}"
-            )
+          {:ok, _updated, outcome} =
+            Posts.mark_image_upload_failed(image, permanent: permanent?)
 
-            post = maybe_clear_featured(post, image)
-            {Posts.preload_images(post), mapping, errors}
-          else
-            {post, mapping, [reason | errors]}
+          case outcome do
+            :gave_up ->
+              message =
+                if permanent? do
+                  "Media upload failed: #{formatted}"
+                else
+                  "Media upload failed: gave up after #{Posts.max_image_fetch_attempts()} attempts: #{formatted}"
+                end
+
+              Logger.warning("[Blossom] Giving up on #{image.original_url}: #{message}")
+              post = maybe_clear_featured(post, image)
+              {Posts.preload_images(post), mapping, errors, [message | give_ups]}
+
+            :retry ->
+              {post, mapping, [reason | errors], give_ups}
           end
       end
     end)
   end
 
-  # 404/410 will not appear later; keep retrying transient failures (403, 5xx, network).
-  @spec permanent_download_failure?(term()) :: boolean()
-  defp permanent_download_failure?({:download_failed, code}) when code in [404, 410], do: true
-  defp permanent_download_failure?(_), do: false
+  @spec give_up_message([String.t()]) :: String.t()
+  defp give_up_message([message | _]), do: message
+  defp give_up_message([]), do: "Media upload failed"
+
+  # Persistent client errors will not appear later. 408/429 may be transient.
+  @spec permanent_failure?(term()) :: boolean()
+  defp permanent_failure?({:download_failed, code}) when is_integer(code),
+    do: permanent_http_code?(code)
+
+  defp permanent_failure?({:upload_failed, code, _}) when is_integer(code),
+    do: permanent_http_code?(code)
+
+  defp permanent_failure?({:upload_failed, code}) when is_integer(code),
+    do: permanent_http_code?(code)
+
+  defp permanent_failure?(_), do: false
+
+  @spec permanent_http_code?(integer()) :: boolean()
+  defp permanent_http_code?(code) when code in 400..499 and code not in [408, 429], do: true
+  defp permanent_http_code?(_), do: false
 
   @spec maybe_clear_featured(Rss2Nostr.Posts.Post.t(), map()) :: Rss2Nostr.Posts.Post.t()
   defp maybe_clear_featured(post, image) do
