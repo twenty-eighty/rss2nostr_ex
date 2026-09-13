@@ -34,8 +34,13 @@ defmodule Rss2Nostr.Nostr.NIP17Test do
     assert message =~ "Waiting for manual publish."
   end
 
-  test "published message includes naddr for automated sources" do
-    source = %Source{name: "Forum", mode: "automated", staging_hold_minutes: 360}
+  test "published message says article or draft and includes naddr" do
+    article_source = %Source{
+      name: "Forum",
+      mode: "automated",
+      publish_as: "article",
+      staging_hold_minutes: 360
+    }
 
     post = %Post{
       title: "Part II",
@@ -43,12 +48,19 @@ defmodule Rss2Nostr.Nostr.NIP17Test do
       nostr_address: "naddr1qq…"
     }
 
-    message = StagingNotify.message(post, source, :published)
+    message = StagingNotify.message(post, article_source, :published)
 
-    assert message =~ "Published: Forum"
+    assert message =~ "Published as article: Forum"
     assert message =~ "Part II"
     assert message =~ "https://example.com/ii"
     assert message =~ "naddr1qq…"
+
+    draft_source = %{article_source | publish_as: "draft"}
+    assert StagingNotify.message(post, draft_source, :published) =~ "Published as draft: Forum"
+
+    plain = %{article_source | publish_as: "draft_plain"}
+    assert StagingNotify.message(post, plain, :published) =~
+             "Published as unencrypted draft: Forum"
   end
 
   test "maybe_notify_staging skips automated sources" do

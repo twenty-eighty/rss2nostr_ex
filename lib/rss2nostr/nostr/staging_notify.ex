@@ -67,7 +67,7 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
 
   @spec send_dm(Post.t(), Source.t(), notify_kind()) :: :ok | {:error, notify_error()}
   defp send_dm(post, source, kind) do
-    subject = subject(kind)
+    subject = subject(kind, source)
 
     with {:ok, {:private_key, key}} <- Signer.app_signer(),
          {:ok, wrap} <-
@@ -98,10 +98,10 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
     end
   end
 
-  @spec subject(notify_kind()) :: String.t()
-  defp subject(:staging), do: "Staging"
-  defp subject(:published), do: "Published"
-  defp subject(:upload_failed), do: "Upload failed"
+  @spec subject(notify_kind(), Source.t()) :: String.t()
+  defp subject(:staging, _source), do: "Staging"
+  defp subject(:published, source), do: "Published as #{publish_as_label(source)}"
+  defp subject(:upload_failed, _source), do: "Upload failed"
 
   @spec message(Post.t(), Source.t()) :: String.t()
   def message(post, source), do: message(post, source, :staging)
@@ -120,8 +120,14 @@ defmodule Rss2Nostr.Nostr.StagingNotify do
 
   @spec heading(Source.t(), notify_kind()) :: String.t()
   defp heading(source, :staging), do: "Staging: #{source.name}"
-  defp heading(source, :published), do: "Published: #{source.name}"
+  defp heading(source, :published), do: "Published as #{publish_as_label(source)}: #{source.name}"
   defp heading(source, :upload_failed), do: "Upload failed: #{source.name}"
+
+  @spec publish_as_label(Source.t() | map()) :: String.t()
+  defp publish_as_label(%{publish_as: "article"}), do: "article"
+  defp publish_as_label(%{publish_as: "video"}), do: "video"
+  defp publish_as_label(%{publish_as: "draft_plain"}), do: "unencrypted draft"
+  defp publish_as_label(_), do: "draft"
 
   @spec detail(Post.t(), Source.t(), notify_kind()) :: String.t()
   defp detail(_post, _source, :staging), do: "Waiting for manual publish."
