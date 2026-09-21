@@ -30,7 +30,10 @@ defmodule Rss2Nostr.HTTPTest do
       |> Plug.Conn.send_resp(301, "")
     end
 
-    def call(%Plug.Conn{request_path: "/files/Scholars%20Under%20Fire%20-%20report.pdf"} = conn, _opts) do
+    def call(
+          %Plug.Conn{request_path: "/files/Scholars%20Under%20Fire%20-%20report.pdf"} = conn,
+          _opts
+        ) do
       conn
       |> Plug.Conn.put_resp_content_type("application/pdf")
       |> Plug.Conn.send_resp(200, "%PDF-stub")
@@ -39,6 +42,31 @@ defmodule Rss2Nostr.HTTPTest do
     def call(conn, _opts) do
       Plug.Conn.send_resp(conn, 404, "missing #{conn.request_path}")
     end
+  end
+
+  defmodule UserAgentStub do
+    @moduledoc false
+    @behaviour Plug
+
+    def init(opts), do: opts
+
+    def call(conn, _opts) do
+      ua = conn |> Plug.Conn.get_req_header("user-agent") |> List.first("")
+      Plug.Conn.send_resp(conn, 200, ua)
+    end
+  end
+
+  test "get/2 sends a browser-compatible user agent" do
+    bandit =
+      start_supervised!({Bandit, plug: UserAgentStub, port: 0, ip: {127, 0, 0, 1}})
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+
+    assert {:ok, %{status: 200, body: agent}} =
+             HTTP.get("http://127.0.0.1:#{port}/file.pdf", retry: false)
+
+    assert agent =~ "Mozilla/5.0"
+    assert agent =~ "RSS2Nostr"
   end
 
   test "get/2 returns the final percent-encoded URL after redirects with spaces" do

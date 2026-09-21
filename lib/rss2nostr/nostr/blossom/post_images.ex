@@ -74,16 +74,10 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
           Blossom.already_hosted?(image.original_url) or
             keep_original_media?(post, image.original_url) or
               MapSet.member?(uploaded_urls, image.original_url) ->
-            {:ok, updated} =
-              Posts.mark_image_uploaded(image, image.original_url, hosted_attrs(image))
-
-            Map.put(acc, updated.original_url, updated.uploaded_url)
+            remember_uploaded(acc, image, image.original_url, hosted_attrs(image))
 
           match?(%{uploaded_url: url} when is_binary(url), sibling) ->
-            {:ok, updated} =
-              Posts.mark_image_uploaded(image, sibling.uploaded_url, copy_upload_attrs(sibling))
-
-            Map.put(acc, updated.original_url, updated.uploaded_url)
+            remember_uploaded(acc, image, sibling.uploaded_url, copy_upload_attrs(sibling))
 
           true ->
             acc
@@ -124,25 +118,29 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
              base_url: post.source_url
            ) do
         {:ok, result} ->
-          {:ok, updated} =
-            Posts.mark_image_uploaded(
-              image,
-              result.url,
-              NIP92.stored_attrs(result, alt: image.alt_text)
-            )
+          case Posts.mark_image_uploaded(
+                 image,
+                 result.url,
+                 NIP92.stored_attrs(result, alt: image.alt_text)
+               ) do
+            {:ok, updated} ->
+              {Posts.preload_images(post), Map.put(mapping, updated.original_url, result.url),
+               errors, give_ups}
 
-          {Posts.preload_images(post), Map.put(mapping, updated.original_url, result.url), errors,
-           give_ups}
+            {:error, reason} ->
+              Logger.warning(
+                "[Blossom] Could not record upload of #{image.original_url}: #{inspect(reason)}"
+              )
+
+              {Posts.preload_images(post), mapping, errors, give_ups}
+          end
 
         {:error, reason} ->
           formatted = Client.format_error(reason)
           permanent? = permanent_failure?(reason)
 
-          {:ok, _updated, outcome} =
-            Posts.mark_image_upload_failed(image, permanent: permanent?)
-
-          case outcome do
-            :gave_up ->
+          case Posts.mark_image_upload_failed(image, permanent: permanent?) do
+            {:ok, _updated, :gave_up} ->
               message =
                 if permanent? do
                   "Media upload failed: #{formatted}"
@@ -154,8 +152,15 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
               post = maybe_clear_featured(post, image)
               {Posts.preload_images(post), mapping, errors, [message | give_ups]}
 
-            :retry ->
+            {:ok, _updated, :retry} ->
               {post, mapping, [reason | errors], give_ups}
+
+            {:error, stale_reason} ->
+              Logger.warning(
+                "[Blossom] Could not record failure of #{image.original_url}: #{inspect(stale_reason)}"
+              )
+
+              {Posts.preload_images(post), mapping, errors, give_ups}
           end
       end
     end)
@@ -194,7 +199,8 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     end
   end
 
-  @spec apply_image_mapping(Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}) :: {:ok, Rss2Nostr.Posts.Post.t()}
+  @spec apply_image_mapping(Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}) ::
+          {:ok, Rss2Nostr.Posts.Post.t()}
   defp apply_image_mapping(post, mapping) when mapping == %{}, do: {:ok, post}
 
   defp apply_image_mapping(post, mapping) do
@@ -202,6 +208,21 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     image = Map.get(mapping, post.image || "", post.image)
 
     Posts.update_post(post, %{content: content, image: image, last_error: nil})
+  end
+
+  @spec remember_uploaded(map(), map(), String.t(), map()) :: map()
+  defp remember_uploaded(acc, image, uploaded_url, attrs) do
+    case Posts.mark_image_uploaded(image, uploaded_url, attrs) do
+      {:ok, updated} ->
+        Map.put(acc, updated.original_url, updated.uploaded_url)
+
+      {:error, reason} ->
+        Logger.warning(
+          "[Blossom] Could not mark #{image.original_url} uploaded: #{inspect(reason)}"
+        )
+
+        acc
+    end
   end
 
   @spec pending_image_records(Rss2Nostr.Posts.Post.t()) :: list()

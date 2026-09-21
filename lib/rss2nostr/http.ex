@@ -6,7 +6,10 @@ defmodule Rss2Nostr.HTTP do
   alias Rss2Nostr.HTTP.SafeURL
   alias Rss2Nostr.Processing.ImageExtractor.Urls, as: MediaUrls
 
-  @user_agent "RSS2Nostr/0.1 (Elixir)"
+  # CloudFront WAF answers a bare bot token with HTTP 202 and an empty body
+  # (`x-amzn-waf-action: challenge`). A Mozilla-compatible token still names
+  # this app and receives the file.
+  @user_agent "Mozilla/5.0 (compatible; RSS2Nostr/0.1)"
   @max_redirects 3
   @redirect_statuses [301, 302, 303, 307, 308]
 

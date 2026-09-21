@@ -732,5 +732,37 @@ defmodule Rss2Nostr.PostsTest do
       assert uploaded.fetch_attempts == 0
       refute uploaded.fetch_error
     end
+
+    test "mark_image_uploaded/3 updates a replacement row after the original was deleted", %{
+      source: source
+    } do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+
+      {:ok, image} =
+        Posts.create_image(%{post_id: post.id, original_url: "https://cdn.example/report.pdf"})
+
+      {:ok, _} = Posts.delete_image(image)
+
+      {:ok, replacement} =
+        Posts.create_image(%{post_id: post.id, original_url: "https://cdn.example/report.pdf"})
+
+      assert {:ok, uploaded} =
+               Posts.mark_image_uploaded(image, "https://blossom.example/report.pdf")
+
+      assert uploaded.id == replacement.id
+      assert uploaded.uploaded_url == "https://blossom.example/report.pdf"
+    end
+
+    test "mark_image_uploaded/3 returns stale when the row is gone", %{source: source} do
+      {:ok, post} = Posts.create_post(valid_post_attrs(source.id))
+
+      {:ok, image} =
+        Posts.create_image(%{post_id: post.id, original_url: "https://cdn.example/gone.pdf"})
+
+      {:ok, _} = Posts.delete_image(image)
+
+      assert {:error, :stale} =
+               Posts.mark_image_uploaded(image, "https://blossom.example/gone.pdf")
+    end
   end
 end

@@ -701,11 +701,34 @@ defmodule Rss2Nostr.Posts do
   Updates an article image.
   """
   @spec update_image(ArticleImage.t(), map()) ::
-          {:ok, ArticleImage.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, ArticleImage.t()} | {:error, Ecto.Changeset.t() | :stale}
   def update_image(%ArticleImage{} = image, attrs) do
     image
     |> ArticleImage.changeset(attrs)
     |> Repo.update()
+  rescue
+    Ecto.StaleEntryError ->
+      reload_stale_image(image, attrs)
+  end
+
+  # A concurrent extract can delete this row while a download is in flight.
+  # Write the result onto the replacement row when one exists.
+  @spec reload_stale_image(ArticleImage.t(), map()) ::
+          {:ok, ArticleImage.t()} | {:error, Ecto.Changeset.t() | :stale}
+  defp reload_stale_image(image, attrs) do
+    current =
+      Repo.get(ArticleImage, image.id) ||
+        Repo.get_by(ArticleImage, post_id: image.post_id, original_url: image.original_url)
+
+    case current do
+      %ArticleImage{} = current ->
+        current
+        |> ArticleImage.changeset(attrs)
+        |> Repo.update()
+
+      nil ->
+        {:error, :stale}
+    end
   end
 
   @max_image_fetch_attempts 5
@@ -720,7 +743,7 @@ defmodule Rss2Nostr.Posts do
   Marks an image as uploaded.
   """
   @spec mark_image_uploaded(ArticleImage.t(), String.t(), map()) ::
-          {:ok, ArticleImage.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, ArticleImage.t()} | {:error, Ecto.Changeset.t() | :stale}
   def mark_image_uploaded(%ArticleImage{} = image, uploaded_url, attrs \\ %{}) do
     update_image(
       image,
@@ -743,7 +766,7 @@ defmodule Rss2Nostr.Posts do
   Permanent failures (or reaching the attempt cap) set `fetch_error`.
   """
   @spec mark_image_upload_failed(ArticleImage.t(), keyword()) ::
-          {:ok, ArticleImage.t(), :gave_up | :retry} | {:error, Ecto.Changeset.t()}
+          {:ok, ArticleImage.t(), :gave_up | :retry} | {:error, Ecto.Changeset.t() | :stale}
   def mark_image_upload_failed(%ArticleImage{} = image, opts \\ []) do
     permanent? = Keyword.get(opts, :permanent, false)
     attempts = (image.fetch_attempts || 0) + 1
