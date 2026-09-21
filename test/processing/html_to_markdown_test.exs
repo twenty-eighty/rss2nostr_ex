@@ -798,6 +798,33 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdownTest do
 
       refute md =~ "fbclid"
     end
+
+    test "removes Substack email and referrer parameters" do
+      html =
+        ~s(<a href="https://apolut.substack.com/p/leipzig?utm_source=post-email-title&amp;publication_id=9770996&amp;post_id=1&amp;utm_campaign=email-post-title&amp;isFreemail=true&amp;r=9vuj8&amp;triedRedirect=true&amp;utm_medium=email&amp;id=5">Apolut</a>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[Apolut](https://apolut.substack.com/p/leipzig?id=5)"
+      refute md =~ "utm_source"
+      refute md =~ "isFreemail"
+      refute md =~ "triedRedirect"
+      refute md =~ "publication_id"
+      refute md =~ "post_id"
+    end
+
+    test "uses the cleaned URL when the link text is the tracking URL" do
+      html =
+        ~s(<a href="https://example.com/a?isFreemail=true&amp;triedRedirect=true&amp;ref=apolut.net&amp;mrfcid=abc">https://example.com/a?isFreemail=true&amp;triedRedirect=true&amp;ref=apolut.net&amp;mrfcid=abc</a>)
+
+      md = HtmlToMarkdown.convert(html)
+
+      assert md =~ "[https://example.com/a](https://example.com/a)"
+      refute md =~ "isFreemail"
+      refute md =~ "triedRedirect"
+      refute md =~ "mrfcid"
+      refute md =~ "ref="
+    end
   end
 
   describe "site-specific cleanup" do

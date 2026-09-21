@@ -244,6 +244,7 @@ defmodule Rss2Nostr.Processing.Sites.SubstackTest do
       md = convert(html, body_selector: ".body.markup")
 
       assert md =~ "[^43]: https://x.com/jlrosing/status/2002193593503764743"
+      refute md =~ "](https://x.com/jlrosing/status/2002193593503764743)"
       refute md =~ "[^43]:\n"
       refute md =~ "European CEO"
     end

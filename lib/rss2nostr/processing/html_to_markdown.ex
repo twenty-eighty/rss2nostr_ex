@@ -280,11 +280,13 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   defp process_heading_tag(tag, children),
     do: Inline.process_heading(tag, children, &process_nodes/1)
 
-  @spec process_emphasis_tag(String.t(), [{String.t(), String.t()}], [Floki.html_node()]) :: String.t()
+  @spec process_emphasis_tag(String.t(), [{String.t(), String.t()}], [Floki.html_node()]) ::
+          String.t()
   defp process_emphasis_tag(tag, attrs, children),
     do: Inline.process_emphasis(tag, attrs, children, &process_nodes/1)
 
-  @spec process_media_tag(String.t(), [{String.t(), String.t()}], [Floki.html_node()]) :: String.t()
+  @spec process_media_tag(String.t(), [{String.t(), String.t()}], [Floki.html_node()]) ::
+          String.t()
   defp process_media_tag("a", attrs, children),
     do: LinkTags.process_link(attrs, children, &process_nodes/1)
 
@@ -380,6 +382,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
     # Keep a blank line *between* definitions so each stays its own note.
     |> pull_up_empty_footnote_bodies()
     |> flatten_footnote_blank_lines()
+    |> linkify_footnote_urls()
     |> String.trim()
   end
 
@@ -433,6 +436,28 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown do
   @spec separate_adjacent_footnote_defs(String.t()) :: String.t()
   defp separate_adjacent_footnote_defs(markdown) do
     String.replace(markdown, ~r/(?<!\n)\n(?=\[\^[^\]]+\]:)/, "\n\n")
+  end
+
+  # Word pastes often leave citation URLs as plain text. Mark them as
+  # Markdown links and drop tracking query params. A status URL stays bare
+  # so clients can still unfurl the tweet.
+  @spec linkify_footnote_urls(String.t()) :: String.t()
+  defp linkify_footnote_urls(markdown) do
+    Regex.replace(
+      ~r/^(\[\^[^\]]+\]:)(.*?)(?=\n\n|\z)/ms,
+      markdown,
+      fn _, marker, body ->
+        marker <> (body |> join_wrapped_url_lines() |> Links.autolink_http_urls())
+      end
+    )
+  end
+
+  # Long URLs wrapped onto the next paragraph arrive as a line that is only
+  # a percent-encoded continuation (`%20der%20Ukraine...`).
+  @spec join_wrapped_url_lines(String.t()) :: String.t()
+  defp join_wrapped_url_lines(text) do
+    joined = String.replace(text, ~r/(https?:\/\/\S+)\n+(%[0-9A-Fa-f]{2}\S*)/, "\\1\\2")
+    if joined == text, do: text, else: join_wrapped_url_lines(joined)
   end
 
   @spec separate_thematic_breaks(String.t()) :: String.t()

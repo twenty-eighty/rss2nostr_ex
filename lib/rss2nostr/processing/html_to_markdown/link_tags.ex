@@ -77,7 +77,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
               end
 
             if icon do
-              Links.markdown_icon_link(clean_href, label, icon, Links.link_icon_order(children, text))
+              Links.markdown_icon_link(
+                clean_href,
+                label,
+                icon,
+                Links.link_icon_order(children, text)
+              )
             else
               markdown_media_link(label, clean_href, Dom.get_attr(attrs, "title"))
             end
@@ -96,7 +101,9 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
     end
   end
 
-  @spec collect_http_links(list()) :: [%{href: String.t(), label: String.t(), icon: String.t() | nil}]
+  @spec collect_http_links(list()) :: [
+          %{href: String.t(), label: String.t(), icon: String.t() | nil}
+        ]
   defp collect_http_links(nodes) do
     Enum.flat_map(List.wrap(nodes), fn
       {"a", attrs, inner} ->
@@ -200,9 +207,12 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.LinkTags do
   @spec url_like_label?(String.t(), String.t()) :: boolean()
   defp url_like_label?(text, href) do
     stripped = Links.strip_url_noise(text)
+    href_noise = Links.strip_url_noise(href)
+    text_noise = text |> TrackingParams.remove() |> Links.strip_url_noise()
 
     stripped == "" or
-      stripped == Links.strip_url_noise(href) or
+      stripped == href_noise or
+      text_noise == href_noise or
       match?({_, _}, Links.platform_for_href(text))
   end
 

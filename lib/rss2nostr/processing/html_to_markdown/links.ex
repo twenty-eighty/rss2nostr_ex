@@ -2,6 +2,7 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
   @moduledoc false
 
   alias Rss2Nostr.Processing.ImageExtractor
+  alias Rss2Nostr.Processing.HtmlToMarkdown.TrackingParams
 
   @fa_brand_cdn "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/svgs/brands"
 
@@ -124,6 +125,83 @@ defmodule Rss2Nostr.Processing.HtmlToMarkdown.Links do
     |> String.replace_prefix("http://", "")
     |> String.replace_prefix("www.", "")
     |> String.trim_trailing("/")
+  end
+
+  @markdown_span ~r/!?\[[^\]\n]*\]\([^)\n]*\)|`[^`\n]*`/
+  @bare_http_url ~r/https?:\/\/[^\s<>\[\]]+/i
+
+  @doc false
+  @spec autolink_http_urls(String.t()) :: String.t()
+  def autolink_http_urls(text) when is_binary(text) do
+    @markdown_span
+    |> Regex.split(text, include_captures: true)
+    |> Enum.map_join(&autolink_http_chunk/1)
+    |> strip_dangling_tracking_query()
+  end
+
+  @spec strip_dangling_tracking_query(String.t()) :: String.t()
+  defp strip_dangling_tracking_query(text) do
+    Regex.replace(~r/(?<=\))[ \t]+([^\s)]+&[^\s)]+)/, text, fn whole, tail ->
+      if TrackingParams.dangling_query?(tail), do: "", else: whole
+    end)
+  end
+
+  @spec autolink_http_chunk(String.t()) :: String.t()
+  defp autolink_http_chunk(chunk) do
+    if String.match?(chunk, ~r/\A(?:!?\[[^\]\n]*\]\([^)\n]*\)|`[^`\n]*`)\z/) do
+      chunk
+    else
+      Regex.replace(@bare_http_url, chunk, &markdown_http_link/1)
+    end
+  end
+
+  @spec markdown_http_link(String.t()) :: String.t()
+  defp markdown_http_link(url) do
+    {bare, trail} = detach_url_trail(url)
+
+    if tweet_status_link?(bare) do
+      url
+    else
+      cleaned = TrackingParams.remove(bare)
+      "[#{cleaned}](#{encode_link_dest(cleaned)})" <> trail
+    end
+  end
+
+  # Trailing punctuation belongs to the sentence. A closing paren stays on
+  # the URL when it balances an opening paren inside the URL.
+  @spec detach_url_trail(String.t()) :: {String.t(), String.t()}
+  defp detach_url_trail(url), do: detach_url_trail(url, "")
+
+  defp detach_url_trail(url, trail) do
+    case String.last(url) do
+      char when char in ~w(. , ; : ! ? \) ' ") ->
+        bare = String.slice(url, 0..-2//1)
+
+        if char == ")" and unmatched_open_paren?(bare) do
+          {url, trail}
+        else
+          detach_url_trail(bare, char <> trail)
+        end
+
+      _ ->
+        {url, trail}
+    end
+  end
+
+  # A raw ")" ends a Markdown link destination. Percent-encoding is already
+  # left as it appears in the URL.
+  @spec encode_link_dest(String.t()) :: String.t()
+  defp encode_link_dest(url) do
+    url
+    |> String.replace("(", "%28")
+    |> String.replace(")", "%29")
+  end
+
+  @spec unmatched_open_paren?(String.t()) :: boolean()
+  defp unmatched_open_paren?(url) do
+    opens = url |> String.graphemes() |> Enum.count(&(&1 == "("))
+    closes = url |> String.graphemes() |> Enum.count(&(&1 == ")"))
+    opens > closes
   end
 
   @spec autolink_platform_urls(String.t()) :: String.t()
