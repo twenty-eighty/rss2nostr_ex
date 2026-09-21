@@ -2,6 +2,7 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
   use Rss2Nostr.DataCase, async: false
 
   alias Rss2Nostr.Nostr.Blossom
+  alias Rss2Nostr.Nostr.Blossom.Client
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Sources
@@ -67,7 +68,8 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
     @small_blob :crypto.strong_rand_bytes(1024)
 
     setup do
-      agent = start_supervised!({Agent, fn -> %{mode: :mirror_ok, requests: [], mirror_urls: []} end})
+      agent =
+        start_supervised!({Agent, fn -> %{mode: :mirror_ok, requests: [], mirror_urls: []} end})
 
       bandit =
         start_supervised!(
@@ -157,6 +159,95 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
 
     defp requests(agent), do: Agent.get(agent, & &1.requests)
     defp mirror_urls(agent), do: Agent.get(agent, & &1.mirror_urls)
+  end
+
+  describe "upload_from_url/2 mirror fallback" do
+    setup do
+      agent =
+        start_supervised!(
+          {Agent, fn -> %{mode: :mirror_ok, requests: [], auths: [], mirror_urls: []} end}
+        )
+
+      bandit =
+        start_supervised!(
+          {Bandit, plug: {__MODULE__.DownloadChallengeStub, agent}, port: 0, ip: {127, 0, 0, 1}}
+        )
+
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+      base = "http://127.0.0.1:#{port}"
+      %{agent: agent, server: base, blocked: "#{base}/file.pdf", missing: "#{base}/missing.pdf"}
+    end
+
+    test "asks Blossom to mirror a public URL when our download is challenged", %{
+      agent: agent,
+      server: server,
+      blocked: blocked
+    } do
+      assert {:ok, result} =
+               Blossom.upload_from_url(blocked,
+                 private_key: :crypto.strong_rand_bytes(32),
+                 server: server
+               )
+
+      assert result.url == "https://cdn.example/mirrored.pdf"
+      assert requests(agent) == [{"GET", "/file.pdf"}, {"PUT", "/mirror"}]
+      assert mirror_urls(agent) == ["https://127.0.0.1:#{uri_port(blocked)}/file.pdf"]
+
+      [auth] = Agent.get(agent, & &1.auths)
+
+      tags =
+        auth
+        |> String.replace_prefix("Nostr ", "")
+        |> Base.decode64!()
+        |> Jason.decode!()
+        |> Map.fetch!("tags")
+
+      refute Enum.any?(tags, &match?(["x" | _], &1))
+      assert ["t", "upload"] in tags
+    end
+
+    test "keeps the download error when /mirror rejects the fallback", %{
+      agent: agent,
+      server: server,
+      blocked: blocked
+    } do
+      Agent.update(agent, &Map.put(&1, :mode, :mirror_rejected))
+
+      assert {:error, {:download_failed, 202}} =
+               Blossom.upload_from_url(blocked,
+                 private_key: :crypto.strong_rand_bytes(32),
+                 server: server
+               )
+
+      assert requests(agent) == [{"GET", "/file.pdf"}, {"PUT", "/mirror"}]
+    end
+
+    test "does not mirror a missing file", %{agent: agent, server: server, missing: missing} do
+      assert {:error, {:download_failed, 404}} =
+               Blossom.upload_from_url(missing,
+                 private_key: :crypto.strong_rand_bytes(32),
+                 server: server
+               )
+
+      assert requests(agent) == [{"GET", "/missing.pdf"}]
+    end
+
+    test "selects a public https origin and skips loopback origins for a remote server" do
+      europarl =
+        "https://www.europarl.europa.eu/pdfs/news/expert/agenda_week_by_type/22-2026/22-2026_en.pdf"
+
+      assert Client.mirror_fallback_source([europarl], "https://route96.example") == europarl
+
+      assert Client.mirror_fallback_source(
+               ["http://127.0.0.1:9/paper.pdf"],
+               "https://route96.example"
+             ) == nil
+    end
+
+    defp uri_port(url) do
+      %URI{port: port} = URI.parse(url)
+      port
+    end
   end
 
   defmodule NotFoundStub do
@@ -258,6 +349,75 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
         "sha256" => "aa",
         "size" => 1,
         "type" => "audio/mpeg"
+      })
+    end
+  end
+
+  defmodule DownloadChallengeStub do
+    @moduledoc false
+    @behaviour Plug
+
+    def init(agent), do: agent
+
+    def call(conn, agent) do
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      mode = Agent.get(agent, & &1.mode)
+
+      Agent.update(agent, fn state ->
+        state
+        |> Map.update(:requests, [], &(&1 ++ [{conn.method, conn.request_path}]))
+        |> record_auth(conn)
+        |> maybe_record_mirror_url(conn.request_path, body)
+      end)
+
+      {status, resp, type} =
+        case {conn.method, conn.request_path, mode} do
+          {"GET", "/file.pdf", _} ->
+            {202, "", "text/html"}
+
+          {"GET", "/missing.pdf", _} ->
+            {404, "missing", "text/plain"}
+
+          {"PUT", "/mirror", :mirror_rejected} ->
+            {403, "denied", "text/plain"}
+
+          {"PUT", "/mirror", _} ->
+            {201, descriptor(), "application/json"}
+
+          _ ->
+            {404, "no", "text/plain"}
+        end
+
+      conn
+      |> Plug.Conn.put_resp_content_type(type)
+      |> Plug.Conn.send_resp(status, resp)
+    end
+
+    defp record_auth(state, conn) do
+      case Plug.Conn.get_req_header(conn, "authorization") do
+        [auth | _] -> Map.update(state, :auths, [auth], &(&1 ++ [auth]))
+        [] -> state
+      end
+    end
+
+    defp maybe_record_mirror_url(state, "/mirror", body) do
+      url =
+        case Jason.decode(body) do
+          {:ok, %{"url" => url}} -> url
+          _ -> body
+        end
+
+      Map.update(state, :mirror_urls, [url], &(&1 ++ [url]))
+    end
+
+    defp maybe_record_mirror_url(state, _, _), do: state
+
+    defp descriptor do
+      Jason.encode!(%{
+        "url" => "https://cdn.example/mirrored.pdf",
+        "sha256" => "bb",
+        "size" => 199_482,
+        "type" => "application/pdf"
       })
     end
   end
@@ -420,9 +580,7 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       put_upload_endpoint("https://route96.example")
 
       bandit =
-        start_supervised!(
-          {Bandit, plug: __MODULE__.NotFoundStub, port: 0, ip: {127, 0, 0, 1}}
-        )
+        start_supervised!({Bandit, plug: __MODULE__.NotFoundStub, port: 0, ip: {127, 0, 0, 1}})
 
       {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
       missing = "http://127.0.0.1:#{port}/mp3/flnwo14-hq.mp3"
@@ -468,9 +626,7 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       put_upload_endpoint("https://route96.example")
 
       bandit =
-        start_supervised!(
-          {Bandit, plug: __MODULE__.ForbiddenStub, port: 0, ip: {127, 0, 0, 1}}
-        )
+        start_supervised!({Bandit, plug: __MODULE__.ForbiddenStub, port: 0, ip: {127, 0, 0, 1}})
 
       {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
       blocked = "http://127.0.0.1:#{port}/paper.pdf"
@@ -511,9 +667,7 @@ defmodule Rss2Nostr.Nostr.BlossomTest do
       put_upload_endpoint("https://route96.example")
 
       bandit =
-        start_supervised!(
-          {Bandit, plug: __MODULE__.ServerErrorStub, port: 0, ip: {127, 0, 0, 1}}
-        )
+        start_supervised!({Bandit, plug: __MODULE__.ServerErrorStub, port: 0, ip: {127, 0, 0, 1}})
 
       {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
       flaky = "http://127.0.0.1:#{port}/episode.mp3"

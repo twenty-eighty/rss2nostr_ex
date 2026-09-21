@@ -6,10 +6,10 @@ defmodule Rss2Nostr.HTTP do
   alias Rss2Nostr.HTTP.SafeURL
   alias Rss2Nostr.Processing.ImageExtractor.Urls, as: MediaUrls
 
-  # CloudFront WAF answers a bare bot token with HTTP 202 and an empty body
-  # (`x-amzn-waf-action: challenge`). A Mozilla-compatible token still names
-  # this app and receives the file.
-  @user_agent "Mozilla/5.0 (compatible; RSS2Nostr/0.1)"
+  # CloudFront WAF answers a bot token, including "Mozilla/5.0 (compatible; …)",
+  # with HTTP 202 and an empty body (`x-amzn-waf-action: challenge`). The token
+  # has to look like a browser. The suffix still names this app.
+  @user_agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 RSS2Nostr/0.1"
   @max_redirects 3
   @redirect_statuses [301, 302, 303, 307, 308]
 

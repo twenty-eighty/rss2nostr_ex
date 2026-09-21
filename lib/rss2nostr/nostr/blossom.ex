@@ -6,6 +6,8 @@ defmodule Rss2Nostr.Nostr.Blossom do
   Blobs larger than 5MB that still have a public HTTPS origin are sent with
   BUD-04 `PUT /mirror` so the server fetches the file itself. That avoids
   inbound PUTs dying at a 60s proxy body timeout (HTTP 499 / EOF).
+  The same mirror call is the fallback when our own download is blocked
+  (for example CloudFront HTTP 202) and we never get the bytes to hash.
   This replaces NIP-96.
   """
 
@@ -156,7 +158,8 @@ defmodule Rss2Nostr.Nostr.Blossom do
   Uploads binary data. Filename is unused by Blossom (hash-addressed) but kept
   for call-site compatibility.
   """
-  @spec upload_data(binary(), String.t(), keyword()) :: {:ok, upload_result()} | {:error, upload_error()}
+  @spec upload_data(binary(), String.t(), keyword()) ::
+          {:ok, upload_result()} | {:error, upload_error()}
   def upload_data(data, filename, opts \\ []), do: Client.upload_data(data, filename, opts)
 
   @doc """
@@ -195,7 +198,8 @@ defmodule Rss2Nostr.Nostr.Blossom do
   @doc """
   Downloads an image from a URL and uploads it to Blossom.
   """
-  @spec upload_from_url(String.t(), keyword()) :: {:ok, upload_result()} | {:error, upload_error()}
+  @spec upload_from_url(String.t(), keyword()) ::
+          {:ok, upload_result()} | {:error, upload_error()}
   def upload_from_url(image_url, opts \\ []), do: Client.upload_from_url(image_url, opts)
 
   @doc """

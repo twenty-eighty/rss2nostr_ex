@@ -55,9 +55,24 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
   @spec upload_from_url(String.t(), keyword()) ::
           {:ok, Blossom.upload_result()} | {:error, term()}
   def upload_from_url(image_url, opts \\ []) do
-    image_url
-    |> ImageExtractor.download_urls(opts[:base_url])
-    |> Enum.reduce_while({:error, {:download_failed, :no_url}}, fn url, _acc ->
+    urls = ImageExtractor.download_urls(image_url, opts[:base_url])
+
+    case download_and_upload(urls, opts) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, reason} = error ->
+        case mirror_blocked_download(urls, reason, opts) do
+          {:ok, _} = ok -> ok
+          _ -> error
+        end
+    end
+  end
+
+  @spec download_and_upload([String.t()], keyword()) ::
+          {:ok, Blossom.upload_result()} | {:error, term()}
+  defp download_and_upload(urls, opts) do
+    Enum.reduce_while(urls, {:error, {:download_failed, :no_url}}, fn url, _acc ->
       kind = download_kind(url)
       Logger.info("Downloading #{kind} from #{url}")
 
@@ -100,6 +115,95 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
           {:cont, {:error, {:download_failed, exception}}}
       end
     end)
+  end
+
+  # CloudFront and similar gates answer our GET with 202/403 and an empty
+  # body. Ask Blossom to fetch the public URL. The hash is unknown, so the
+  # upload token is not scoped with an `x` tag.
+  @spec mirror_blocked_download([String.t()], term(), keyword()) ::
+          {:ok, Blossom.upload_result()} | {:error, term()}
+  defp mirror_blocked_download(urls, reason, opts) do
+    server = server_from_opts(opts)
+    source = mirror_fallback_source(urls, server)
+
+    if mirror_download_fallback?(reason) and is_binary(source) and is_binary(server) do
+      case upload_signer_from_opts(opts) do
+        signer ->
+          Logger.warning(
+            "Download failed (#{format_error(reason)}); asking Blossom to mirror #{source}"
+          )
+
+          mirror_blob(server, source, nil, 0, signer)
+      end
+    else
+      {:error, reason}
+    end
+  rescue
+    KeyError -> {:error, reason}
+  end
+
+  @spec mirror_download_fallback?(term()) :: boolean()
+  defp mirror_download_fallback?({:download_failed, code}) when code in [400, 404, 410], do: false
+  defp mirror_download_fallback?({:download_failed, :no_url}), do: false
+  defp mirror_download_fallback?({:download_failed, _}), do: true
+  defp mirror_download_fallback?(_), do: false
+
+  @doc false
+  @spec mirror_fallback_source([String.t()], String.t() | nil) :: String.t() | nil
+  def mirror_fallback_source(urls, server) when is_list(urls) do
+    Enum.find_value(urls, &public_mirror_source/1) || loopback_mirror_source(urls, server)
+  end
+
+  @spec public_mirror_source(String.t()) :: String.t() | nil
+  defp public_mirror_source(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: "https", host: host} = uri when is_binary(host) and host != "" ->
+        if public_mirror_host?(host), do: ImageExtractor.encode_http_url(URI.to_string(uri))
+
+      _ ->
+        nil
+    end
+  end
+
+  defp public_mirror_source(_), do: nil
+
+  # Tests serve the blocked file and the Blossom stub on loopback. Production
+  # never asks Blossom to fetch a loopback origin unless the upload server is
+  # loopback too, which only happens in those tests.
+  @spec loopback_mirror_source([String.t()], String.t() | nil) :: String.t() | nil
+  defp loopback_mirror_source(urls, server) do
+    if loopback_host?(server_host(server)) do
+      Enum.find_value(urls, fn url ->
+        if loopback_host?(server_host(url)), do: public_http_url(url)
+      end)
+    end
+  end
+
+  @spec public_mirror_host?(String.t()) :: boolean()
+  defp public_mirror_host?(host) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, _} ->
+        false
+
+      _ ->
+        down = String.downcase(host)
+
+        down != "localhost" and not String.ends_with?(down, ".localhost") and
+          not String.ends_with?(down, ".local")
+    end
+  end
+
+  @spec loopback_host?(String.t() | nil) :: boolean()
+  defp loopback_host?(host) when host in ["127.0.0.1", "::1", "localhost"], do: true
+  defp loopback_host?(_), do: false
+
+  @spec server_from_opts(keyword()) :: String.t() | nil
+  defp server_from_opts(opts) do
+    case Keyword.get(opts, :server) do
+      nil -> Blossom.configured_server()
+      "" -> Blossom.configured_server()
+      url -> String.trim_trailing(url, "/")
+    end
   end
 
   @spec parse_descriptor(map() | String.t()) ::
@@ -176,7 +280,8 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
   def format_error({:download_failed, other}), do: "download failed: #{inspect(other)}"
   def format_error(reason), do: inspect(reason)
 
-  @spec store_blob(String.t(), binary(), String.t(), String.t(), Signer.signer(), keyword()) :: {:ok, Blossom.upload_result()} | {:error, term()}
+  @spec store_blob(String.t(), binary(), String.t(), String.t(), Signer.signer(), keyword()) ::
+          {:ok, Blossom.upload_result()} | {:error, term()}
   defp store_blob(server, data, sha256, content_type, signer, opts) do
     source_url = opts[:source_url] || opts["source_url"]
 
@@ -231,7 +336,8 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     |> ImageExtractor.encode_http_url()
   end
 
-  @spec mirror_blob(String.t(), String.t(), String.t(), non_neg_integer(), Signer.signer()) :: {:ok, Blossom.upload_result()} | {:error, term()}
+  @spec mirror_blob(String.t(), String.t(), String.t() | nil, non_neg_integer(), Signer.signer()) ::
+          {:ok, Blossom.upload_result()} | {:error, term()}
   defp mirror_blob(server, source_url, sha256, byte_size, signer) do
     with {:ok, auth_header} <- create_auth(signer, sha256, server) do
       url = Blossom.mirror_url(server)
@@ -240,7 +346,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
       body = Jason.encode!(%{url: mirror_source})
 
       Logger.info(
-        "Mirroring blob #{String.slice(sha256, 0, 12)}… #{format_bytes(byte_size)} " <>
+        "Mirroring blob #{hash_label(sha256)} #{format_bytes(byte_size)} " <>
           "from #{mirror_source} timeout=#{timeout}ms to #{url}"
       )
 
@@ -266,7 +372,8 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
-  @spec put_blob(String.t(), binary(), String.t(), String.t(), Signer.signer()) :: {:ok, Blossom.upload_result()} | {:error, term()}
+  @spec put_blob(String.t(), binary(), String.t(), String.t(), Signer.signer()) ::
+          {:ok, Blossom.upload_result()} | {:error, term()}
   defp put_blob(server, data, sha256, content_type, signer) do
     with {:ok, auth_header} <- create_auth(signer, sha256, server) do
       url = Blossom.upload_url(server)
@@ -301,7 +408,8 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
     end
   end
 
-  @spec create_auth(Signer.signer(), String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  @spec create_auth(Signer.signer(), String.t() | nil, String.t()) ::
+          {:ok, String.t()} | {:error, term()}
   defp create_auth(signer, sha256, server_url) do
     with {:ok, pubkey_hex} <- Signer.pubkey_hex(normalize_signer(signer)) do
       now = System.os_time(:second) - 1
@@ -310,9 +418,15 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
 
       tags = [
         ["t", "upload"],
-        ["expiration", Integer.to_string(expiration)],
-        ["x", sha256]
+        ["expiration", Integer.to_string(expiration)]
       ]
+
+      tags =
+        if is_binary(sha256) and sha256 != "" do
+          tags ++ [["x", sha256]]
+        else
+          tags
+        end
 
       tags =
         if host do
@@ -359,6 +473,11 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
       _ -> nil
     end
   end
+
+  defp hash_label(sha256) when is_binary(sha256) and sha256 != "",
+    do: String.slice(sha256, 0, 12) <> "…"
+
+  defp hash_label(_), do: "unhashed"
 
   @spec normalize_content_type(term()) :: String.t()
   defp normalize_content_type(value) when is_binary(value) do
@@ -477,7 +596,12 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
   defp format_bytes(n) when n >= 1_000, do: "#{div(n, 1_000)}KB"
   defp format_bytes(n), do: "#{n}B"
 
-  @spec enrich_media_upload({:ok, Blossom.upload_result()} | {:error, term()}, binary(), String.t(), String.t()) :: {:ok, Blossom.upload_result()} | {:error, term()}
+  @spec enrich_media_upload(
+          {:ok, Blossom.upload_result()} | {:error, term()},
+          binary(),
+          String.t(),
+          String.t()
+        ) :: {:ok, Blossom.upload_result()} | {:error, term()}
   defp enrich_media_upload({:ok, result}, data, url, content_type)
        when is_binary(data) do
     if ImageExtractor.audio_url?(url) or ImageExtractor.video_url?(url) do
@@ -534,6 +658,7 @@ defmodule Rss2Nostr.Nostr.Blossom.Client do
           content_type == "application/pdf" -> "file"
           true -> "image"
         end
+
       "#{prefix}_#{System.system_time(:second)}#{ext}"
     end
   end

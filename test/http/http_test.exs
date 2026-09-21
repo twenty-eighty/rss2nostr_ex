@@ -66,6 +66,7 @@ defmodule Rss2Nostr.HTTPTest do
              HTTP.get("http://127.0.0.1:#{port}/file.pdf", retry: false)
 
     assert agent =~ "Mozilla/5.0"
+    assert agent =~ "Chrome/"
     assert agent =~ "RSS2Nostr"
   end
 
