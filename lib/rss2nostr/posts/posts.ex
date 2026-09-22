@@ -661,6 +661,27 @@ defmodule Rss2Nostr.Posts do
   # Article Image queries
 
   @doc """
+  An earlier successful upload of the same media file on this article.
+
+  Matches the stored source URL, ignoring a new query string.
+  """
+  @spec find_successful_upload(integer(), String.t()) :: ArticleImage.t() | nil
+  def find_successful_upload(post_id, url) when is_integer(post_id) and is_binary(url) do
+    alias Rss2Nostr.Processing.ImageExtractor.Urls
+
+    ArticleImage
+    |> where([i], i.post_id == ^post_id)
+    |> where([i], not is_nil(i.uploaded_url) and i.uploaded_url != "")
+    |> Repo.all()
+    |> Enum.find(&Urls.same_asset?(&1.original_url, url))
+  end
+
+  @spec get_image_by_url(integer(), String.t()) :: ArticleImage.t() | nil
+  def get_image_by_url(post_id, url) when is_integer(post_id) and is_binary(url) do
+    Repo.get_by(ArticleImage, post_id: post_id, original_url: url)
+  end
+
+  @doc """
   Gets all images for a post.
   """
   @spec list_images_for_post(integer()) :: [ArticleImage.t()]

@@ -55,17 +55,9 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     uploaded_urls =
       MapSet.new(for image <- post.images, present?(image.uploaded_url), do: image.uploaded_url)
 
-    uploaded_by_canonical =
-      Map.new(
-        for image <- post.images,
-            present?(image.uploaded_url),
-            do: {ImageExtractor.normalize_url(image.original_url), image}
-      )
-
     mapping =
       Enum.reduce(post.images, %{}, fn image, acc ->
-        canonical = ImageExtractor.normalize_url(image.original_url)
-        sibling = uploaded_by_canonical[canonical]
+        sibling = uploaded_sibling(post.images, image)
 
         cond do
           present?(image.uploaded_url) ->
@@ -113,57 +105,88 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     targets = pending_image_records(post)
 
     Enum.reduce(targets, {post, mapping, [], []}, fn image, {post, mapping, errors, give_ups} ->
-      case Blossom.upload_from_url(image.original_url,
-             signer: open_signer,
-             base_url: post.source_url
-           ) do
-        {:ok, result} ->
-          case Posts.mark_image_uploaded(
-                 image,
-                 result.url,
-                 NIP92.stored_attrs(result, alt: image.alt_text)
-               ) do
-            {:ok, updated} ->
-              {Posts.preload_images(post), Map.put(mapping, updated.original_url, result.url),
-               errors, give_ups}
+      case reuse_uploaded(post, image) do
+        {:ok, updated} ->
+          {Posts.preload_images(post),
+           Map.put(mapping, updated.original_url, updated.uploaded_url), errors, give_ups}
 
-            {:error, reason} ->
-              Logger.warning(
-                "[Blossom] Could not record upload of #{image.original_url}: #{inspect(reason)}"
-              )
-
-              {Posts.preload_images(post), mapping, errors, give_ups}
-          end
-
-        {:error, reason} ->
-          formatted = Client.format_error(reason)
-          permanent? = permanent_failure?(reason)
-
-          case Posts.mark_image_upload_failed(image, permanent: permanent?) do
-            {:ok, _updated, :gave_up} ->
-              message =
-                if permanent? do
-                  "Media upload failed: #{formatted}"
-                else
-                  "Media upload failed: gave up after #{Posts.max_image_fetch_attempts()} attempts: #{formatted}"
-                end
-
-              Logger.warning("[Blossom] Giving up on #{image.original_url}: #{message}")
-              post = maybe_clear_featured(post, image)
-              {Posts.preload_images(post), mapping, errors, [message | give_ups]}
-
-            {:ok, _updated, :retry} ->
-              {post, mapping, [reason | errors], give_ups}
-
-            {:error, stale_reason} ->
-              Logger.warning(
-                "[Blossom] Could not record failure of #{image.original_url}: #{inspect(stale_reason)}"
-              )
-
-              {Posts.preload_images(post), mapping, errors, give_ups}
-          end
+        :miss ->
+          upload_image(post, image, mapping, errors, give_ups, open_signer)
       end
     end)
+  end
+
+  @spec reuse_uploaded(Rss2Nostr.Posts.Post.t(), map()) ::
+          {:ok, Rss2Nostr.Posts.ArticleImage.t()} | :miss
+  defp reuse_uploaded(post, image) do
+    case Posts.find_successful_upload(post.id, image.original_url) do
+      %{} = prior ->
+        Posts.mark_image_uploaded(image, prior.uploaded_url, copy_upload_attrs(prior))
+
+      nil ->
+        :miss
+    end
+  end
+
+  @spec upload_image(
+          Rss2Nostr.Posts.Post.t(),
+          map(),
+          %{String.t() => String.t()},
+          [term()],
+          [String.t()],
+          Signer.open_signer()
+        ) :: {Rss2Nostr.Posts.Post.t(), %{String.t() => String.t()}, [term()], [String.t()]}
+  defp upload_image(post, image, mapping, errors, give_ups, open_signer) do
+    case Blossom.upload_from_url(image.original_url,
+           signer: open_signer,
+           base_url: post.source_url
+         ) do
+      {:ok, result} ->
+        case Posts.mark_image_uploaded(
+               image,
+               result.url,
+               NIP92.stored_attrs(result, alt: image.alt_text)
+             ) do
+          {:ok, updated} ->
+            {Posts.preload_images(post), Map.put(mapping, updated.original_url, result.url),
+             errors, give_ups}
+
+          {:error, reason} ->
+            Logger.warning(
+              "[Blossom] Could not record upload of #{image.original_url}: #{inspect(reason)}"
+            )
+
+            {Posts.preload_images(post), mapping, errors, give_ups}
+        end
+
+      {:error, reason} ->
+        formatted = Client.format_error(reason)
+        permanent? = permanent_failure?(reason)
+
+        case Posts.mark_image_upload_failed(image, permanent: permanent?) do
+          {:ok, _updated, :gave_up} ->
+            message =
+              if permanent? do
+                "Media upload failed: #{formatted}"
+              else
+                "Media upload failed: gave up after #{Posts.max_image_fetch_attempts()} attempts: #{formatted}"
+              end
+
+            Logger.warning("[Blossom] Giving up on #{image.original_url}: #{message}")
+            post = maybe_clear_featured(post, image)
+            {Posts.preload_images(post), mapping, errors, [message | give_ups]}
+
+          {:ok, _updated, :retry} ->
+            {post, mapping, [reason | errors], give_ups}
+
+          {:error, stale_reason} ->
+            Logger.warning(
+              "[Blossom] Could not record failure of #{image.original_url}: #{inspect(stale_reason)}"
+            )
+
+            {Posts.preload_images(post), mapping, errors, give_ups}
+        end
+    end
   end
 
   @spec give_up_message([String.t()]) :: String.t()
@@ -373,6 +396,14 @@ defmodule Rss2Nostr.Nostr.Blossom.PostImages do
     else
       %{}
     end
+  end
+
+  @spec uploaded_sibling(list(), map()) :: map() | nil
+  defp uploaded_sibling(images, image) do
+    Enum.find(images, fn other ->
+      other.id != image.id and present?(other.uploaded_url) and
+        ImageExtractor.same_asset?(other.original_url, image.original_url)
+    end)
   end
 
   @spec copy_upload_attrs(map()) :: map()

@@ -27,20 +27,26 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
     created =
       Enum.reduce(images, 0, fn image, count ->
-        if known_url?(known, image.url) do
-          count
-        else
-          attrs = %{
-            post_id: post.id,
-            original_url: image.url,
-            alt_text: image.alt,
-            caption: image.caption
-          }
+        cond do
+          known_url?(known, image.url) ->
+            count
 
-          case Posts.create_image(attrs) do
-            {:ok, _} -> count + 1
-            {:error, _} -> count
-          end
+          prior = Posts.find_successful_upload(post.id, image.url) ->
+            reuse_upload(post, prior, image)
+            count
+
+          true ->
+            attrs = %{
+              post_id: post.id,
+              original_url: image.url,
+              alt_text: image.alt,
+              caption: image.caption
+            }
+
+            case Posts.create_image(attrs) do
+              {:ok, _} -> count + 1
+              {:error, _} -> count
+            end
         end
       end)
 
@@ -149,6 +155,56 @@ defmodule Rss2Nostr.Processing.ImageExtractor do
 
   @spec download_urls(String.t() | nil, String.t() | nil) :: [String.t()]
   def download_urls(url, base \\ nil), do: Urls.download_urls(url, base)
+
+  @spec same_asset?(String.t() | nil, String.t() | nil) :: boolean()
+  def same_asset?(left, right), do: Urls.same_asset?(left, right)
+
+  @spec reuse_upload(Post.t(), Rss2Nostr.Posts.ArticleImage.t(), image_info()) :: :ok
+  defp reuse_upload(post, prior, image) do
+    if prior.original_url == image.url do
+      :ok
+    else
+      attrs = %{
+        post_id: post.id,
+        original_url: image.url,
+        alt_text: image.alt,
+        caption: image.caption,
+        uploaded_url: prior.uploaded_url,
+        sha256: prior.sha256,
+        mime_type: prior.mime_type,
+        file_size: prior.file_size,
+        dim: prior.dim,
+        thumb: prior.thumb,
+        imeta: prior.imeta || [],
+        fetch_error: false,
+        fetch_attempts: 0
+      }
+
+      case Posts.create_image(attrs) do
+        {:ok, _} ->
+          :ok
+
+        {:error, _} ->
+          case Posts.get_image_by_url(post.id, image.url) do
+            %Rss2Nostr.Posts.ArticleImage{} = current ->
+              _ =
+                Posts.mark_image_uploaded(current, prior.uploaded_url, %{
+                  sha256: prior.sha256,
+                  mime_type: prior.mime_type,
+                  file_size: prior.file_size,
+                  dim: prior.dim,
+                  thumb: prior.thumb,
+                  imeta: prior.imeta || []
+                })
+
+              :ok
+
+            nil ->
+              :ok
+          end
+      end
+    end
+  end
 
   @spec known_image_urls(Post.t()) :: MapSet.t(String.t())
   defp known_image_urls(post) do

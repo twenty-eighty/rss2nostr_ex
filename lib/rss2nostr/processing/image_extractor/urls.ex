@@ -58,8 +58,46 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
 
   def display(nil), do: ""
 
+  @doc """
+  True when two URLs address the same media file.
+
+  Query strings are ignored, so a refreshed signature or cache buster
+  still matches an upload we already have. Substack CDN wrappers match
+  the unwrapped origin.
+  """
+  @spec same_asset?(String.t() | nil, String.t() | nil) :: boolean()
+  def same_asset?(left, right) when is_binary(left) and is_binary(right) do
+    left_key = asset_key(left)
+    right_key = asset_key(right)
+
+    (left_key != "" and left_key == right_key) or download_overlap?(left, right)
+  end
+
+  def same_asset?(_, _), do: false
+
+  @spec asset_key(String.t() | nil) :: String.t()
+  def asset_key(url) when is_binary(url) do
+    normalized = url |> normalize() |> strip_query()
+
+    case URI.parse(normalized) do
+      %URI{scheme: scheme, host: host, path: path}
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        host = host |> String.downcase() |> String.replace_prefix("www.", "")
+        path = path |> to_string() |> URI.decode() |> String.trim_trailing("/")
+        "https://#{host}#{path}"
+
+      _ ->
+        ""
+    end
+  rescue
+    _ -> ""
+  end
+
+  def asset_key(_), do: ""
+
   @spec download_urls(String.t() | nil, String.t() | nil) :: [String.t()]
   def download_urls(url, base \\ nil)
+
   def download_urls(url, base) when is_binary(url) do
     url = String.trim(url)
     resolved = resolve(url, base)
@@ -178,6 +216,24 @@ defmodule Rss2Nostr.Processing.ImageExtractor.Urls do
     end
   rescue
     _ -> nil
+  end
+
+  @spec strip_query(String.t()) :: String.t()
+  defp strip_query(url) do
+    url
+    |> String.split("?", parts: 2)
+    |> hd()
+    |> String.split("#", parts: 2)
+    |> hd()
+  end
+
+  @spec download_overlap?(String.t(), String.t()) :: boolean()
+  defp download_overlap?(left, right) do
+    left_urls = MapSet.new(download_urls(left))
+
+    right
+    |> download_urls()
+    |> Enum.any?(&MapSet.member?(left_urls, &1))
   end
 
   @spec prefix_protocol_relative(String.t()) :: String.t()

@@ -165,6 +165,91 @@ defmodule Rss2Nostr.Processing.ImageExtractorTest do
       assert length(Posts.list_images_for_post(post.id)) == 1
     end
 
+    test "reuses an upload when the image link only changed its query", %{source: source} do
+      original = "https://cdn.example/hero.jpg?Expires=1&Signature=old"
+      renewed = "https://cdn.example/hero.jpg?Expires=2&Signature=new"
+      uploaded = "https://route96.example/hero.jpg"
+      post = create_test_post(source, "<p>x</p>")
+
+      {:ok, post} = Posts.update_post(post, %{content: "![Hero](#{renewed})", image: renewed})
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: original,
+          uploaded_url: uploaded,
+          sha256: "abc123"
+        })
+
+      {:ok, stored, created} = ImageExtractor.extract_and_store(post)
+
+      assert created == 0
+      refute Rss2Nostr.Nostr.Blossom.pending_images?(stored)
+
+      [image] = Posts.list_images_for_post(post.id)
+      assert image.original_url == renewed
+      assert image.uploaded_url == uploaded
+      assert image.sha256 == "abc123"
+    end
+
+    test "reuses an upload when a video link only changed its query", %{source: source} do
+      original = "https://www.corbettreport.com/mp4/nwnw640.mp4?_=1"
+      renewed = "https://corbettreport.com/mp4/nwnw640.mp4?_=2"
+      uploaded = "https://route96.example/nwnw640.mp4"
+      post = create_test_post(source, "<p>x</p>")
+
+      {:ok, post} =
+        Posts.update_post(post, %{content: "[Video](#{renewed} \"23:43\")\n\nBody"})
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: original,
+          uploaded_url: uploaded,
+          mime_type: "video/mp4"
+        })
+
+      {:ok, stored, created} = ImageExtractor.extract_and_store(post)
+
+      assert created == 0
+      refute Rss2Nostr.Nostr.Blossom.pending_images?(stored)
+
+      [image] = Posts.list_images_for_post(post.id)
+      assert image.original_url == renewed
+      assert image.uploaded_url == uploaded
+      assert image.mime_type == "video/mp4"
+    end
+
+    test "still stores a media file that has not been uploaded", %{source: source} do
+      uploaded = "https://cdn.example/hero.jpg"
+      fresh = "https://cdn.example/later.mp4"
+      post = create_test_post(source, "<p>x</p>")
+
+      {:ok, post} =
+        Posts.update_post(post, %{
+          content: "![Hero](#{uploaded})\n\n[Video](#{fresh})"
+        })
+
+      {:ok, _} =
+        Posts.create_image(%{
+          post_id: post.id,
+          original_url: uploaded,
+          uploaded_url: "https://route96.example/hero.jpg"
+        })
+
+      {:ok, _stored, created} = ImageExtractor.extract_and_store(post)
+
+      assert created == 1
+
+      video =
+        post.id
+        |> Posts.list_images_for_post()
+        |> Enum.find(&(&1.original_url == fresh))
+
+      assert video
+      assert is_nil(video.uploaded_url)
+    end
+
     test "does not create a new row for a URL that was already uploaded", %{source: source} do
       original = "https://cdn.example/hero.jpg"
       uploaded = "https://route96.example/hero.jpg"
