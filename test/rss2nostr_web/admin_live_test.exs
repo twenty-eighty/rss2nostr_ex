@@ -48,6 +48,19 @@ defmodule Rss2NostrWeb.AdminLiveTest do
     post
   end
 
+  defmodule PageStub do
+    @moduledoc false
+    @behaviour Plug
+
+    def init(html), do: html
+
+    def call(conn, html) do
+      conn
+      |> Plug.Conn.put_resp_content_type("text/html")
+      |> Plug.Conn.send_resp(200, html)
+    end
+  end
+
   describe "authentication" do
     test "GET / redirects to login with next path", %{conn: conn} do
       conn = get(conn, "/")
@@ -101,6 +114,7 @@ defmodule Rss2NostrWeb.AdminLiveTest do
       assert html =~ "Selectable staging post"
       assert html =~ "Import now"
       assert html =~ "Reprocess selected"
+      assert html =~ "Reimport selected"
 
       html = render_click(view, "toggle_post", %{"id" => to_string(post.id)})
       assert html =~ "Reprocess selected"
@@ -159,12 +173,54 @@ defmodule Rss2NostrWeb.AdminLiveTest do
       assert html =~ ~s(disabled)
       assert html =~ "Publish selected"
       assert html =~ "Reprocess selected"
+      assert html =~ "Reimport selected"
 
       html = render_click(view, "toggle_post", %{"id" => to_string(post.id)})
 
       assert html =~ "1 selected"
       refute html =~ ~r/phx-click="publish_selected"[^>]*disabled/
       refute html =~ ~r/phx-click="reprocess_selected"[^>]*disabled/
+      refute html =~ ~r/phx-click="reimport_selected"[^>]*disabled/
+    end
+
+    test "reimport downloads the article page and reconverts it", %{conn: conn} do
+      page_html = """
+      <!DOCTYPE html>
+      <html><head><title>Later</title></head>
+      <body><p>Later video is up</p></body></html>
+      """
+
+      bandit =
+        start_supervised!(
+          {Bandit, plug: {__MODULE__.PageStub, page_html}, port: 0, ip: {127, 0, 0, 1}}
+        )
+
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+      page = "http://127.0.0.1:#{port}/whos-at-the-top"
+      source = create_source(%{name: "Reimport Source"})
+
+      post =
+        create_post(source, %{
+          title: "Reimport target",
+          source_url: page,
+          source_html: "<p>Published before the player existed</p>",
+          content: "Published before the player existed"
+        })
+
+      {:ok, view, html} =
+        conn
+        |> authed_conn()
+        |> live("/posts?source_id=#{source.id}&page=1")
+
+      assert html =~ ~s(phx-click="reimport_post")
+
+      render_click(view, "reimport_post", %{"id" => to_string(post.id)})
+      html = render_async(view)
+
+      assert html =~ "Reimported the article."
+      reloaded = Posts.get_post(post.id)
+      assert reloaded.source_html =~ "Later video is up"
+      assert reloaded.content =~ "Later video is up"
     end
 
     test "select-all checks every staging post on the page", %{conn: conn} do

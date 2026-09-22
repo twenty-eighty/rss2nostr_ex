@@ -109,6 +109,15 @@ defmodule Rss2NostrWeb.PostIndexLive do
      |> start_async(:reprocess, fn -> PostsAPI.reprocess_selected(%{"post_ids" => ids}) end)}
   end
 
+  def handle_event("reimport_selected", _params, socket) do
+    ids = MapSet.to_list(socket.assigns.selected_ids)
+
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:reimport, fn -> PostsAPI.reimport_selected(%{"post_ids" => ids}) end)}
+  end
+
   def handle_event("skip_selected", _params, socket) do
     ids = MapSet.to_list(socket.assigns.selected_ids)
 
@@ -139,6 +148,13 @@ defmodule Rss2NostrWeb.PostIndexLive do
      socket
      |> assign(:busy, true)
      |> start_async(:one, fn -> PostsAPI.reprocess(id) end)}
+  end
+
+  def handle_event("reimport_post", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:reimport_one, fn -> PostsAPI.reimport(id) end)}
   end
 
   def handle_event("publish_post", %{"id" => id}, socket) do
@@ -198,6 +214,39 @@ defmodule Rss2NostrWeb.PostIndexLive do
   end
 
   def handle_async(:reprocess, {:exit, reason}, socket) do
+    {:noreply, socket |> assign(:busy, false) |> put_flash(:error, Exception.format_exit(reason))}
+  end
+
+  def handle_async(:reimport, {:ok, {:ok, result}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> assign(:selected_ids, MapSet.new())
+     |> put_flash(:info, reimport_notice(result))
+     |> assign_posts()}
+  end
+
+  def handle_async(:reimport, {:ok, {:error, reason}}, socket) do
+    {:noreply, socket |> assign(:busy, false) |> put_flash(:error, format_update_error(reason))}
+  end
+
+  def handle_async(:reimport, {:exit, reason}, socket) do
+    {:noreply, socket |> assign(:busy, false) |> put_flash(:error, Exception.format_exit(reason))}
+  end
+
+  def handle_async(:reimport_one, {:ok, {:ok, _post}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:info, "Reimported the article.")
+     |> assign_posts()}
+  end
+
+  def handle_async(:reimport_one, {:ok, {:error, reason}}, socket) do
+    {:noreply, socket |> assign(:busy, false) |> put_flash(:error, format_update_error(reason))}
+  end
+
+  def handle_async(:reimport_one, {:exit, reason}, socket) do
     {:noreply, socket |> assign(:busy, false) |> put_flash(:error, Exception.format_exit(reason))}
   end
 
@@ -357,6 +406,14 @@ defmodule Rss2NostrWeb.PostIndexLive do
       <button
         type="button"
         class="btn btn-secondary"
+        phx-click="reimport_selected"
+        disabled={@busy or not @reimportable?}
+      >
+        Reimport selected
+      </button>
+      <button
+        type="button"
+        class="btn btn-secondary"
         phx-click="skip_selected"
         disabled={@busy or not @skippable?}
       >
@@ -376,9 +433,10 @@ defmodule Rss2NostrWeb.PostIndexLive do
     </div>
     <p class="help-text">
       Select all includes matching articles, not only this page. Staging articles can be published;
-      pending-images and error articles can be reprocessed. Skip keeps imported articles out of
-      process, export, and publish. Relays come from each source: drafts use the draft list,
-      articles use public or test from the source flag.
+      pending-images and error articles can be reprocessed. Reimport downloads the article again
+      and reconverts it, so a video added after the first import is included. Skip keeps imported
+      articles out of process, export, and publish. Relays come from each source: drafts use the
+      draft list, articles use public or test from the source flag.
     </p>
 
     <table class="table">
@@ -471,6 +529,16 @@ defmodule Rss2NostrWeb.PostIndexLive do
                 Retry
               </button>
               <button
+                :if={reimportable?(post)}
+                type="button"
+                class="btn btn-small"
+                phx-click="reimport_post"
+                phx-value-id={post.id}
+                disabled={@busy}
+              >
+                Reimport
+              </button>
+              <button
                 :if={skippable?(post)}
                 type="button"
                 class="btn btn-small"
@@ -540,6 +608,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
     publishable_ids = MapSet.new(publishable_post_ids(status, source_id, q))
     skippable_ids = MapSet.new(skippable_post_ids(status, source_id, q))
     skipped_ids = MapSet.new(skipped_post_ids(status, source_id, q))
+    reimportable_ids = MapSet.new(reimportable_post_ids(status, source_id, q))
 
     socket
     |> assign(:posts, posts)
@@ -552,6 +621,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
     |> assign(:publishable_ids, publishable_ids)
     |> assign(:skippable_ids, skippable_ids)
     |> assign(:skipped_ids, skipped_ids)
+    |> assign(:reimportable_ids, reimportable_ids)
     |> assign(:return_to, posts_path(status: status, source_id: source_id, q: q, page: page))
     |> assign_selection_flags()
   end
@@ -567,6 +637,7 @@ defmodule Rss2NostrWeb.PostIndexLive do
     publishable_ids = socket.assigns.publishable_ids
     skippable_ids = socket.assigns.skippable_ids
     skipped_ids = socket.assigns.skipped_ids
+    reimportable_ids = socket.assigns.reimportable_ids
 
     socket
     |> assign(:selectable?, selectable_ids != [] and MapSet.size(selected) > 0)
@@ -581,6 +652,10 @@ defmodule Rss2NostrWeb.PostIndexLive do
     |> assign(
       :unskippable?,
       Enum.any?(selected, &MapSet.member?(skipped_ids, &1))
+    )
+    |> assign(
+      :reimportable?,
+      Enum.any?(selected, &MapSet.member?(reimportable_ids, &1))
     )
     |> assign(
       :all_selected?,
@@ -627,6 +702,41 @@ defmodule Rss2NostrWeb.PostIndexLive do
     else
       []
     end
+  end
+
+  @spec reimportable_post_ids(String.t() | nil, integer() | nil, String.t() | nil) :: [integer()]
+  defp reimportable_post_ids(status_filter, source_id, q) do
+    statuses =
+      cond do
+        status_filter in [nil, ""] ->
+          [
+            Post.status_new(),
+            Post.status_processed(),
+            Post.status_published(),
+            Post.status_error(),
+            Post.status_pending_images()
+          ]
+
+        status_filter == "0" ->
+          [Post.status_new()]
+
+        status_filter == "2" ->
+          [Post.status_processed()]
+
+        status_filter == "6" ->
+          [Post.status_published()]
+
+        status_filter == "8" ->
+          [Post.status_error()]
+
+        status_filter == "9" ->
+          [Post.status_pending_images()]
+
+        true ->
+          []
+      end
+
+    Enum.flat_map(statuses, &post_ids_for(&1, source_id, q))
   end
 
   @spec publishable_post_ids(String.t() | nil, integer() | nil, String.t() | nil) :: [integer()]

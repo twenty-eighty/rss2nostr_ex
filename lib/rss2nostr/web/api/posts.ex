@@ -3,6 +3,7 @@ defmodule Rss2Nostr.Web.API.Posts do
   API handlers for post operations.
   """
 
+  alias Rss2Nostr.Import.Importer
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Processing.Processor
@@ -70,6 +71,17 @@ defmodule Rss2Nostr.Web.API.Posts do
     end
   end
 
+  @spec reimport(String.t()) :: {:ok, Post.t()} | {:error, term()}
+  def reimport(id) do
+    with {:ok, post_id} <- parse_id(id),
+         %Post{} = post <- Posts.get_post(post_id) do
+      Importer.reimport_post(post)
+    else
+      nil -> {:error, :not_found}
+      {:error, :invalid_id} -> {:error, :invalid_id}
+    end
+  end
+
   @spec publish(String.t(), map()) :: {:ok, map()} | {:error, atom() | String.t()}
   def publish(id, _params \\ %{}) do
     with {:ok, post_id} <- parse_id(id),
@@ -109,6 +121,28 @@ defmodule Rss2Nostr.Web.API.Posts do
     {:ok,
      %{
        processed: Enum.count(results, &match?({:ok, _}, &1)),
+       errors: Enum.count(results, &match?({:error, _}, &1))
+     }}
+  end
+
+  @spec reimport_selected(map()) :: {:ok, map()}
+  def reimport_selected(params) do
+    ids = List.wrap(params["post_ids"] || params["post_ids[]"] || [])
+
+    results =
+      ids
+      |> Posts.get_posts()
+      |> Enum.map(fn post ->
+        if Post.reimportable?(post) do
+          Importer.reimport_post(post)
+        else
+          {:error, :not_reimportable}
+        end
+      end)
+
+    {:ok,
+     %{
+       reimported: Enum.count(results, &match?({:ok, _}, &1)),
        errors: Enum.count(results, &match?({:error, _}, &1))
      }}
   end

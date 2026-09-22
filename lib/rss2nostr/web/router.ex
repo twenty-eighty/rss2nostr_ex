@@ -224,6 +224,12 @@ defmodule Rss2Nostr.Web.Router do
     redirect(conn, with_flash(dest, reprocess_notice(result), "success"))
   end
 
+  post "/posts/reimport-selected" do
+    dest = return_to(conn, "/posts")
+    {:ok, result} = API.Posts.reimport_selected(conn.body_params)
+    redirect(conn, with_flash(dest, reimport_notice(result), "success"))
+  end
+
   post "/posts/:id/process" do
     case API.Posts.process(id) do
       {:ok, post} ->
@@ -270,6 +276,40 @@ defmodule Rss2Nostr.Web.Router do
           send_json(conn, 400, %{error: "Invalid post id"})
         else
           send_html(conn, 400, Views.Error.bad_request())
+        end
+    end
+  end
+
+  post "/posts/:id/reimport" do
+    case API.Posts.reimport(id) do
+      {:ok, post} ->
+        if wants_json?(conn) do
+          send_json(conn, 200, process_result(post))
+        else
+          redirect(conn, return_to(conn, "/posts/#{id}"))
+        end
+
+      {:error, :not_found} ->
+        if wants_json?(conn) do
+          send_json(conn, 404, %{error: "Post not found"})
+        else
+          send_html(conn, 404, Views.Error.not_found())
+        end
+
+      {:error, :invalid_id} ->
+        if wants_json?(conn) do
+          send_json(conn, 400, %{error: "Invalid post id"})
+        else
+          send_html(conn, 400, Views.Error.bad_request())
+        end
+
+      {:error, reason} ->
+        message = if is_binary(reason), do: reason, else: to_string(reason)
+
+        if wants_json?(conn) do
+          send_json(conn, 422, %{error: message})
+        else
+          redirect(conn, with_flash(return_to(conn, "/posts/#{id}"), message, "error"))
         end
     end
   end
@@ -666,6 +706,11 @@ defmodule Rss2Nostr.Web.Router do
   @spec reprocess_notice(map()) :: String.t()
   defp reprocess_notice(result) do
     "Reprocessed #{result.processed}. Failed #{result.errors}."
+  end
+
+  @spec reimport_notice(map()) :: String.t()
+  defp reimport_notice(result) do
+    "Reimported #{result.reimported}. Failed #{result.errors}."
   end
 
   @spec format_update_error(Ecto.Changeset.t() | term()) :: String.t()

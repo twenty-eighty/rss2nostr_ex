@@ -272,6 +272,11 @@ defmodule Rss2NostrWeb.LiveHelpers do
     "Reprocessed #{result.processed}. Failed #{result.errors}."
   end
 
+  @spec reimport_notice(%{reimported: non_neg_integer(), errors: non_neg_integer()}) :: String.t()
+  def reimport_notice(result) do
+    "Reimported #{result.reimported}. Failed #{result.errors}."
+  end
+
   @spec skip_notice(%{skipped: non_neg_integer(), errors: non_neg_integer()}) :: String.t()
   def skip_notice(result) do
     "Skipped #{result.skipped}. Failed #{result.errors}."
@@ -286,6 +291,9 @@ defmodule Rss2NostrWeb.LiveHelpers do
   def reprocessable?(%Post{} = post) do
     post.status in [Post.status_processed(), Post.status_pending_images(), Post.status_error()]
   end
+
+  @spec reimportable?(Rss2Nostr.Posts.Post.t()) :: boolean()
+  def reimportable?(%Post{} = post), do: Post.reimportable?(post)
 
   @spec publishable?(Rss2Nostr.Posts.Post.t()) :: boolean()
   def publishable?(%Post{} = post), do: post.status == Post.status_processed()

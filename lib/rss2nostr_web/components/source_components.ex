@@ -469,6 +469,9 @@ defmodule Rss2NostrWeb.SourceComponents do
     reprocess_selected? =
       Enum.any?(assigns.posts, &(&1.id in selected and reprocessable?(&1)))
 
+    reimport_selected? =
+      Enum.any?(assigns.posts, &(&1.id in selected and reimportable?(&1)))
+
     skippable_selected? = Enum.any?(assigns.posts, &(&1.id in selected and skippable?(&1)))
     unskippable_selected? = Enum.any?(assigns.posts, &(&1.id in selected and skipped?(&1)))
 
@@ -481,6 +484,7 @@ defmodule Rss2NostrWeb.SourceComponents do
       |> assign(:selectable?, selectable?)
       |> assign(:publishable_selected?, publishable_selected?)
       |> assign(:reprocess_selected?, reprocess_selected?)
+      |> assign(:reimport_selected?, reimport_selected?)
       |> assign(:skippable_selected?, skippable_selected?)
       |> assign(:unskippable_selected?, unskippable_selected?)
       |> assign(:all_selected?, all_selected?)
@@ -510,6 +514,14 @@ defmodule Rss2NostrWeb.SourceComponents do
       <button
         type="button"
         class="btn btn-secondary"
+        phx-click="reimport_selected"
+        disabled={@busy or not @reimport_selected?}
+      >
+        Reimport selected
+      </button>
+      <button
+        type="button"
+        class="btn btn-secondary"
         phx-click="skip_selected"
         disabled={@busy or not @skippable_selected?}
       >
@@ -530,6 +542,7 @@ defmodule Rss2NostrWeb.SourceComponents do
     <p class="help-text">
       Selected staging articles publish to the {@relay_label}. Setup never uses the public list.
       Pending-images and error articles can be reprocessed; pending articles stay pending until featured and inline images are uploaded.
+      Reimport downloads the article again and reconverts it, so a video added after the first import is included.
       Skip keeps imported articles out of process, export, and publish. Manual publish ignores the staging hold.
     </p>
     <table class="table">
@@ -597,6 +610,16 @@ defmodule Rss2NostrWeb.SourceComponents do
                 disabled={@busy}
               >
                 Retry
+              </button>
+              <button
+                :if={reimportable?(post)}
+                type="button"
+                class="btn btn-small"
+                phx-click="reimport_post"
+                phx-value-id={post.id}
+                disabled={@busy}
+              >
+                Reimport
               </button>
             </td>
           </tr>

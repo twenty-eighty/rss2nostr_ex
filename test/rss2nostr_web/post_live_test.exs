@@ -399,6 +399,7 @@ defmodule Rss2NostrWeb.PostLiveTest do
       assert html =~ "Republish"
       assert html =~ "Revise"
       assert html =~ ~s(phx-click="revise")
+      assert html =~ ~s(phx-click="reimport")
     end
 
     test "offers retry processing for error posts", %{conn: conn} do

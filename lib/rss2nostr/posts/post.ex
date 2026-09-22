@@ -68,6 +68,14 @@ defmodule Rss2Nostr.Posts.Post do
 
   @skippable_statuses [@status_new, @status_processed, @status_pending_images, @status_error]
 
+  @reimportable_statuses [
+    @status_new,
+    @status_processed,
+    @status_published,
+    @status_error,
+    @status_pending_images
+  ]
+
   @spec status_name(integer()) :: String.t()
   def status_name(status), do: Map.get(@status_names, status, "unknown")
 
@@ -76,6 +84,11 @@ defmodule Rss2Nostr.Posts.Post do
 
   @spec skippable?(t()) :: boolean()
   def skippable?(%__MODULE__{status: status}), do: status in @skippable_statuses
+
+  @spec reimportable?(t()) :: boolean()
+  def reimportable?(%__MODULE__{status: status, source_url: url}) do
+    status in @reimportable_statuses and is_binary(url) and String.trim(url) != ""
+  end
 
   @spec skipped?(t()) :: boolean()
   def skipped?(%__MODULE__{status: status}), do: status == @status_blocked

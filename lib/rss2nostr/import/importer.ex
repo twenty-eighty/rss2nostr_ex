@@ -10,7 +10,7 @@ defmodule Rss2Nostr.Import.Importer do
   alias Rss2Nostr.Posts
   alias Rss2Nostr.Posts.Post
   alias Rss2Nostr.Import.{FeedFetcher, FeedParser, ItemIdentity}
-  alias Rss2Nostr.Processing.{Composer, HtmlToMarkdown}
+  alias Rss2Nostr.Processing.{Composer, HtmlToMarkdown, Processor}
 
   @type import_result :: %{
           source: Source.t(),
@@ -98,6 +98,27 @@ defmodule Rss2Nostr.Import.Importer do
     end
 
     result
+  end
+
+  @doc """
+  Downloads an article again and reconverts it.
+
+  Uses the source's fetch setting: the article page, or the feed item when
+  the source reads HTML from the feed. A missing feed item falls back to the
+  page. Skipped articles are left alone.
+  """
+  @spec reimport_post(Post.t()) :: {:ok, Post.t()} | {:error, term()}
+  def reimport_post(%Post{} = post) do
+    cond do
+      Post.skipped?(post) ->
+        {:error, :skipped}
+
+      not Post.reimportable?(post) ->
+        {:error, :not_reimportable}
+
+      true ->
+        do_reimport_post(post)
+    end
   end
 
   @doc """
@@ -316,6 +337,78 @@ defmodule Rss2Nostr.Import.Importer do
       {:error, changeset} ->
         {:error, "Insert failed: #{inspect(changeset.errors)}"}
     end
+  end
+
+  @spec do_reimport_post(Post.t()) :: {:ok, Post.t()} | {:error, term()}
+  defp do_reimport_post(%Post{} = post) do
+    post = Posts.preload_source(post)
+
+    with {:ok, html} <- refetch_html(post),
+         {:ok, post} <-
+           Posts.update_post(post, %{source_html: html, imported_at: DateTime.utc_now()}) do
+      Logger.info("Reimported #{post.title} from #{post.source_url}")
+      Processor.reprocess_post(post)
+    end
+  end
+
+  @spec refetch_html(Post.t()) :: {:ok, String.t()} | {:error, term()}
+  defp refetch_html(%Post{source: %Source{fetch_source_from: "content"} = source} = post) do
+    case refetch_from_feed(post, source) do
+      {:ok, html} -> {:ok, html}
+      {:error, _} -> refetch_from_page(post, source)
+    end
+  end
+
+  defp refetch_html(%Post{} = post), do: refetch_from_page(post, post.source)
+
+  @spec refetch_from_feed(Post.t(), Source.t()) :: {:ok, String.t()} | {:error, term()}
+  defp refetch_from_feed(%Post{} = post, %Source{} = source) do
+    with {:ok, body} <- FeedFetcher.fetch(source.url, force: true),
+         {:ok, items} <- FeedParser.parse_listing(body, source.type),
+         %{} = item <- Enum.find(items, &same_article?(&1, post)) do
+      item = FeedParser.hydrate_item(body, source.type, item)
+      take_html(Composer.html_for_item(item, source))
+    else
+      nil -> {:error, "Article is no longer in the feed"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec refetch_from_page(Post.t(), Source.t() | nil) :: {:ok, String.t()} | {:error, term()}
+  defp refetch_from_page(%Post{} = post, source) do
+    item = %{
+      title: post.title,
+      link: post.source_url,
+      guid: post.article_identifier || post.source_url,
+      author: post.author_name,
+      published_at: post.published_at,
+      summary: nil,
+      content: nil,
+      image: nil,
+      enclosure_url: nil,
+      enclosure_type: nil,
+      enclosure_length: nil,
+      duration: nil,
+      categories: post.categories || []
+    }
+
+    opts = source || %{fetch_source_from: "fetch_from_url"}
+    take_html(Composer.html_for_item(item, opts))
+  end
+
+  @spec take_html({:ok, String.t(), String.t()} | {:error, term()}) ::
+          {:ok, String.t()} | {:error, term()}
+  defp take_html({:ok, html, _kind}) when is_binary(html) and html != "", do: {:ok, html}
+  defp take_html({:ok, _, _}), do: {:error, "Article page was empty"}
+  defp take_html({:error, reason}), do: {:error, reason}
+
+  @spec same_article?(FeedParser.feed_item(), Post.t()) :: boolean()
+  defp same_article?(item, %Post{} = post) do
+    guid = post.article_identifier
+    page = post.source_url
+
+    (is_binary(guid) and guid != "" and item.guid == guid) or
+      (is_binary(page) and page != "" and ItemIdentity.page_url(item) == page)
   end
 
   @spec truncate_summary(String.t() | nil) :: String.t() | nil

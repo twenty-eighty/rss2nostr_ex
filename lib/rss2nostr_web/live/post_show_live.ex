@@ -84,6 +84,15 @@ defmodule Rss2NostrWeb.PostShowLive do
     end)
   end
 
+  def handle_event("reimport", _params, socket) do
+    run_action(
+      socket,
+      :reimport,
+      fn -> PostsAPI.reimport(to_string(socket.assigns.post.id)) end,
+      "Reimported the article"
+    )
+  end
+
   def handle_event("revise", _params, socket) do
     run_action(
       socket,
@@ -358,6 +367,7 @@ defmodule Rss2NostrWeb.PostShowLive do
       |> assign(:error?, status == Post.status_error())
       |> assign(:skippable?, Post.skippable?(assigns.post))
       |> assign(:skipped?, Post.skipped?(assigns.post))
+      |> assign(:reimportable?, Post.reimportable?(assigns.post))
 
     ~H"""
     <button
@@ -449,6 +459,15 @@ defmodule Rss2NostrWeb.PostShowLive do
       disabled={@busy}
     >
       Unskip
+    </button>
+    <button
+      :if={@reimportable?}
+      type="button"
+      class="btn btn-secondary"
+      phx-click="reimport"
+      disabled={@busy}
+    >
+      Reimport
     </button>
     """
   end

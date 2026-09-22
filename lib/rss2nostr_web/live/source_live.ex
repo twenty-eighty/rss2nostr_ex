@@ -302,6 +302,22 @@ defmodule Rss2NostrWeb.SourceLive do
      |> start_async(:upload, fn -> PostsAPI.reprocess(id) end)}
   end
 
+  def handle_event("reimport_selected", _params, socket) do
+    ids = selected_list(socket)
+
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:reimport, fn -> PostsAPI.reimport_selected(%{"post_ids" => ids}) end)}
+  end
+
+  def handle_event("reimport_post", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, true)
+     |> start_async(:reimport_one, fn -> PostsAPI.reimport(id) end)}
+  end
+
   @impl true
   @spec handle_async(atom(), term(), Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
@@ -429,6 +445,51 @@ defmodule Rss2NostrWeb.SourceLive do
   end
 
   def handle_async(:reprocess, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:error, Exception.format_exit(reason))}
+  end
+
+  def handle_async(:reimport, {:ok, {:ok, result}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> assign(:selected_ids, MapSet.new())
+     |> put_flash(:info, reimport_notice(result))
+     |> assign_posts()}
+  end
+
+  def handle_async(:reimport, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:error, format_update_error(reason))}
+  end
+
+  def handle_async(:reimport, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:error, Exception.format_exit(reason))}
+  end
+
+  def handle_async(:reimport_one, {:ok, {:ok, _post}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:info, "Reimported the article.")
+     |> assign_posts()}
+  end
+
+  def handle_async(:reimport_one, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:busy, false)
+     |> put_flash(:error, format_update_error(reason))}
+  end
+
+  def handle_async(:reimport_one, {:exit, reason}, socket) do
     {:noreply,
      socket
      |> assign(:busy, false)
